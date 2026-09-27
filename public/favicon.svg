@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="PatioControl">
+  <rect width="512" height="512" fill="#0B1A2F"/>
+  <rect x="102.4" y="102.4" width="307.2" height="307.2" rx="91.0" ry="91.0" fill="none" stroke="#D4A32A" stroke-width="39.8"/>
+  <circle cx="256" cy="256" r="54.0" fill="#D4A32A"/>
+</svg>
