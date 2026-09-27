@@ -1,0 +1,4 @@
+{
+  "install": "npm install",
+  "start": "npm run preview -- --host 0.0.0.0 --port 4173"
+}
