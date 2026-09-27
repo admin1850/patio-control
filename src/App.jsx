@@ -1,15 +1,19 @@
 import * as l from "react";
 import { createPortal } from "react-dom";
 import { v4 as ee } from "uuid";
+import { applyPlacaOcrToForm, isPlateSlot, ocrPlacaFromDataUrl } from "./lib/placaOcr.js";
 
 function _Component({
   slots: e,
   captured: t,
-  onChange: n
+  onChange: n,
+  onPlateOcr: onPlateOcrProp
 }) {
   let r = (0, l.useRef)(null);
   let [i, a] = (0, l.useState)(e[0]?.id ?? ``);
   let [o, s] = (0, l.useState)(null);
+  let [ocrHint, setOcrHint] = (0, l.useState)(null);
+  let [ocrBusy, setOcrBusy] = (0, l.useState)(false);
   let c = e.find(e => e.id === i) ?? e[0];
   let u = e.filter(e => t[e.id]).length;
   let d = e.filter(e => e.required && t[e.id]).length;
@@ -23,12 +27,32 @@ function _Component({
       return;
     }
     s(null);
+    setOcrHint(null);
+    // Misma pipeline que producción: capture=environment → re(file,1280,0.72) → JPEG dataURL
     let i = await re(r);
     let o = {
       ...t,
       [c.id]: i
     };
     n(o);
+    // OCR solo en slots plate, DESPUÉS de comprimir (mismo dataURL)
+    if (isPlateSlot(c) && onPlateOcrProp) {
+      setOcrBusy(true);
+      setOcrHint(`Leyendo placa…`);
+      try {
+        let result = await ocrPlacaFromDataUrl(i);
+        if (result.placa) {
+          onPlateOcrProp(c.id, result.placa);
+          setOcrHint(`Placa leída: ${result.placa}. Puedes corregirla manualmente.`);
+        } else {
+          setOcrHint(`No se leyó la placa. Captúrala manualmente en el campo.`);
+        }
+      } catch {
+        setOcrHint(`No se pudo leer la placa. Captura manual.`);
+      } finally {
+        setOcrBusy(false);
+      }
+    }
     let l = e.findIndex(e => e.id === c.id);
     let u = e.slice(l + 1).find(e => !o[e.id]);
     if (u) {
@@ -42,6 +66,7 @@ function _Component({
     delete r[e];
     n(r);
     a(e);
+    setOcrHint(null);
   }
   if (c) {
     const Component = `span`;
@@ -62,7 +87,8 @@ function _Component({
     const Component16 = `input`;
     const Component17 = `p`;
     const Component18 = `div`;
-    return <Component18 className={`guided-photos`}><Component3 className={`guided-progress`}><Component>{d}{`/`}{f}{` obligatorias`}</Component><Component2 className={`hint`}>{u}{`/`}{e.length}{` capturadas`}</Component2></Component3><Component5 className={`slot-chips`}>{e.map((e, n) => <Component4 type={`button`} className={`slot-chip ${c.id === e.id ? `active` : ``} ${t[e.id] ? `done` : ``} ${e.required ? `` : `optional`}`} onClick={() => a(e.id)} key={e.id}>{n + 1}{`. `}{e.label}{e.required ? `` : ` (opc.)`}</Component4>)}</Component5><Component11 className={`guide-stage sil-${c.silhouette}`}><Component6 className={`sil-overlay`} aria-hidden={true}><O kind={c.silhouette} /></Component6>{t[c.id] ? <Component7 className={`guide-preview`} src={t[c.id]} alt={c.label} /> : <Component10 className={`guide-placeholder`}><Component8 className={`guide-title`}>{c.label}</Component8><Component9 className={`guide-hint`}>{c.hint}</Component9></Component10>}</Component11><Component14 className={`hero-actions`}><Component12 type={`button`} className={`btn primary`} onClick={() => r.current?.click()}>{t[c.id] ? `Retomar con cámara` : `Tomar foto (solo cámara)`}</Component12>{t[c.id] && <Component13 type={`button`} className={`btn soft`} onClick={() => m(c.id)}>{`Quitar`}</Component13>}</Component14><Component15 className={`hint`}>{`Usa la cámara del dispositivo. No uses fotos de la galería.`}</Component15><Component16 ref={r} type={`file`} accept={`image/*`} capture={`environment`} hidden={true} onChange={e => {
+    const ComponentOcr = `p`;
+    return <Component18 className={`guided-photos`}><Component3 className={`guided-progress`}><Component>{d}{`/`}{f}{` obligatorias`}</Component><Component2 className={`hint`}>{u}{`/`}{e.length}{` capturadas`}</Component2></Component3><Component5 className={`slot-chips`}>{e.map((e, n) => <Component4 type={`button`} className={`slot-chip ${c.id === e.id ? `active` : ``} ${t[e.id] ? `done` : ``} ${e.required ? `` : `optional`}`} onClick={() => a(e.id)} key={e.id}>{n + 1}{`. `}{e.label}{e.required ? `` : ` (opc.)`}</Component4>)}</Component5><Component11 className={`guide-stage sil-${c.silhouette}`}><Component6 className={`sil-overlay`} aria-hidden={true}><O kind={c.silhouette} /></Component6>{t[c.id] ? <Component7 className={`guide-preview`} src={t[c.id]} alt={c.label} /> : <Component10 className={`guide-placeholder`}><Component8 className={`guide-title`}>{c.label}</Component8><Component9 className={`guide-hint`}>{c.hint}</Component9></Component10>}</Component11><Component14 className={`hero-actions`}><Component12 type={`button`} className={`btn primary`} disabled={ocrBusy} onClick={() => r.current?.click()}>{t[c.id] ? `Retomar con cámara` : `Tomar foto (solo cámara)`}</Component12>{t[c.id] && <Component13 type={`button`} className={`btn soft`} onClick={() => m(c.id)}>{`Quitar`}</Component13>}</Component14><Component15 className={`hint`}>{`Usa la cámara del dispositivo. No uses fotos de la galería.`}</Component15>{isPlateSlot(c) && <Component15 className={`hint`}>{`Tras la foto se intenta leer la placa (como el QR de Carta Porte). Si falla, captura manual.`}</Component15>}{ocrHint && <ComponentOcr className={`hint`}>{ocrHint}</ComponentOcr>}<Component16 ref={r} type={`file`} accept={`image/*`} capture={`environment`} hidden={true} onChange={e => {
         p(e.target.files?.[0]);
         e.target.value = ``;
       }} />{o && <Component17 className={`field-error`}>{o}</Component17>}</Component18>;
@@ -1571,6 +1597,7 @@ function _Component4({
   let [C, w] = (0, l.useState)(false);
   let [te, T] = (0, l.useState)(() => Ze());
   let [O, re] = (0, l.useState)(t);
+  let [placaCamionTraseraVal, setPlacaCamionTraseraVal] = (0, l.useState)(``);
   let [ae, k] = (0, l.useState)(true);
   let [ce, le] = (0, l.useState)(``);
   let [ue, de] = (0, l.useState)(``);
@@ -1614,6 +1641,7 @@ function _Component4({
   }), [I, St, Ct, C, wt, ae, p]);
   (0, l.useEffect)(() => {
     nt({});
+    setPlacaCamionTraseraVal(``);
   }, [I, St, Ct, C, wt, ae, p, h, _, y, x]);
   (0, l.useEffect)(() => {
     et(dt(I));
@@ -1673,6 +1701,7 @@ function _Component4({
     We(``);
     Ye(false);
     k(!!t?.placaCamionTrasera || t?.placaCamionTrasera === undefined);
+    setPlacaCamionTraseraVal(t?.placaCamionTrasera ?? ``);
     le(t?.placaCaja1 ?? (e.tipo === `caja` ? e.placa : ``));
     de(t?.placaCaja2 ?? ``);
     if (t?.placaCaja1 || t?.placaCaja2 || e.tipo === `caja`) {
@@ -1853,7 +1882,10 @@ function _Component4({
       cliente: Oe.trim() || undefined,
       origen: Ae.trim() || undefined,
       destino: Me.trim() || undefined,
-      placaCamionTrasera: p && ae && O.trim().toUpperCase() || undefined,
+      placaCamionTrasera: (() => {
+        let rear = placaCamionTraseraVal.trim().toUpperCase() || (p && ae ? O.trim().toUpperCase() : ``);
+        return rear || undefined;
+      })(),
       placaCaja1: (() => {
         if (h) {
           return (p ? ce : O).trim().toUpperCase() || undefined;
@@ -2133,9 +2165,9 @@ function _Component4({
             }
           }} placeholder={xt ? `Placa caja` : `Placa`} required={true} /></Component335>}{p && <Component342 className={`field full`}><Component336 className={`label`}>{`Trae placa trasera (sí / no)`}</Component336><Component339 className={`seg wrap`} style={{
             marginTop: 6
-          }}><Component337 type={`button`} className={ae ? `seg-btn on-ok` : `seg-btn`} onClick={() => k(true)}>{`Sí`}</Component337><Component338 type={`button`} className={ae ? `seg-btn` : `seg-btn on-ok`} onClick={() => k(false)}>{`No`}</Component338></Component339>{ae && O.trim() && <Component341 className={`hint`} style={{
+          }}><Component337 type={`button`} className={ae ? `seg-btn on-ok` : `seg-btn`} onClick={() => k(true)}>{`Sí`}</Component337><Component338 type={`button`} className={ae ? `seg-btn` : `seg-btn on-ok`} onClick={() => k(false)}>{`No`}</Component338></Component339>{ae && (placaCamionTraseraVal.trim() || O.trim()) && <Component341 className={`hint`} style={{
             marginTop: 6
-          }}>{`Mismo número que la frontal: `}<Component340>{O.trim().toUpperCase()}</Component340></Component341>}</Component342>}<Component345 className={`field`}><Component343>{p ? `No. económico tractocamión` : `No. económico`}</Component343><Component344 className={`input`} value={me} onChange={e => ve(e.target.value)} placeholder={`ECO-045`} /></Component345><Component348 className={`field`}><Component346>{`Fecha y hora *`}</Component346><Component347 className={`input`} type={`datetime-local`} value={ye} onChange={e => j(e.target.value)} required={true} /></Component348></Component349>{(xt || St) && !wt && <Component351 className={`check-inline`}><Component350 type={`checkbox`} checked={C} onChange={e => w(e.target.checked)} />{`Exigir foto de interior (vacío / consolidación)`}</Component351>}</Component352>{wt && <_Component2 tipo={e} value={te} onChange={T} entradaVacia={e === `entrada`} refrigeraciones={r} />}<Component380 className={`fieldset`}><Component353>{`Personas y ruta`}</Component353><Component379 className={`grid-2`}><Component356 className={`field`}><Component354>{`Operador de patio *`}</Component354><Component355 className={`input`} value={xe} onChange={e => Se(e.target.value)} placeholder={`Quién registra`} required={true} /></Component356><Component358 className={`field full`}><Component357>{`Chofer/Operador (quien entra o sale con la unidad)`}</Component357></Component358><Component361 className={`field`}><Component359>{`Nombre *`}</Component359><Component360 className={`input`} value={Ce} onChange={e => M(e.target.value)} placeholder={`Nombre`} autoComplete={`given-name`} required={true} /></Component361><Component364 className={`field`}><Component362>{`Apellido *`}</Component362><Component363 className={`input`} value={we} onChange={e => N(e.target.value)} placeholder={`Apellido`} autoComplete={`family-name`} required={true} /></Component364><Component369 className={`field full`}><Component365>{`WhatsApp *`}</Component365><Component368 className={`phone-input`}><Component366 className={`phone-prefix`}>{`+52`}</Component366><Component367 className={`input`} inputMode={`numeric`} autoComplete={`tel-national`} maxLength={10} value={Te} onChange={e => Ee(e.target.value.replace(/\D/g, ``).slice(0, 10))} placeholder={`10 dígitos del celular`} required={true} /></Component368></Component369><Component372 className={`field full`}><Component370>{`Cliente`}</Component370><Component371 className={`input`} value={Oe} onChange={e => ke(e.target.value)} placeholder={`Nombre del cliente`} /></Component372><Component375 className={`field`}><Component373>{`Origen`}</Component373><Component374 className={`input`} value={Ae} onChange={e => je(e.target.value)} placeholder={`De dónde viene`} /></Component375><Component378 className={`field`}><Component376>{`Destino`}</Component376><Component377 className={`input`} value={Me} onChange={e => Ne(e.target.value)} placeholder={`A dónde va`} /></Component378></Component379></Component380><Component392 className={`fieldset`}><Component381>{`Odómetro y diésel`}</Component381><Component391 className={`grid-3`}><Component384 className={`field`}><Component382>{`Kilómetros`}</Component382><Component383 className={`input`} type={`number`} min={0} step={1} value={Pe} onChange={e => Fe(e.target.value)} placeholder={`125480`} /></Component384><Component387 className={`field`}><Component385>{`Diésel %`}</Component385><Component386 className={`input`} type={`number`} min={0} max={100} step={1} value={Ie} onChange={e => Le(e.target.value)} placeholder={`65`} /></Component387><Component390 className={`field`}><Component388>{`Diésel litros`}</Component388><Component389 className={`input`} type={`number`} min={0} step={0.1} value={Re} onChange={e => ze(e.target.value)} placeholder={`180`} /></Component390></Component391></Component392>{(xt || St) && <Component404 className={`fieldset`}><Component393>{`Sello de seguridad (C-TPAT / OEA)`}</Component393>{e === `salida` && <Component394 className={`hint`}>{`Recaptura el sello al salir. No se autocompleta para validar contra la entrada.`}</Component394>}{e === `salida` && P && <Component396 className={`banner info`}>{`Sello registrado en entrada: `}<Component395>{P}</Component395></Component396>}<Component399 className={`field`}><Component397>{`Número de serie del sello *`}</Component397><Component398 className={`input`} value={Ue} onChange={t => {
+          }}>{`Trasera: `}<Component340>{(placaCamionTraseraVal.trim() || O.trim()).toUpperCase()}</Component340>{placaCamionTraseraVal.trim() && placaCamionTraseraVal.trim().toUpperCase() !== O.trim().toUpperCase() ? ` (OCR ≠ frontal — revisa)` : ` (misma / OCR)`}</Component341>}</Component342>}<Component345 className={`field`}><Component343>{p ? `No. económico tractocamión` : `No. económico`}</Component343><Component344 className={`input`} value={me} onChange={e => ve(e.target.value)} placeholder={`ECO-045`} /></Component345><Component348 className={`field`}><Component346>{`Fecha y hora *`}</Component346><Component347 className={`input`} type={`datetime-local`} value={ye} onChange={e => j(e.target.value)} required={true} /></Component348></Component349>{(xt || St) && !wt && <Component351 className={`check-inline`}><Component350 type={`checkbox`} checked={C} onChange={e => w(e.target.checked)} />{`Exigir foto de interior (vacío / consolidación)`}</Component351>}</Component352>{wt && <_Component2 tipo={e} value={te} onChange={T} entradaVacia={e === `entrada`} refrigeraciones={r} />}<Component380 className={`fieldset`}><Component353>{`Personas y ruta`}</Component353><Component379 className={`grid-2`}><Component356 className={`field`}><Component354>{`Operador de patio *`}</Component354><Component355 className={`input`} value={xe} onChange={e => Se(e.target.value)} placeholder={`Quién registra`} required={true} /></Component356><Component358 className={`field full`}><Component357>{`Chofer/Operador (quien entra o sale con la unidad)`}</Component357></Component358><Component361 className={`field`}><Component359>{`Nombre *`}</Component359><Component360 className={`input`} value={Ce} onChange={e => M(e.target.value)} placeholder={`Nombre`} autoComplete={`given-name`} required={true} /></Component361><Component364 className={`field`}><Component362>{`Apellido *`}</Component362><Component363 className={`input`} value={we} onChange={e => N(e.target.value)} placeholder={`Apellido`} autoComplete={`family-name`} required={true} /></Component364><Component369 className={`field full`}><Component365>{`WhatsApp *`}</Component365><Component368 className={`phone-input`}><Component366 className={`phone-prefix`}>{`+52`}</Component366><Component367 className={`input`} inputMode={`numeric`} autoComplete={`tel-national`} maxLength={10} value={Te} onChange={e => Ee(e.target.value.replace(/\D/g, ``).slice(0, 10))} placeholder={`10 dígitos del celular`} required={true} /></Component368></Component369><Component372 className={`field full`}><Component370>{`Cliente`}</Component370><Component371 className={`input`} value={Oe} onChange={e => ke(e.target.value)} placeholder={`Nombre del cliente`} /></Component372><Component375 className={`field`}><Component373>{`Origen`}</Component373><Component374 className={`input`} value={Ae} onChange={e => je(e.target.value)} placeholder={`De dónde viene`} /></Component375><Component378 className={`field`}><Component376>{`Destino`}</Component376><Component377 className={`input`} value={Me} onChange={e => Ne(e.target.value)} placeholder={`A dónde va`} /></Component378></Component379></Component380><Component392 className={`fieldset`}><Component381>{`Odómetro y diésel`}</Component381><Component391 className={`grid-3`}><Component384 className={`field`}><Component382>{`Kilómetros`}</Component382><Component383 className={`input`} type={`number`} min={0} step={1} value={Pe} onChange={e => Fe(e.target.value)} placeholder={`125480`} /></Component384><Component387 className={`field`}><Component385>{`Diésel %`}</Component385><Component386 className={`input`} type={`number`} min={0} max={100} step={1} value={Ie} onChange={e => Le(e.target.value)} placeholder={`65`} /></Component387><Component390 className={`field`}><Component388>{`Diésel litros`}</Component388><Component389 className={`input`} type={`number`} min={0} step={0.1} value={Re} onChange={e => ze(e.target.value)} placeholder={`180`} /></Component390></Component391></Component392>{(xt || St) && <Component404 className={`fieldset`}><Component393>{`Sello de seguridad (C-TPAT / OEA)`}</Component393>{e === `salida` && <Component394 className={`hint`}>{`Recaptura el sello al salir. No se autocompleta para validar contra la entrada.`}</Component394>}{e === `salida` && P && <Component396 className={`banner info`}>{`Sello registrado en entrada: `}<Component395>{P}</Component395></Component396>}<Component399 className={`field`}><Component397>{`Número de serie del sello *`}</Component397><Component398 className={`input`} value={Ue} onChange={t => {
           We(t.target.value.toUpperCase());
           if (e === `salida` && !P && O.trim()) {
             let e = De({
@@ -2146,7 +2178,14 @@ function _Component4({
               qe(t.selloNumero.trim().toUpperCase());
             }
           }
-        }} placeholder={`Ej. MX-HS-004821`} /></Component399>{At === `ok` && <Component400 className={`banner success`}>{`Sello coincide con la entrada.`}</Component400>}{At === `mismatch` && <l.Fragment><Component401 className={`banner error`}>{`Discrepancia de sello: entrada `}{P}{` ≠ salida `}{Ue.trim().toUpperCase()}</Component401><Component403 className={`check-inline`}><Component402 type={`checkbox`} checked={Je} onChange={e => Ye(e.target.checked)} />{`Confirmo discrepancia (queda en KPIs / alerta de seguridad)`}</Component403></l.Fragment>}</Component404>}<Component408 className={`fieldset`}><Component405>{`Condición general`}</Component405><Component407 className={`seg big`}>{[`buena`, `regular`, `mala`].map(e => <Component406 type={`button`} className={Be === e ? `seg-btn ${e === `buena` ? `on-ok` : e === `regular` ? `on-warn` : `on-bad`}` : `seg-btn`} onClick={() => He(e)} key={e}>{e.charAt(0).toUpperCase() + e.slice(1)}</Component406>)}</Component407></Component408><Component410 className={`fieldset`}><Component409>{`Checklist NOM / físico-mecánico`}</Component409><Ve items={$e} onChange={et} /></Component410><Component412 className={`fieldset`}><Component411>{`Registro fotográfico guiado`}</Component411><_Component slots={Tt} captured={tt} onChange={nt} /></Component412><Component414 className={`fieldset`}><Component413>{`Cumplimiento México (gate)`}</Component413><Ge value={ut} onChange={pt} /></Component414><Component417 className={`fieldset`}><Component415>{`Firma digital`}</Component415><_Component3 value={rt} onChange={st} signerName={ct} onSignerNameChange={lt} /><Component416 className={`hint`}>{`Al guardar se captura GPS del dispositivo (si el cel lo permite).`}</Component416></Component417><Component420 className={`fieldset`}><Component418>{`Observaciones`}</Component418><Component419 className={`input textarea`} rows={3} value={Xe} onChange={e => Qe(e.target.value)} placeholder={`Daños, incidencias, NOM-068 / pesos…`} /></Component420>{gt && <Component421 className={`banner error`}>{gt}</Component421>}{_t && <Component422 className={`banner success`}>{_t}</Component422>}<Component423 type={`submit`} className={`btn primary wide`} disabled={yt}>{yt ? `Guardando…` : e === `entrada` ? `Guardar entrada` : `Guardar salida`}</Component423></Component424>;
+        }} placeholder={`Ej. MX-HS-004821`} /></Component399>{At === `ok` && <Component400 className={`banner success`}>{`Sello coincide con la entrada.`}</Component400>}{At === `mismatch` && <l.Fragment><Component401 className={`banner error`}>{`Discrepancia de sello: entrada `}{P}{` ≠ salida `}{Ue.trim().toUpperCase()}</Component401><Component403 className={`check-inline`}><Component402 type={`checkbox`} checked={Je} onChange={e => Ye(e.target.checked)} />{`Confirmo discrepancia (queda en KPIs / alerta de seguridad)`}</Component403></l.Fragment>}</Component404>}<Component408 className={`fieldset`}><Component405>{`Condición general`}</Component405><Component407 className={`seg big`}>{[`buena`, `regular`, `mala`].map(e => <Component406 type={`button`} className={Be === e ? `seg-btn ${e === `buena` ? `on-ok` : e === `regular` ? `on-warn` : `on-bad`}` : `seg-btn`} onClick={() => He(e)} key={e}>{e.charAt(0).toUpperCase() + e.slice(1)}</Component406>)}</Component407></Component408><Component410 className={`fieldset`}><Component409>{`Checklist NOM / físico-mecánico`}</Component409><Ve items={$e} onChange={et} /></Component410><Component412 className={`fieldset`}><Component411>{`Registro fotográfico guiado`}</Component411><_Component slots={Tt} captured={tt} onChange={nt} onPlateOcr={(slotId, placa) => {
+          applyPlacaOcrToForm(slotId, placa, {
+            setPlaca: re,
+            setPlacaCamionTrasera: setPlacaCamionTraseraVal,
+            setPlacaCaja1: le,
+            setPlacaCaja2: de
+          });
+        }} /></Component412><Component414 className={`fieldset`}><Component413>{`Cumplimiento México (gate)`}</Component413><Ge value={ut} onChange={pt} /></Component414><Component417 className={`fieldset`}><Component415>{`Firma digital`}</Component415><_Component3 value={rt} onChange={st} signerName={ct} onSignerNameChange={lt} /><Component416 className={`hint`}>{`Al guardar se captura GPS del dispositivo (si el cel lo permite).`}</Component416></Component417><Component420 className={`fieldset`}><Component418>{`Observaciones`}</Component418><Component419 className={`input textarea`} rows={3} value={Xe} onChange={e => Qe(e.target.value)} placeholder={`Daños, incidencias, NOM-068 / pesos…`} /></Component420>{gt && <Component421 className={`banner error`}>{gt}</Component421>}{_t && <Component422 className={`banner success`}>{_t}</Component422>}<Component423 type={`submit`} className={`btn primary wide`} disabled={yt}>{yt ? `Guardando…` : e === `entrada` ? `Guardar entrada` : `Guardar salida`}</Component423></Component424>;
 }
 var F = [{
   id: `espera-carga`,
@@ -2463,7 +2502,11 @@ function _Component5({
             marginTop: 6
           }}>{[`buena`, `regular`, `mala`].map(e => <Component485 type={`button`} className={ae === e ? `seg-btn ${e === `buena` ? `on-ok` : e === `regular` ? `on-warn` : `on-bad`}` : `seg-btn`} onClick={() => k(e)} key={e}>{e === `buena` ? `Buena` : e === `regular` ? `Regular` : `Mala`}</Component485>)}</Component486></Component487><Component490 className={`field`}><Component488>{`Quién inventaría (caseta) *`}</Component488><Component489 className={`input`} value={ce} onChange={e => le(e.target.value)} placeholder={`Nombre`} required={true} /></Component490><Component493 className={`field`}><Component491>{`Zona o slot`}</Component491><Component492 className={`input`} value={ue} onChange={e => de(e.target.value)} placeholder={`Andén 2, fondo norte…`} /></Component493><Component496 className={`field`}><Component494>{`Sello actual`}</Component494><Component495 className={`input`} value={fe} onChange={e => pe(e.target.value.toUpperCase())} placeholder={`Opcional`} /></Component496></Component497><Component500 className={`field`} style={{
         marginTop: 12
-      }}><Component498>{`Observación`}</Component498><Component499 className={`input textarea`} rows={2} value={me} onChange={e => he(e.target.value)} placeholder={`Opcional`} /></Component500></Component501><Component503 className={`fieldset`}><Component502>{`Fotos (3)`}</Component502><_Component slots={vt} captured={ve} onChange={ye} /></Component503>{j && <Component504 className={`banner error`}>{j}</Component504>}{Se && <Component505 className={`banner success`}>{Se}</Component505>}<Component506 type={`submit`} className={`btn primary wide`} disabled={M}>{M ? `Guardando…` : `Sumar a patio`}</Component506></Component507>;
+      }}><Component498>{`Observación`}</Component498><Component499 className={`input textarea`} rows={2} value={me} onChange={e => he(e.target.value)} placeholder={`Opcional`} /></Component500></Component501><Component503 className={`fieldset`}><Component502>{`Fotos (3)`}</Component502><_Component slots={vt} captured={ve} onChange={ye} onPlateOcr={(slotId, placa) => {
+          applyPlacaOcrToForm(slotId, placa, {
+            setPlaca: b
+          });
+        }} /></Component503>{j && <Component504 className={`banner error`}>{j}</Component504>}{Se && <Component505 className={`banner success`}>{Se}</Component505>}<Component506 type={`submit`} className={`btn primary wide`} disabled={M}>{M ? `Guardando…` : `Sumar a patio`}</Component506></Component507>;
 }
 var St = `1yH8vAbXoMFvHdKEt8XMvXWDOc0R1VjVdp1Y3MtCGLp0`;
 var Ct = `1Usz_zTK3kqO-Pah3seSdPpMQPMfLHDJh`;
