@@ -753,6 +753,12 @@ html.kiosk .btn-back-fixed {
   border-radius: 999px;
   padding: 8px 12px;
 }
+.chip.on {
+  background: var(--ok-soft);
+  color: var(--ok);
+  border-color: #9fd4b8;
+  font-weight: 600;
+}
 .filters {
   gap: 10px;
   margin-bottom: 14px;
