@@ -2279,6 +2279,30 @@ var vt = [{
   hint: `Sello de seguridad o puertas de la caja.`,
   silhouette: `seal`,
   required: true
+}, {
+  id: `parado-general-1`,
+  label: `Foto general 1`,
+  hint: `Otro ángulo o detalle de la unidad en patio.`,
+  silhouette: `side`,
+  required: true
+}, {
+  id: `parado-general-2`,
+  label: `Foto general 2`,
+  hint: `Otro ángulo o detalle de la unidad en patio.`,
+  silhouette: `front`,
+  required: true
+}, {
+  id: `parado-general-3`,
+  label: `Foto general 3`,
+  hint: `Otro ángulo o detalle de la unidad en patio.`,
+  silhouette: `rear`,
+  required: true
+}, {
+  id: `parado-general-4`,
+  label: `Foto general 4`,
+  hint: `Otro ángulo o detalle de la unidad en patio.`,
+  silhouette: `side`,
+  required: true
 }];
 function yt() {
   let e = new Date();
@@ -2361,7 +2385,7 @@ function _Component5({
       return;
     }
     if (!ge(vt, ve)) {
-      xe(`Completa las 3 fotos: placa, vista general y sello/puertas`);
+      xe(`Completa las 7 fotos: placa, vista general, sello/puertas y 4 generales`);
       return;
     }
     if (je && !N) {
@@ -2543,7 +2567,7 @@ function _Component5({
             marginTop: 6
           }}>{[`buena`, `regular`, `mala`].map(e => <Component485 type={`button`} className={ae === e ? `seg-btn ${e === `buena` ? `on-ok` : e === `regular` ? `on-warn` : `on-bad`}` : `seg-btn`} onClick={() => k(e)} key={e}>{e === `buena` ? `Buena` : e === `regular` ? `Regular` : `Mala`}</Component485>)}</Component486></Component487><Component490 className={`field`}><Component488>{`Quién inventaría (caseta) *`}</Component488><Component489 className={`input`} value={ce} onChange={e => le(e.target.value)} placeholder={`Nombre`} required={true} /></Component490><Component493 className={`field`}><Component491>{`Zona o slot`}</Component491><Component492 className={`input`} value={ue} onChange={e => de(e.target.value)} placeholder={`Andén 2, fondo norte…`} /></Component493><Component496 className={`field`}><Component494>{`Sello actual`}</Component494><Component495 className={`input`} value={fe} onChange={e => pe(e.target.value.toUpperCase())} placeholder={`Opcional`} /></Component496></Component497><Component500 className={`field`} style={{
         marginTop: 12
-      }}><Component498>{`Observación`}</Component498><Component499 className={`input textarea`} rows={2} value={me} onChange={e => he(e.target.value)} placeholder={`Opcional`} /></Component500></Component501><Component503 className={`fieldset`}><Component502>{`Fotos (3)`}</Component502><_Component slots={vt} captured={ve} onChange={ye} onPlateOcr={(slotId, placa) => {
+      }}><Component498>{`Observación`}</Component498><Component499 className={`input textarea`} rows={2} value={me} onChange={e => he(e.target.value)} placeholder={`Opcional`} /></Component500></Component501><Component503 className={`fieldset`}><Component502>{`Fotos (7)`}</Component502><_Component slots={vt} captured={ve} onChange={ye} onPlateOcr={(slotId, placa) => {
           applyPlacaOcrToForm(slotId, placa, {
             setPlaca: b
           });
