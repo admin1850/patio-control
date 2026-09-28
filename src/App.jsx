@@ -1612,6 +1612,7 @@ function _Component4({
   let [O, re] = (0, l.useState)(t);
   let [placaCamionTraseraVal, setPlacaCamionTraseraVal] = (0, l.useState)(``);
   let [ae, k] = (0, l.useState)(true);
+  let [motivoSinPlacaTrasera, setMotivoSinPlacaTrasera] = (0, l.useState)(``);
   let [ce, le] = (0, l.useState)(``);
   let [ue, de] = (0, l.useState)(``);
   let [fe, pe] = (0, l.useState)(``);
@@ -1655,6 +1656,9 @@ function _Component4({
   (0, l.useEffect)(() => {
     nt({});
     setPlacaCamionTraseraVal(``);
+    if (ae) {
+      setMotivoSinPlacaTrasera(``);
+    }
   }, [I, St, Ct, C, wt, ae, p, h, _, y, x]);
   (0, l.useEffect)(() => {
     et(dt(I));
@@ -1813,6 +1817,10 @@ function _Component4({
       F(`Captura la placa de la 2ª caja (full)`);
       return;
     }
+    if (p && !ae && motivoSinPlacaTrasera.trim().length < 3) {
+      F(`Indica el motivo porque el camión no trae placa trasera`);
+      return;
+    }
     if (e === `salida` && At === `mismatch` && !Je) {
       F(`El sello no coincide con la entrada. Confirma la discrepancia y detalla en observaciones.`);
       return;
@@ -1899,6 +1907,8 @@ function _Component4({
         let rear = placaCamionTraseraVal.trim().toUpperCase() || (p && ae ? O.trim().toUpperCase() : ``);
         return rear || undefined;
       })(),
+      traePlacaTrasera: p ? ae : undefined,
+      motivoSinPlacaTrasera: p && !ae ? motivoSinPlacaTrasera.trim() : undefined,
       placaCaja1: (() => {
         if (h) {
           return (p ? ce : O).trim().toUpperCase() || undefined;
@@ -2205,7 +2215,9 @@ function _Component4({
             marginTop: 6
           }}><Component337 type={`button`} className={ae ? `seg-btn on-ok` : `seg-btn`} onClick={() => k(true)}>{`Sí`}</Component337><Component338 type={`button`} className={ae ? `seg-btn` : `seg-btn on-ok`} onClick={() => k(false)}>{`No`}</Component338></Component339>{ae && (placaCamionTraseraVal.trim() || O.trim()) && <Component341 className={`hint`} style={{
             marginTop: 6
-          }}>{`Trasera: `}<Component340>{(placaCamionTraseraVal.trim() || O.trim()).toUpperCase()}</Component340>{placaCamionTraseraVal.trim() && placaCamionTraseraVal.trim().toUpperCase() !== O.trim().toUpperCase() ? ` (OCR ≠ frontal — revisa)` : ` (misma / OCR)`}</Component341>}</Component342>}<Component345 className={`field`}><Component343>{p ? `No. económico tractocamión` : `No. económico`}</Component343><Component344 className={`input`} value={me} onChange={e => ve(e.target.value)} placeholder={`ECO-045`} /></Component345><Component348 className={`field`}><Component346>{`Fecha y hora *`}</Component346><Component347 className={`input`} type={`datetime-local`} value={ye} onChange={e => j(e.target.value)} required={true} /></Component348></Component349>{(xt || St) && !wt && <Component351 className={`check-inline`}><Component350 type={`checkbox`} checked={C} onChange={e => w(e.target.checked)} />{`Exigir foto de interior (vacío / consolidación)`}</Component351>}</Component352>{wt && <_Component2 tipo={e} value={te} onChange={T} entradaVacia={e === `entrada`} refrigeraciones={r} />}<Component380 className={`fieldset`}><Component353>{`Personas y ruta`}</Component353><Component379 className={`grid-2`}><Component356 className={`field`}><Component354>{`Operador de patio *`}</Component354><Component355 className={`input`} value={xe} onChange={e => Se(e.target.value)} placeholder={`Quién registra`} required={true} /></Component356><Component358 className={`field full`}><Component357>{`Chofer/Operador (quien entra o sale con la unidad)`}</Component357></Component358><Component361 className={`field`}><Component359>{`Nombre *`}</Component359><Component360 className={`input`} value={Ce} onChange={e => M(e.target.value)} placeholder={`Nombre`} autoComplete={`given-name`} required={true} /></Component361><Component364 className={`field`}><Component362>{`Apellido *`}</Component362><Component363 className={`input`} value={we} onChange={e => N(e.target.value)} placeholder={`Apellido`} autoComplete={`family-name`} required={true} /></Component364><Component369 className={`field full`}><Component365>{`WhatsApp *`}</Component365><Component368 className={`phone-input`}><Component366 className={`phone-prefix`}>{`+52`}</Component366><Component367 className={`input`} inputMode={`numeric`} autoComplete={`tel-national`} maxLength={10} value={Te} onChange={e => Ee(e.target.value.replace(/\D/g, ``).slice(0, 10))} placeholder={`10 dígitos del celular`} required={true} /></Component368></Component369><Component372 className={`field full`}><Component370>{`Cliente`}</Component370><Component371 className={`input`} value={Oe} onChange={e => ke(e.target.value)} placeholder={`Nombre del cliente`} /></Component372><Component375 className={`field`}><Component373>{`Origen`}</Component373><Component374 className={`input`} value={Ae} onChange={e => je(e.target.value)} placeholder={`De dónde viene`} /></Component375><Component378 className={`field`}><Component376>{`Destino`}</Component376><Component377 className={`input`} value={Me} onChange={e => Ne(e.target.value)} placeholder={`A dónde va`} /></Component378></Component379></Component380><Component392 className={`fieldset`}><Component381>{`Odómetro y diésel`}</Component381><Component391 className={`grid-3`}><Component384 className={`field`}><Component382>{`Kilómetros`}</Component382><Component383 className={`input`} type={`number`} min={0} step={1} value={Pe} onChange={e => Fe(e.target.value)} placeholder={`125480`} /></Component384><Component387 className={`field`}><Component385>{`Diésel %`}</Component385><Component386 className={`input`} type={`number`} min={0} max={100} step={1} value={Ie} onChange={e => Le(e.target.value)} placeholder={`65`} /></Component387><Component390 className={`field`}><Component388>{`Diésel litros`}</Component388><Component389 className={`input`} type={`number`} min={0} step={0.1} value={Re} onChange={e => ze(e.target.value)} placeholder={`180`} /></Component390></Component391></Component392>{(xt || St) && <Component404 className={`fieldset`}><Component393>{`Sello de seguridad (C-TPAT / OEA)`}</Component393>{e === `salida` && <Component394 className={`hint`}>{`Recaptura el sello al salir. No se autocompleta para validar contra la entrada.`}</Component394>}{e === `salida` && P && <Component396 className={`banner info`}>{`Sello registrado en entrada: `}<Component395>{P}</Component395></Component396>}<Component399 className={`field`}><Component397>{`Número de serie del sello *`}</Component397><Component398 className={`input`} value={Ue} onChange={t => {
+          }}>{`Trasera: `}<Component340>{(placaCamionTraseraVal.trim() || O.trim()).toUpperCase()}</Component340>{placaCamionTraseraVal.trim() && placaCamionTraseraVal.trim().toUpperCase() !== O.trim().toUpperCase() ? ` (OCR ≠ frontal — revisa)` : ` (misma / OCR)`}</Component341>}{!ae && <div className={`field`} style={{
+            marginTop: 10
+          }}><span>{`Explícame el motivo porque no trae placa:`}</span><textarea className={`input textarea`} rows={2} value={motivoSinPlacaTrasera} onChange={e => setMotivoSinPlacaTrasera(e.target.value)} placeholder={`Ej. dañada, extraviada, solo frontal…`} required={true} /></div>}</Component342>}<Component345 className={`field`}><Component343>{p ? `No. económico tractocamión` : `No. económico`}</Component343><Component344 className={`input`} value={me} onChange={e => ve(e.target.value)} placeholder={`ECO-045`} /></Component345><Component348 className={`field`}><Component346>{`Fecha y hora *`}</Component346><Component347 className={`input`} type={`datetime-local`} value={ye} onChange={e => j(e.target.value)} required={true} /></Component348></Component349>{(xt || St) && !wt && <Component351 className={`check-inline`}><Component350 type={`checkbox`} checked={C} onChange={e => w(e.target.checked)} />{`Exigir foto de interior (vacío / consolidación)`}</Component351>}</Component352>{wt && <_Component2 tipo={e} value={te} onChange={T} entradaVacia={e === `entrada`} refrigeraciones={r} />}<Component380 className={`fieldset`}><Component353>{`Personas y ruta`}</Component353><Component379 className={`grid-2`}><Component356 className={`field`}><Component354>{`Operador de patio *`}</Component354><Component355 className={`input`} value={xe} onChange={e => Se(e.target.value)} placeholder={`Quién registra`} required={true} /></Component356><Component358 className={`field full`}><Component357>{`Chofer/Operador (quien entra o sale con la unidad)`}</Component357></Component358><Component361 className={`field`}><Component359>{`Nombre *`}</Component359><Component360 className={`input`} value={Ce} onChange={e => M(e.target.value)} placeholder={`Nombre`} autoComplete={`given-name`} required={true} /></Component361><Component364 className={`field`}><Component362>{`Apellido *`}</Component362><Component363 className={`input`} value={we} onChange={e => N(e.target.value)} placeholder={`Apellido`} autoComplete={`family-name`} required={true} /></Component364><Component369 className={`field full`}><Component365>{`WhatsApp *`}</Component365><Component368 className={`phone-input`}><Component366 className={`phone-prefix`}>{`+52`}</Component366><Component367 className={`input`} inputMode={`numeric`} autoComplete={`tel-national`} maxLength={10} value={Te} onChange={e => Ee(e.target.value.replace(/\D/g, ``).slice(0, 10))} placeholder={`10 dígitos del celular`} required={true} /></Component368></Component369><Component372 className={`field full`}><Component370>{`Cliente`}</Component370><Component371 className={`input`} value={Oe} onChange={e => ke(e.target.value)} placeholder={`Nombre del cliente`} /></Component372><Component375 className={`field`}><Component373>{`Origen`}</Component373><Component374 className={`input`} value={Ae} onChange={e => je(e.target.value)} placeholder={`De dónde viene`} /></Component375><Component378 className={`field`}><Component376>{`Destino`}</Component376><Component377 className={`input`} value={Me} onChange={e => Ne(e.target.value)} placeholder={`A dónde va`} /></Component378></Component379></Component380><Component392 className={`fieldset`}><Component381>{`Odómetro y diésel`}</Component381><Component391 className={`grid-3`}><Component384 className={`field`}><Component382>{`Kilómetros`}</Component382><Component383 className={`input`} type={`number`} min={0} step={1} value={Pe} onChange={e => Fe(e.target.value)} placeholder={`125480`} /></Component384><Component387 className={`field`}><Component385>{`Diésel %`}</Component385><Component386 className={`input`} type={`number`} min={0} max={100} step={1} value={Ie} onChange={e => Le(e.target.value)} placeholder={`65`} /></Component387><Component390 className={`field`}><Component388>{`Diésel litros`}</Component388><Component389 className={`input`} type={`number`} min={0} step={0.1} value={Re} onChange={e => ze(e.target.value)} placeholder={`180`} /></Component390></Component391></Component392>{(xt || St) && <Component404 className={`fieldset`}><Component393>{`Sello de seguridad (C-TPAT / OEA)`}</Component393>{e === `salida` && <Component394 className={`hint`}>{`Recaptura el sello al salir. No se autocompleta para validar contra la entrada.`}</Component394>}{e === `salida` && P && <Component396 className={`banner info`}>{`Sello registrado en entrada: `}<Component395>{P}</Component395></Component396>}<Component399 className={`field`}><Component397>{`Número de serie del sello *`}</Component397><Component398 className={`input`} value={Ue} onChange={t => {
           We(t.target.value.toUpperCase());
           if (e === `salida` && !P && O.trim()) {
             let e = De({
@@ -2842,20 +2854,28 @@ function qt(e) {
       return {
         placaCamionTrasera: t.placaCamionTrasera || undefined,
         placaCaja1: t.placaCaja1 || undefined,
-        placaCaja2: t.placaCaja2 || undefined
+        placaCaja2: t.placaCaja2 || undefined,
+        traePlacaTrasera: typeof t.traePlacaTrasera == `boolean` ? t.traePlacaTrasera : undefined,
+        motivoSinPlacaTrasera: t.motivoSinPlacaTrasera || undefined
       };
     }
   } catch {}
   return {};
 }
 function L(e) {
-  if (!e.placaCamionTrasera && !e.placaCaja1 && !e.placaCaja2) {
+  if (!e.placaCamionTrasera && !e.placaCaja1 && !e.placaCaja2 && e.traePlacaTrasera == null && !e.motivoSinPlacaTrasera) {
     return ``;
   } else {
     return JSON.stringify({
       placaCamionTrasera: e.placaCamionTrasera ?? ``,
       placaCaja1: e.placaCaja1 ?? ``,
-      placaCaja2: e.placaCaja2 ?? ``
+      placaCaja2: e.placaCaja2 ?? ``,
+      ...(e.traePlacaTrasera == null ? {} : {
+        traePlacaTrasera: e.traePlacaTrasera
+      }),
+      ...(e.motivoSinPlacaTrasera ? {
+        motivoSinPlacaTrasera: e.motivoSinPlacaTrasera
+      } : {})
     });
   }
 }
