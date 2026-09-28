@@ -1,15 +1,19 @@
 import { useRef, useState } from 'react'
 import { compressPlateImage, normalizePlacaMX, readPlacaFromDataUrl } from '../lib/placaOcr.js'
 
+export const PLACA_HINT = 'Ingresar sin guiones (letras o números nada más)'
+
 /**
- * Botón junto a cualquier campo de placa:
- * cámara → JPEG → Plate Recognizer / Vision → llena el campo sin guiones.
+ * Debajo de cualquier campo de placa:
+ * leyenda + botón cámara → Plate Recognizer / Vision → llena sin guiones.
+ * El tecleo manual en el input de arriba siempre sigue disponible.
  */
 export default function PlacaQuickOcr({
   slotId = 'placa',
   onPlaca,
   onPhoto,
   label = 'Tomar foto y leer placa',
+  showHint = true,
 }) {
   const inputRef = useRef(null)
   const [busy, setBusy] = useState(false)
@@ -41,7 +45,7 @@ export default function PlacaQuickOcr({
         setMsg(
           `Lectura débil (${Math.round((result.confidence || 0) * 100)}% · ${result.engine}${
             placa ? `: ${placa}` : ''
-          }). No se llenó el campo. Acerca más o configura Plate Recognizer en Cloud.`,
+          }). No se llenó el campo. Acerca más o teclea a mano. Configura Plate Recognizer en Cloud si hace falta.`,
         )
       }
     } catch (e) {
@@ -54,9 +58,10 @@ export default function PlacaQuickOcr({
 
   return (
     <div className="placa-quick-ocr">
+      {showHint ? <p className="placa-hint">{PLACA_HINT}</p> : null}
       <button
         type="button"
-        className="btn soft"
+        className="btn soft placa-ocr-btn"
         disabled={busy}
         onClick={() => inputRef.current?.click()}
       >

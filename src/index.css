@@ -965,8 +965,19 @@ html.kiosk .btn-back-fixed {
 }
 .placa-quick-ocr {
   gap: 8px;
-  margin-top: 8px;
+  margin-top: 6px;
   display: grid;
+}
+.placa-hint {
+  color: var(--muted);
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+.placa-ocr-btn {
+  justify-self: start;
+  width: auto;
+  min-height: 42px;
 }
 .placa-quick-preview {
   object-fit: cover;
