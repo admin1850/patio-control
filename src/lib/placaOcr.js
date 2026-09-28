@@ -1,124 +1,216 @@
 /**
- * OCR de placas MX — cliente.
- * Flujo: foto (capture=environment) → re(file,1280,0.72) → ocrPlacaFromDataUrl → campo.
+ * OCR de placas MX — sin guiones.
+ * Orden: Plate Recognizer API → Netlify Vision function.
+ * Flujo UI: capture=environment → compress JPEG → OCR → campo.
  */
 
-/** @typedef {'placa'|'placaCamionTrasera'|'placaCaja1'|'placaCaja2'} PlacaField */
+export const PLATE_TOKEN_KEY = 'patio-plate-recognizer-token'
 
-/** Slot id → campo del movimiento */
+/** @typedef {'placa'|'placaCamionTrasera'|'placaCaja1'|'placaCaja2'|'placaRefrigerada'} PlacaField */
+
 export const PLACA_SLOT_FIELDS = /** @type {Record<string, PlacaField>} */ ({
   'placa-camion-frontal': 'placa',
   'placa-camion-trasera': 'placaCamionTrasera',
   'placa-caja-1-trasera': 'placaCaja1',
   'placa-caja-2-trasera': 'placaCaja2',
+  'placa-refrigerada': 'placaRefrigerada',
   'parado-placa': 'placa',
 })
+
+/** Quita guiones/espacios → ABC123A */
+export function normalizePlacaMX(raw) {
+  return String(raw ?? '')
+    .toUpperCase()
+    .replace(/\|/g, 'I')
+    .replace(/[\s\-_.·•/,;:]+/g, '')
+    .replace(/[^A-Z0-9]/g, '')
+    .slice(0, 12)
+}
+
+const PLATE_PATTERNS = [
+  /^[A-Z]{3}\d{4}$/,
+  /^[A-Z]{3}\d{3}[A-Z]$/,
+  /^[A-Z]{3}\d{3,4}[A-Z]?$/,
+  /^\d{2,3}[A-Z]{3}\d{1,2}$/,
+  /^[A-Z]{2}\d{5}$/,
+  /^[A-Z]{4}\d{2,3}$/,
+  /^\d{3}[A-Z]{3}$/,
+]
+
+export function scorePlaca(raw) {
+  const t = normalizePlacaMX(raw)
+  if (t.length < 5 || t.length > 10) return 0
+  const letters = (t.match(/[A-Z]/g) ?? []).length
+  const digits = (t.match(/[0-9]/g) ?? []).length
+  if (letters === 0 || digits === 0) return 0.1
+  let s = 0.4
+  if (t.length >= 6 && t.length <= 9) s += 0.2
+  if (letters >= 2 && digits >= 2) s += 0.15
+  for (const re of PLATE_PATTERNS) {
+    if (re.test(t)) {
+      s += 0.35
+      break
+    }
+  }
+  return Math.min(1, s)
+}
+
+function extractBestPlaca(texts) {
+  /** @type {{ placa: string, confidence: number } | null} */
+  let best = null
+  const bag = []
+  for (const raw of texts) {
+    if (!raw) continue
+    bag.push(raw)
+    bag.push(...String(raw).split(/[\s\n|,;/·•]+/).filter(Boolean))
+    const compact = normalizePlacaMX(raw)
+    for (let len = 5; len <= Math.min(10, compact.length); len++) {
+      for (let i = 0; i + len <= compact.length; i++) {
+        bag.push(compact.slice(i, i + len))
+      }
+    }
+  }
+  for (const piece of bag) {
+    const placa = normalizePlacaMX(piece)
+    const confidence = scorePlaca(placa)
+    if (!placa || confidence < 0.4) continue
+    if (!best || confidence > best.confidence) best = { placa, confidence }
+  }
+  return best
+}
 
 export function isPlateSlot(slot) {
   return slot?.silhouette === 'plate' || Boolean(PLACA_SLOT_FIELDS[slot?.id])
 }
 
-/**
- * Normaliza texto OCR a placa mexicana legible.
- * Acepta formatos tipo ABC-12-34, ABC123A, 123-ABC, etc.
- */
-export function normalizePlacaMX(raw) {
-  if (!raw || typeof raw !== 'string') return ''
-  let t = raw
-    .toUpperCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^A-Z0-9]/g, '')
-
-  // confusiones OCR frecuentes
-  // (no forzamos 0↔O / 1↔I globalmente; solo en candidatos)
-
-  if (!t) return ''
-
-  const candidates = extractPlacaCandidates(t)
-  if (candidates.length) return candidates[0]
-
-  // si el texto ya es corto y alfanumérico, úsalo
-  if (t.length >= 5 && t.length <= 10) return t
-  return ''
-}
-
-function extractPlacaCandidates(compact) {
-  const patterns = [
-    // Nuevo federal: ABC123A / ABC12D3
-    /[A-Z]{3}\d{2}[A-Z0-9]{1,2}/g,
-    /[A-Z]{3}\d{3}[A-Z]/g,
-    // Clásico: ABC1234 / ABC123
-    /[A-Z]{3}\d{3,4}/g,
-    // Numérico-letra: 123ABC / 12ABC3
-    /\d{2,3}[A-Z]{3}\d?/g,
-    // Remolque / frontera suelta
-    /[A-Z]{2}\d{4}[A-Z]?/g,
-  ]
-  /** @type {string[]} */
-  const found = []
-  for (const re of patterns) {
-    const m = compact.match(re)
-    if (m) found.push(...m)
-  }
-  // únicos, preferir longitud 6–8
-  return [...new Set(found)].sort((a, b) => scorePlaca(b) - scorePlaca(a))
-}
-
-function scorePlaca(p) {
-  let s = 0
-  if (p.length >= 6 && p.length <= 8) s += 10
-  if (/^[A-Z]{3}\d{3,4}[A-Z]?$/.test(p)) s += 5
-  if (/^[A-Z]{3}\d{2}[A-Z0-9]{1,2}$/.test(p)) s += 6
-  return s + Math.min(p.length, 8)
-}
-
-/**
- * Llama Netlify Function. Fallback: vacío (UI permite captura manual).
- * @param {string} dataUrl JPEG data URL post-re()
- * @returns {Promise<{ placa: string, rawText: string, source: string }>}
- */
-export async function ocrPlacaFromDataUrl(dataUrl) {
-  if (!dataUrl?.startsWith('data:image')) {
-    return { placa: '', rawText: '', source: 'none' }
-  }
-
+export function getPlateRecognizerToken() {
   try {
-    const res = await fetch('/.netlify/functions/ocr-placa', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ dataUrl }),
-    })
-    if (res.ok) {
-      const j = await res.json()
-      const placa = normalizePlacaMX(j.placa || j.rawText || '')
-      return {
-        placa,
-        rawText: j.rawText || '',
-        source: j.source || 'netlify',
+    return (typeof localStorage !== 'undefined' && localStorage.getItem(PLATE_TOKEN_KEY)) || ''
+  } catch {
+    return ''
+  }
+}
+
+export function setPlateRecognizerToken(token) {
+  localStorage.setItem(PLATE_TOKEN_KEY, String(token || '').trim())
+}
+
+/** Comprime File → JPEG dataURL (mismo pipeline caseta) */
+export function compressPlateImage(file, maxW = 1280, quality = 0.72) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const img = new Image()
+      img.onload = () => {
+        const scale = Math.min(1, maxW / img.width)
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.round(img.width * scale)
+        canvas.height = Math.round(img.height * scale)
+        const ctx = canvas.getContext('2d')
+        if (!ctx) {
+          reject(new Error('No canvas'))
+          return
+        }
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+        resolve(canvas.toDataURL('image/jpeg', quality))
       }
+      img.onerror = reject
+      img.src = /** @type {string} */ (reader.result)
+    }
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
+
+async function ocrWithPlateRecognizer(dataUrl) {
+  const token = getPlateRecognizerToken().trim()
+  if (!token) return null
+  const blob = await (await fetch(dataUrl)).blob()
+  const form = new FormData()
+  form.append('upload', blob, 'placa.jpg')
+  form.append('regions', 'mx')
+  const res = await fetch('https://api.platerecognizer.com/v1/plate-reader/', {
+    method: 'POST',
+    headers: { Authorization: `Token ${token}` },
+    body: form,
+  })
+  if (!res.ok) return null
+  const top = (await res.json()).results?.[0]
+  if (!top?.plate) return null
+  const placa = normalizePlacaMX(top.plate)
+  if (!placa) return null
+  return {
+    placa,
+    confidence: Math.max(scorePlaca(placa), top.score ?? 0.7),
+    engine: 'platerecognizer',
+    rawText: top.plate,
+  }
+}
+
+async function ocrWithNetlifyFunction(dataUrl) {
+  const res = await fetch('/.netlify/functions/ocr-placa', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dataUrl }),
+  })
+  if (!res.ok) return null
+  const j = await res.json()
+  const placa = normalizePlacaMX(j.placa || j.rawText || '')
+  if (!placa) return null
+  return {
+    placa,
+    confidence: Math.max(scorePlaca(placa), 0.55),
+    engine: j.source || 'vision',
+    rawText: j.rawText || '',
+  }
+}
+
+/**
+ * @param {string} dataUrl
+ * @returns {Promise<{ placa: string, confidence: number, engine: string, rawText?: string }>}
+ */
+export async function readPlacaFromDataUrl(dataUrl) {
+  try {
+    const pr = await ocrWithPlateRecognizer(dataUrl)
+    if (pr?.placa && pr.confidence >= 0.5) {
+      return { ...pr, placa: normalizePlacaMX(pr.placa) }
     }
   } catch {
-    // red / función ausente en local sin netlify dev
+    /* siguiente motor */
   }
-
-  // Fallback local: si el host no tiene función, no bloquea el gate
-  return { placa: '', rawText: '', source: 'manual' }
+  try {
+    const nv = await ocrWithNetlifyFunction(dataUrl)
+    if (nv?.placa && nv.confidence >= 0.45) {
+      return { ...nv, placa: normalizePlacaMX(nv.placa) }
+    }
+  } catch {
+    /* manual */
+  }
+  throw new Error(
+    'No se pudo leer la placa. Acerca más, con buena luz, o escribe a mano. En Cloud configura Plate Recognizer o Workspace (Vision).',
+  )
 }
 
-/**
- * Aplica lectura OCR al setter correcto del formulario.
- * @param {string} slotId
- * @param {string} placa
- * @param {{ setPlaca?: (v: string) => void, setPlacaCamionTrasera?: (v: string) => void, setPlacaCaja1?: (v: string) => void, setPlacaCaja2?: (v: string) => void }} setters
- */
+/** @deprecated alias */
+export async function ocrPlacaFromDataUrl(dataUrl) {
+  try {
+    const r = await readPlacaFromDataUrl(dataUrl)
+    return { placa: r.placa, rawText: r.rawText || '', source: r.engine }
+  } catch {
+    return { placa: '', rawText: '', source: 'manual' }
+  }
+}
+
 export function applyPlacaOcrToForm(slotId, placa, setters) {
-  const field = PLACA_SLOT_FIELDS[slotId]
+  const field = PLACA_SLOT_FIELDS[slotId] || 'placa'
   const v = normalizePlacaMX(placa)
-  if (!field || !v) return null
+  if (!v) return null
   if (field === 'placa') setters.setPlaca?.(v)
   if (field === 'placaCamionTrasera') setters.setPlacaCamionTrasera?.(v)
   if (field === 'placaCaja1') setters.setPlacaCaja1?.(v)
   if (field === 'placaCaja2') setters.setPlacaCaja2?.(v)
+  if (field === 'placaRefrigerada') setters.setPlacaRefrigerada?.(v)
   return { field, placa: v }
 }
+
+export { extractBestPlaca }

@@ -963,6 +963,24 @@ html.kiosk .btn-back-fixed {
   gap: 12px;
   display: grid;
 }
+.placa-quick-ocr {
+  gap: 8px;
+  margin-top: 8px;
+  display: grid;
+}
+.placa-quick-preview {
+  object-fit: cover;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  width: 100%;
+  max-height: 160px;
+}
+.ocr-msg {
+  margin: 0;
+  color: var(--navy);
+  font-size: 0.85rem;
+  font-weight: 500;
+}
 .guided-progress {
   justify-content: space-between;
   font-size: 0.85rem;

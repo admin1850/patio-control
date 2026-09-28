@@ -1,7 +1,15 @@
 import * as l from "react";
 import { createPortal } from "react-dom";
 import { v4 as ee } from "uuid";
-import { applyPlacaOcrToForm, isPlateSlot, ocrPlacaFromDataUrl } from "./lib/placaOcr.js";
+import PlacaQuickOcr from "./components/PlacaQuickOcr.jsx";
+import {
+  applyPlacaOcrToForm,
+  getPlateRecognizerToken,
+  isPlateSlot,
+  normalizePlacaMX,
+  readPlacaFromDataUrl,
+  setPlateRecognizerToken,
+} from "./lib/placaOcr.js";
 
 function _Component({
   slots: e,
@@ -18,54 +26,58 @@ function _Component({
   let u = e.filter(e => t[e.id]).length;
   let d = e.filter(e => e.required && t[e.id]).length;
   let f = e.filter(e => e.required).length;
-  async function p(r) {
-    if (!r || !c) {
+  let canLeer = !!(c && isPlateSlot(c) && t[c.id] && onPlateOcrProp);
+  async function p(file) {
+    if (!file || !c) {
       return;
     }
-    if (!r.type.startsWith(`image/`)) {
+    if (!file.type.startsWith(`image/`)) {
       s(`Solo imágenes`);
       return;
     }
     s(null);
     setOcrHint(null);
-    // Misma pipeline que producción: capture=environment → re(file,1280,0.72) → JPEG dataURL
-    let i = await re(r);
-    let o = {
+    let dataUrl = await re(file);
+    let next = {
       ...t,
-      [c.id]: i
+      [c.id]: dataUrl
     };
-    n(o);
-    // OCR solo en slots plate, DESPUÉS de comprimir (mismo dataURL)
-    if (isPlateSlot(c) && onPlateOcrProp) {
-      setOcrBusy(true);
-      setOcrHint(`Leyendo placa…`);
-      try {
-        let result = await ocrPlacaFromDataUrl(i);
-        if (result.placa) {
-          onPlateOcrProp(c.id, result.placa);
-          setOcrHint(`Placa leída: ${result.placa}. Puedes corregirla manualmente.`);
-        } else {
-          setOcrHint(`No se leyó la placa. Captúrala manualmente en el campo.`);
-        }
-      } catch {
-        setOcrHint(`No se pudo leer la placa. Captura manual.`);
-      } finally {
-        setOcrBusy(false);
-      }
-    }
-    let l = e.findIndex(e => e.id === c.id);
-    let u = e.slice(l + 1).find(e => !o[e.id]);
-    if (u) {
-      a(u.id);
+    n(next);
+    let idx = e.findIndex(e => e.id === c.id);
+    let nextEmpty = e.slice(idx + 1).find(e => !next[e.id]);
+    if (nextEmpty) {
+      a(nextEmpty.id);
     }
   }
-  function m(e) {
+  async function leerPlaca() {
+    if (!c || !t[c.id] || !onPlateOcrProp) return;
+    setOcrBusy(true);
+    s(null);
+    setOcrHint(`Leyendo placa…`);
+    try {
+      let result = await readPlacaFromDataUrl(t[c.id]);
+      let placa = normalizePlacaMX(result.placa);
+      onPlateOcrProp(c.id, placa, { confidence: result.confidence, engine: result.engine });
+      let pct = Math.round(result.confidence * 100);
+      setOcrHint(
+        result.confidence >= 0.55
+          ? `Placa sugerida: ${placa} (${pct}% · ${result.engine}). Confirma o edita.`
+          : `Lectura débil: ${placa} (${pct}%). Revisa y corrige a mano.`
+      );
+    } catch (err) {
+      setOcrHint(null);
+      s(err instanceof Error ? err.message : `No se pudo leer la placa`);
+    } finally {
+      setOcrBusy(false);
+    }
+  }
+  function m(slotId) {
     let r = {
       ...t
     };
-    delete r[e];
+    delete r[slotId];
     n(r);
-    a(e);
+    a(slotId);
     setOcrHint(null);
   }
   if (c) {
@@ -88,7 +100,8 @@ function _Component({
     const Component17 = `p`;
     const Component18 = `div`;
     const ComponentOcr = `p`;
-    return <Component18 className={`guided-photos`}><Component3 className={`guided-progress`}><Component>{d}{`/`}{f}{` obligatorias`}</Component><Component2 className={`hint`}>{u}{`/`}{e.length}{` capturadas`}</Component2></Component3><Component5 className={`slot-chips`}>{e.map((e, n) => <Component4 type={`button`} className={`slot-chip ${c.id === e.id ? `active` : ``} ${t[e.id] ? `done` : ``} ${e.required ? `` : `optional`}`} onClick={() => a(e.id)} key={e.id}>{n + 1}{`. `}{e.label}{e.required ? `` : ` (opc.)`}</Component4>)}</Component5><Component11 className={`guide-stage sil-${c.silhouette}`}><Component6 className={`sil-overlay`} aria-hidden={true}><O kind={c.silhouette} /></Component6>{t[c.id] ? <Component7 className={`guide-preview`} src={t[c.id]} alt={c.label} /> : <Component10 className={`guide-placeholder`}><Component8 className={`guide-title`}>{c.label}</Component8><Component9 className={`guide-hint`}>{c.hint}</Component9></Component10>}</Component11><Component14 className={`hero-actions`}><Component12 type={`button`} className={`btn primary`} disabled={ocrBusy} onClick={() => r.current?.click()}>{t[c.id] ? `Retomar con cámara` : `Tomar foto (solo cámara)`}</Component12>{t[c.id] && <Component13 type={`button`} className={`btn soft`} onClick={() => m(c.id)}>{`Quitar`}</Component13>}</Component14><Component15 className={`hint`}>{`Usa la cámara del dispositivo. No uses fotos de la galería.`}</Component15>{isPlateSlot(c) && <Component15 className={`hint`}>{`Tras la foto se intenta leer la placa (como el QR de Carta Porte). Si falla, captura manual.`}</Component15>}{ocrHint && <ComponentOcr className={`hint`}>{ocrHint}</ComponentOcr>}<Component16 ref={r} type={`file`} accept={`image/*`} capture={`environment`} hidden={true} onChange={e => {
+    const ComponentLeer = `button`;
+    return <Component18 className={`guided-photos`}><Component3 className={`guided-progress`}><Component>{d}{`/`}{f}{` obligatorias`}</Component><Component2 className={`hint`}>{u}{`/`}{e.length}{` capturadas`}</Component2></Component3><Component5 className={`slot-chips`}>{e.map((e, n) => <Component4 type={`button`} className={`slot-chip ${c.id === e.id ? `active` : ``} ${t[e.id] ? `done` : ``} ${e.required ? `` : `optional`}`} onClick={() => a(e.id)} key={e.id}>{n + 1}{`. `}{e.label}{e.required ? `` : ` (opc.)`}</Component4>)}</Component5><Component11 className={`guide-stage sil-${c.silhouette}`}><Component6 className={`sil-overlay`} aria-hidden={true}><O kind={c.silhouette} /></Component6>{t[c.id] ? <Component7 className={`guide-preview`} src={t[c.id]} alt={c.label} /> : <Component10 className={`guide-placeholder`}><Component8 className={`guide-title`}>{c.label}</Component8><Component9 className={`guide-hint`}>{c.hint}</Component9></Component10>}</Component11><Component14 className={`hero-actions`}><Component12 type={`button`} className={`btn primary`} onClick={() => r.current?.click()}>{t[c.id] ? `Retomar con cámara` : `Tomar foto (solo cámara)`}</Component12>{canLeer && <ComponentLeer type={`button`} className={`btn soft`} disabled={ocrBusy} onClick={() => void leerPlaca()}>{ocrBusy ? `Leyendo…` : `Leer placa`}</ComponentLeer>}{t[c.id] && <Component13 type={`button`} className={`btn soft`} onClick={() => m(c.id)}>{`Quitar`}</Component13>}</Component14><Component15 className={`hint`}>{`Usa la cámara del dispositivo. No uses fotos de la galería.`}{isPlateSlot(c) ? ` En placa: toma la foto y pulsa “Leer placa” (Plate Recognizer / Vision).` : ``}</Component15>{ocrHint && <ComponentOcr className={`ocr-msg hint`}>{ocrHint}</ComponentOcr>}<Component16 ref={r} type={`file`} accept={`image/*`} capture={`environment`} hidden={true} onChange={e => {
         p(e.target.files?.[0]);
         e.target.value = ``;
       }} />{o && <Component17 className={`field-error`}>{o}</Component17>}</Component18>;
@@ -719,7 +732,7 @@ function Ne({
         document.getElementById(`baja-form`)?.requestSubmit();
       }}>{w ? `Guardando…` : `Guardar cambios`}</Component70></Component71>, document.body)}<Component74 className={`form-head`}><Component72>{`Baja de inventario`}</Component72><Component73>{`La unidad ya no está en yarda (salió sin registrar, no era nuestra, error). Requiere foto y motivo.`}</Component73></Component74><Component80 className={`fieldset`}><Component75>{`Empresa / Yarda`}</Component75><Component77 className={`seg wrap`}>{ie.map(e => <Component76 type={`button`} className={s === e.id ? `seg-btn on-ok` : `seg-btn`} onClick={() => c(e.id)} key={e.id}>{e.nombre}</Component76>)}</Component77><Component79 className={`seg wrap`} style={{
         marginTop: 8
-      }}>{_e.map(e => <Component78 type={`button`} className={a === e.id ? `seg-btn on-ok` : `seg-btn`} onClick={() => o(e.id)} key={e.id}>{e.nombre}</Component78>)}</Component79></Component80><Component83 className={`fieldset`}><Component81>{`Placa *`}</Component81><Component82 className={`input`} value={u} onChange={e => d(e.target.value.toUpperCase())} placeholder={`Placa`} required={true} /></Component83><Component91 className={`fieldset`}><Component84>{`Motivo *`}</Component84><Component89 className={`tipo-checks`}>{je.map(e => <Component88 className={`tipo-check${f === e.id ? ` on` : ``}`} key={e.id}><Component85 type={`radio`} name={`motivoBaja`} checked={f === e.id} onChange={() => p(e.id)} /><Component86 className={`tipo-box`} aria-hidden={`true`} /><Component87 className={`tipo-text`}>{e.label}</Component87></Component88>)}</Component89>{f === `otro` && <Component90 className={`input`} style={{
+      }}>{_e.map(e => <Component78 type={`button`} className={a === e.id ? `seg-btn on-ok` : `seg-btn`} onClick={() => o(e.id)} key={e.id}>{e.nombre}</Component78>)}</Component79></Component80><Component83 className={`fieldset`}><Component81>{`Placa *`}</Component81><Component82 className={`input`} value={u} onChange={e => d(normalizePlacaMX(e.target.value))} placeholder={`Placa sin guiones`} required={true} /><PlacaQuickOcr slotId={`placa`} label={`Tomar foto y leer placa`} onPlaca={placa => d(normalizePlacaMX(placa))} /></Component83><Component91 className={`fieldset`}><Component84>{`Motivo *`}</Component84><Component89 className={`tipo-checks`}>{je.map(e => <Component88 className={`tipo-check${f === e.id ? ` on` : ``}`} key={e.id}><Component85 type={`radio`} name={`motivoBaja`} checked={f === e.id} onChange={() => p(e.id)} /><Component86 className={`tipo-box`} aria-hidden={`true`} /><Component87 className={`tipo-text`}>{e.label}</Component87></Component88>)}</Component89>{f === `otro` && <Component90 className={`input`} style={{
         marginTop: 10
       }} value={m} onChange={e => h(e.target.value)} placeholder={`Describe el motivo`} required={true} />}</Component91><Component94 className={`fieldset`}><Component92>{`Quién registra *`}</Component92><Component93 className={`input`} value={g} onChange={e => _(e.target.value)} placeholder={`Nombre de caseta`} required={true} /></Component94><Component96 className={`fieldset`}><Component95>{`Foto evidencia *`}</Component95><_Component slots={Ae} captured={v} onChange={y} /></Component96>{b && <Component97 className={`banner error`}>{b}</Component97>}{S && <Component98 className={`banner success`}>{S}</Component98>}<Component99 type={`submit`} className={`btn primary wide`} disabled={w}>{w ? `Guardando…` : `Confirmar baja`}</Component99></Component100>;
 }
@@ -2129,27 +2142,40 @@ function _Component4({
         }}>{x === `full` ? `Full = 2 cajas → captura placa de cada una (no son la misma).` : `Sencillo = 1 caja → una sola placa.`}</Component313><Component316 className={`field`} style={{
           marginTop: 10
         }}><Component314>{`Placa 1ª caja *`}</Component314><Component315 className={`input`} value={p ? ce : O} onChange={e => {
-            let t = e.target.value.toUpperCase();
+            let t = normalizePlacaMX(e.target.value);
             le(t);
             if (!p) {
               re(t);
             }
-          }} placeholder={`Placa de la 1ª caja`} required={true} /></Component316>{x === `full` && <Component319 className={`field`} style={{
+          }} placeholder={`Placa de la 1ª caja`} required={true} /><PlacaQuickOcr slotId={`placa-caja-1-trasera`} label={`Tomar foto y leer placa`} onPlaca={placa => {
+            let t = normalizePlacaMX(placa);
+            le(t);
+            if (!p) {
+              re(t);
+            }
+          }} /></Component316>{x === `full` && <Component319 className={`field`} style={{
           marginTop: 10
-        }}><Component317>{`Placa 2ª caja *`}</Component317><Component318 className={`input`} value={ue} onChange={e => de(e.target.value.toUpperCase())} placeholder={`Placa de la 2ª caja (distinta)`} required={true} /></Component319>}</Component320>}{y && <Component329 className={`field encortinada-modo`} style={{
+        }}><Component317>{`Placa 2ª caja *`}</Component317><Component318 className={`input`} value={ue} onChange={e => de(normalizePlacaMX(e.target.value))} placeholder={`Placa de la 2ª caja (distinta)`} required={true} /><PlacaQuickOcr slotId={`placa-caja-2-trasera`} label={`Tomar foto y leer placa`} onPlaca={placa => de(normalizePlacaMX(placa))} /></Component319>}</Component320>}{y && <Component329 className={`field encortinada-modo`} style={{
         marginTop: 12
       }}><Component321 className={`label`}>{`Caja refrigerada *`}</Component321><Component322 className={`hint`} style={{
           marginTop: 4
         }}>{`Ingresa la placa y el número económico de la caja refrigerada.`}</Component322><Component325 className={`field`} style={{
           marginTop: 10
         }}><Component323>{`Placa caja refrigerada *`}</Component323><Component324 className={`input`} value={fe} onChange={e => {
-            let t = e.target.value.toUpperCase();
+            let t = normalizePlacaMX(e.target.value);
             pe(t);
             if (!p && !h) {
               re(t);
               le(t);
             }
-          }} placeholder={`Placa de la caja refrigerada`} required={true} /></Component325><Component328 className={`field`} style={{
+          }} placeholder={`Placa de la caja refrigerada`} required={true} /><PlacaQuickOcr slotId={`placa-refrigerada`} label={`Tomar foto y leer placa`} onPlaca={placa => {
+            let t = normalizePlacaMX(placa);
+            pe(t);
+            if (!p && !h) {
+              re(t);
+              le(t);
+            }
+          }} /></Component325><Component328 className={`field`} style={{
           marginTop: 10
         }}><Component326>{`No. económico caja refrigerada *`}</Component326><Component327 className={`input`} value={te.economicoCajaRefrigerada ?? ``} onChange={e => T({
             ...te,
@@ -2157,13 +2183,25 @@ function _Component4({
             economicoMontadoThermo: e.target.value.toUpperCase()
           })} placeholder={`Ej. RF-220`} required={true} /></Component328></Component329>}<Component349 className={`grid-2`} style={{
         marginTop: 12
-      }}>{p && <Component332 className={`field`}><Component330>{`Placa camión *`}</Component330><Component331 className={`input`} value={O} onChange={e => re(e.target.value.toUpperCase())} placeholder={`Placa frontal camión`} required={true} /></Component332>}{!p && !h && <Component335 className={`field`}><Component333>{`Placa *`}</Component333><Component334 className={`input`} value={O} onChange={e => {
-            let t = e.target.value.toUpperCase();
+      }}>{p && <Component332 className={`field`}><Component330>{`Placa camión *`}</Component330><Component331 className={`input`} value={O} onChange={e => re(normalizePlacaMX(e.target.value))} placeholder={`Placa frontal camión`} required={true} /><PlacaQuickOcr slotId={`placa-camion-frontal`} label={`Tomar foto y leer placa`} onPlaca={placa => {
+            let t = normalizePlacaMX(placa);
+            re(t);
+            if (h && !ce.trim()) {
+              le(t);
+            }
+          }} /></Component332>}{!p && !h && <Component335 className={`field`}><Component333>{`Placa *`}</Component333><Component334 className={`input`} value={O} onChange={e => {
+            let t = normalizePlacaMX(e.target.value);
             re(t);
             if (xt) {
               le(t);
             }
-          }} placeholder={xt ? `Placa caja` : `Placa`} required={true} /></Component335>}{p && <Component342 className={`field full`}><Component336 className={`label`}>{`Trae placa trasera (sí / no)`}</Component336><Component339 className={`seg wrap`} style={{
+          }} placeholder={xt ? `Placa caja` : `Placa sin guiones`} required={true} /><PlacaQuickOcr slotId={xt ? `placa-caja-1-trasera` : `placa-camion-frontal`} label={`Tomar foto y leer placa`} onPlaca={placa => {
+            let t = normalizePlacaMX(placa);
+            re(t);
+            if (xt) {
+              le(t);
+            }
+          }} /></Component335>}{p && <Component342 className={`field full`}><Component336 className={`label`}>{`Trae placa trasera (sí / no)`}</Component336><Component339 className={`seg wrap`} style={{
             marginTop: 6
           }}><Component337 type={`button`} className={ae ? `seg-btn on-ok` : `seg-btn`} onClick={() => k(true)}>{`Sí`}</Component337><Component338 type={`button`} className={ae ? `seg-btn` : `seg-btn on-ok`} onClick={() => k(false)}>{`No`}</Component338></Component339>{ae && (placaCamionTraseraVal.trim() || O.trim()) && <Component341 className={`hint`} style={{
             marginTop: 6
@@ -2347,8 +2385,8 @@ function _Component5({
         t = {
           id: ee(),
           tipo: Ee,
-          placa: y.trim().toUpperCase(),
-          numeroEconomico: x.trim() || y.trim().toUpperCase(),
+          placa: normalizePlacaMX(y),
+          numeroEconomico: x.trim() || normalizePlacaMX(y),
           creadoEn: new Date().toISOString()
         };
         r(t);
@@ -2365,7 +2403,7 @@ function _Component5({
         yardaId: o,
         empresaId: c,
         equipoId: t.id,
-        placa: t.placa,
+        placa: normalizePlacaMX(t.placa),
         numeroEconomico: t.numeroEconomico,
         equipoTipo: t.tipo,
         fechaHora: new Date().toISOString(),
@@ -2488,9 +2526,12 @@ function _Component5({
       }}>{M ? `Guardando…` : `Guardar cambios`}</Component425></Component426>, document.body)}<Component429 className={`form-head`}><Component427>{`Inventariar equipo parado`}</Component427><Component428>{`Unidad que está en yarda sin viaje de entrada ni salida. No es un arribo: es un conteo.`}</Component428></Component429><Component433 className={`fieldset`}><Component430>{`Empresa`}</Component430><Component432 className={`seg wrap`}>{ie.map(e => <Component431 type={`button`} className={c === e.id ? `seg-btn on-ok` : `seg-btn`} onClick={() => u(e.id)} key={e.id}>{e.nombre}</Component431>)}</Component432></Component433><Component437 className={`fieldset`}><Component434>{`Yarda`}</Component434><Component436 className={`seg wrap`}>{_e.map(e => <Component435 type={`button`} className={o === e.id ? `seg-btn on-ok` : `seg-btn`} onClick={() => s(e.id)} key={e.id}>{e.nombre}</Component435>)}</Component436></Component437><Component469 className={`fieldset`}><Component438>{`Equipo`}</Component438><Component457 className={`field`}><Component439 className={`label`}>{`Tipo (marca uno o varios)`}</Component439><Component456 className={`tipo-checks`}><Component443 className={`tipo-check${d ? ` on` : ``}`}><Component440 type={`checkbox`} checked={d} onChange={e => f(e.target.checked)} /><Component441 className={`tipo-box`} aria-hidden={`true`} /><Component442 className={`tipo-text`}>{`Camión/Tracto`}</Component442></Component443><Component447 className={`tipo-check${p ? ` on` : ``}`}><Component444 type={`checkbox`} checked={p} onChange={e => m(e.target.checked)} /><Component445 className={`tipo-box`} aria-hidden={`true`} /><Component446 className={`tipo-text`}>{`Caja Encortinada`}</Component446></Component447><Component451 className={`tipo-check${h ? ` on` : ``}`}><Component448 type={`checkbox`} checked={h} onChange={e => g(e.target.checked)} /><Component449 className={`tipo-box`} aria-hidden={`true`} /><Component450 className={`tipo-text`}>{`Dolly`}</Component450></Component451><Component455 className={`tipo-check${_ ? ` on` : ``}`}><Component452 type={`checkbox`} checked={_} onChange={e => v(e.target.checked)} /><Component453 className={`tipo-box`} aria-hidden={`true`} /><Component454 className={`tipo-text`}>{`Caja Refrigerada`}</Component454></Component455></Component456></Component457><Component464 className={`grid-2`} style={{
         marginTop: 12
       }}><Component460 className={`field`}><Component458>{`Placa *`}</Component458><Component459 className={`input`} value={y} onChange={e => {
-            b(e.target.value.toUpperCase());
+            b(normalizePlacaMX(e.target.value));
             Te(false);
-          }} placeholder={`Placa`} required={true} /></Component460><Component463 className={`field`}><Component461>{`No. económico`}</Component461><Component462 className={`input`} value={x} onChange={e => S(e.target.value)} placeholder={`ECO-045`} /></Component463></Component464>{je && <Component467 className={`banner warn`} style={{
+          }} placeholder={`Placa sin guiones`} required={true} /><PlacaQuickOcr slotId={`parado-placa`} label={`Tomar foto y leer placa`} onPlaca={placa => {
+            b(normalizePlacaMX(placa));
+            Te(false);
+          }} /></Component460><Component463 className={`field`}><Component461>{`No. económico`}</Component461><Component462 className={`input`} value={x} onChange={e => S(e.target.value)} placeholder={`ECO-045`} /></Component463></Component464>{je && <Component467 className={`banner warn`} style={{
         marginTop: 12
       }}>{`Ya está en ciclo (entrada abierta).`}{` `}<Component466 className={`check-inline`} style={{
           marginTop: 8
@@ -3732,8 +3773,8 @@ function Nn({
       t({
         id: ee(),
         tipo: r,
-        placa: a.trim().toUpperCase(),
-        numeroEconomico: s.trim() || a.trim().toUpperCase(),
+        placa: normalizePlacaMX(a),
+        numeroEconomico: s.trim() || normalizePlacaMX(a),
         marca: u.trim() || undefined,
         modelo: f.trim() || undefined,
         operadorAsignado: m.trim() || undefined,
@@ -3783,7 +3824,7 @@ function Nn({
   const Component621 = `button`;
   const Component622 = `li`;
   const Component623 = `ul`;
-  return <l.Fragment><Component616 className={`form-panel compact`} onSubmit={v}><Component611 className={`grid-2`}><Component595 className={`field`}><Component589>{`Tipo`}</Component589><Component594 className={`input`} value={r} onChange={e => i(e.target.value)}><Component590 value={`camion`}>{`Camión`}</Component590><Component591 value={`caja`}>{`Caja / remolque`}</Component591><Component592 value={`dolly`}>{`Dolly`}</Component592><Component593 value={`otro`}>{`Otro`}</Component593></Component594></Component595><Component598 className={`field`}><Component596>{`Placa`}</Component596><Component597 className={`input`} value={a} onChange={e => o(e.target.value.toUpperCase())} required={true} /></Component598><Component601 className={`field`}><Component599>{`No. económico`}</Component599><Component600 className={`input`} value={s} onChange={e => c(e.target.value)} /></Component601><Component604 className={`field`}><Component602>{`Marca`}</Component602><Component603 className={`input`} value={u} onChange={e => d(e.target.value)} /></Component604><Component607 className={`field`}><Component605>{`Modelo`}</Component605><Component606 className={`input`} value={f} onChange={e => p(e.target.value)} /></Component607><Component610 className={`field`}><Component608>{`Notas`}</Component608><Component609 className={`input`} value={g} onChange={e => _(e.target.value)} /></Component610></Component611><Component614 className={`field`} style={{
+  return <l.Fragment><Component616 className={`form-panel compact`} onSubmit={v}><Component611 className={`grid-2`}><Component595 className={`field`}><Component589>{`Tipo`}</Component589><Component594 className={`input`} value={r} onChange={e => i(e.target.value)}><Component590 value={`camion`}>{`Camión`}</Component590><Component591 value={`caja`}>{`Caja / remolque`}</Component591><Component592 value={`dolly`}>{`Dolly`}</Component592><Component593 value={`otro`}>{`Otro`}</Component593></Component594></Component595><Component598 className={`field`}><Component596>{`Placa`}</Component596><Component597 className={`input`} value={a} onChange={e => o(normalizePlacaMX(e.target.value))} placeholder={`Placa sin guiones`} required={true} /><PlacaQuickOcr slotId={`placa`} label={`Tomar foto y leer placa`} onPlaca={placa => o(normalizePlacaMX(placa))} /></Component598><Component601 className={`field`}><Component599>{`No. económico`}</Component599><Component600 className={`input`} value={s} onChange={e => c(e.target.value)} /></Component601><Component604 className={`field`}><Component602>{`Marca`}</Component602><Component603 className={`input`} value={u} onChange={e => d(e.target.value)} /></Component604><Component607 className={`field`}><Component605>{`Modelo`}</Component605><Component606 className={`input`} value={f} onChange={e => p(e.target.value)} /></Component607><Component610 className={`field`}><Component608>{`Notas`}</Component608><Component609 className={`input`} value={g} onChange={e => _(e.target.value)} /></Component610></Component611><Component614 className={`field`} style={{
         marginTop: 12
       }}><Component612>{`Nombre operador/chofer asignado a este camión o unidad:`}</Component612><Component613 className={`input`} value={m} onChange={e => h(e.target.value)} placeholder={`Ej. Luis Pérez`} /></Component614><Component615 type={`submit`} className={`btn primary`}>{`Agregar equipo`}</Component615></Component616><Component623 className={`unit-list`}>{e.equipos.length === 0 && <Component617 className={`empty`}>{`Aún no hay equipos dados de alta.`}</Component617>}{e.equipos.map(e => <Component622 className={`unit-row`} key={e.id}><Component620 className={`unit-main`}><Component618 className={`unit-placa`}>{e.placa}</Component618><Component619 className={`unit-meta`}>{e.tipo}{` · `}{e.numeroEconomico}{e.marca ? ` · ${e.marca}` : ``}{e.modelo ? ` ${e.modelo}` : ``}{e.operadorAsignado ? ` · chofer ${e.operadorAsignado}` : ``}</Component619></Component620><Component621 type={`button`} className={`text-btn danger`} onClick={() => n(e.id)}>{`Eliminar`}</Component621></Component622>)}</Component623></l.Fragment>;
 }
@@ -4213,6 +4254,8 @@ function Vn({
 }) {
   let [m, h] = (0, l.useState)(e);
   let [g, _] = (0, l.useState)(null);
+  let [plateToken, setPlateToken] = (0, l.useState)(() => getPlateRecognizerToken());
+  let [plateSaved, setPlateSaved] = (0, l.useState)(null);
   async function v(e) {
     e.preventDefault();
     _(null);
@@ -4223,6 +4266,11 @@ function Vn({
     } catch (e) {
       _(e instanceof Error ? e.message : `Error al conectar`);
     }
+  }
+  function savePlateToken(ev) {
+    ev.preventDefault();
+    setPlateRecognizerToken(plateToken);
+    setPlateSaved(`Token de Plate Recognizer guardado en este dispositivo.`);
   }
   const Component890 = `h1`;
   const Component891 = `p`;
@@ -4288,7 +4336,25 @@ function Vn({
             })} /></Component922><Component925 className={`field full`}><Component923>{`ID carpeta Drive (fotos)`}</Component923><Component924 className={`input`} value={m.driveFolderId} onChange={e => h({
               ...m,
               driveFolderId: e.target.value
-            })} /></Component925></Component926></Component927>{i && <Component928 className={`banner error`}>{i}</Component928>}{g && <Component929 className={`banner ${g.startsWith(`Conectado`) ? `success` : `error`}`}>{g}</Component929>}<Component933 className={`hero-actions`}><Component930 type={`submit`} className={`btn primary`} disabled={r}>{r ? `Conectando…` : t === `workspace` ? `Reconectar` : `Conectar con Google`}</Component930>{t === `workspace` && <l.Fragment><Component931 type={`button`} className={`btn soft`} disabled={r} onClick={() => void d()}>{`Actualizar datos`}</Component931><Component932 type={`button`} className={`btn soft`} onClick={u}>{`Usar solo local`}</Component932></l.Fragment>}</Component933></Component934>{p && <Component940 className={`panel`} style={{
+            })} /></Component925></Component926></Component927>{i && <Component928 className={`banner error`}>{i}</Component928>}{g && <Component929 className={`banner ${g.startsWith(`Conectado`) ? `success` : `error`}`}>{g}</Component929>}<Component933 className={`hero-actions`}><Component930 type={`submit`} className={`btn primary`} disabled={r}>{r ? `Conectando…` : t === `workspace` ? `Reconectar` : `Conectar con Google`}</Component930>{t === `workspace` && <l.Fragment><Component931 type={`button`} className={`btn soft`} disabled={r} onClick={() => void d()}>{`Actualizar datos`}</Component931><Component932 type={`button`} className={`btn soft`} onClick={u}>{`Usar solo local`}</Component932></l.Fragment>}</Component933></Component934><Component940 className={`panel`} style={{
+      marginTop: 16
+    }}><Component936 className={`panel-head`}><Component935>{`Plate Recognizer (OCR de placas)`}</Component935></Component936><Component937 className={`hint`}>{`Token de platerecognizer.com para leer placas por foto en inventariar, entrada, salida, baja y equipos. Sin guiones. Si no hay token, se usa Vision (Netlify) cuando esté configurado.`}</Component937><form className={`form-panel compact`} onSubmit={savePlateToken} style={{
+        marginTop: 12,
+        padding: 0,
+        boxShadow: `none`,
+        background: `transparent`
+      }}><label className={`field full`}><span>{`API Token`}</span><input className={`input`} type={`password`} autoComplete={`off`} value={plateToken} onChange={e => {
+            setPlateToken(e.target.value);
+            setPlateSaved(null);
+          }} placeholder={`Token · se guarda solo en este dispositivo`} /></label>{plateSaved && <p className={`banner success`} style={{
+          marginTop: 10
+        }}>{plateSaved}</p>}<div className={`hero-actions`} style={{
+          marginTop: 12
+        }}><button type={`submit`} className={`btn primary`}>{`Guardar token OCR`}</button>{plateToken ? <button type={`button`} className={`btn soft`} onClick={() => {
+            setPlateToken(``);
+            setPlateRecognizerToken(``);
+            setPlateSaved(`Token eliminado.`);
+          }}>{`Quitar token`}</button> : null}</div></form></Component940>{p && <Component940 className={`panel`} style={{
       marginTop: 16
     }}><Component936 className={`panel-head`}><Component935>{`Datos locales`}</Component935></Component936><Component937 className={`hint`}>{`Borra movimientos, equipos y refrigeraciones guardados en este dispositivo.`}</Component937><Component939 className={`hero-actions`}><Component938 type={`button`} className={`btn soft`} onClick={p}>{`Limpiar datos locales`}</Component938></Component939></Component940>}</Component941>;
 }
