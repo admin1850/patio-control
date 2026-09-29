@@ -54,6 +54,15 @@ export default function GrokDudas({ page = '' }) {
 
   return (
     <div className="grok-dudas">
+      <button
+        type="button"
+        className={`grok-dudas-fab${open ? ' open' : ''}`}
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-label={open ? 'Cerrar dudas' : 'Abrir dudas'}
+      >
+        {open ? '×' : '¿Dudas?'}
+      </button>
       {open && (
         <div className="grok-dudas-panel" role="dialog" aria-label="Ayuda PatioControl">
           <div className="grok-dudas-head">
@@ -98,15 +107,6 @@ export default function GrokDudas({ page = '' }) {
           </form>
         </div>
       )}
-      <button
-        type="button"
-        className={`grok-dudas-fab${open ? ' open' : ''}`}
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        aria-label={open ? 'Cerrar dudas' : 'Abrir dudas'}
-      >
-        {open ? '×' : '¿Dudas?'}
-      </button>
     </div>
   )
 }
