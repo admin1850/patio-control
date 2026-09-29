@@ -2836,6 +2836,135 @@ async function It(e) {
     picture: n.picture
   };
 }
+var AUTH_PROFILE_KEY = `patio-control-auth-profile`;
+var KARDEX_DRIVE_URL = `https://drive.google.com/drive/folders/13kGY4MaX6-xDGN3CO4A1-1boy7aZamMI`;
+var AUTORIZADOS_SHEET_URL = `https://docs.google.com/spreadsheets/d/1yH8vAbXoMFvHdKEt8XMvXWDOc0R1VjVdp1Y3MtCGLp0/edit#gid=422516323`;
+function normalizeRol(raw) {
+  let t = String(raw ?? ``).trim().toLowerCase().replace(/\s+/g, `_`).replace(/-/g, `_`);
+  if ([`guardia`, `caseta`].includes(t)) {
+    return `guardia`;
+  }
+  if ([`encargado_yarda`, `encargado`, `yarda`].includes(t)) {
+    return `encargado_yarda`;
+  }
+  if ([`patio`, `operador_patio`, `operaciones`].includes(t)) {
+    return `patio`;
+  }
+  if ([`admin`, `administrador`, `supervisor`].includes(t)) {
+    return `admin`;
+  }
+  return t || `guardia`;
+}
+function normalizeUbicacion(raw) {
+  let t = String(raw ?? ``).trim().toLowerCase().normalize(`NFD`).replace(/[\u0300-\u036f]/g, ``);
+  if (t.includes(`chihuahua`)) {
+    return `chihuahua`;
+  }
+  if (t.includes(`calera`)) {
+    return `calera`;
+  }
+  if (t.includes(`calpulalpan`)) {
+    return `calpulalpan`;
+  }
+  if (t.includes(`todas`) || t.includes(`todos`) || t === `*`) {
+    return `todas`;
+  }
+  return t || `todas`;
+}
+function parseAutorizadoRow(e) {
+  if (!e?.[0]) {
+    return null;
+  }
+  let email = String(e[0]).trim().toLowerCase();
+  if (!email || !email.includes(`@`)) {
+    return null;
+  }
+  let activoRaw = String(e[5] ?? `SI`).trim().toUpperCase();
+  return {
+    email,
+    nombre: String(e[1] ?? ``).trim(),
+    apellido: String(e[2] ?? ``).trim(),
+    rol: normalizeRol(e[3]),
+    ubicacion: normalizeUbicacion(e[4]),
+    activo: activoRaw === `` || activoRaw === `SI` || activoRaw === `SÍ` || activoRaw === `YES` || activoRaw === `1` || activoRaw === `TRUE`,
+    notas: String(e[6] ?? ``).trim() || undefined
+  };
+}
+async function loadAutorizados(e) {
+  try {
+    let t = (await (await Vt(e, `/values/Autorizados!A2:H`)).json()).values ?? [];
+    return t.map(parseAutorizadoRow).filter(Boolean);
+  } catch (err) {
+    throw Error(`No se pudo leer la hoja Autorizados. Créala/compártela o revisa permisos. ${err instanceof Error ? err.message : ``}`);
+  }
+}
+async function assertUsuarioAutorizado(config, profile) {
+  let email = String(profile.email ?? ``).trim().toLowerCase();
+  if (!email) {
+    throw Error(`Tu cuenta de Google no trae email. No se puede autorizar.`);
+  }
+  let list = await loadAutorizados(config);
+  if (list.length === 0) {
+    throw Error(`El kardex Autorizados está vacío. Agrega correos en la hoja antes de usar la app.`);
+  }
+  let match = list.find(e => e.email === email);
+  if (!match) {
+    throw Error(`Acceso denegado: ${email} no está en el kardex de Autorizados.`);
+  }
+  if (!match.activo) {
+    throw Error(`Acceso denegado: ${email} está inactivo en el kardex (Activo ≠ SI).`);
+  }
+  return {
+    ...profile,
+    email,
+    rol: match.rol,
+    ubicacion: match.ubicacion,
+    nombreKardex: `${match.nombre} ${match.apellido}`.trim() || profile.name,
+    autorizadoEn: new Date().toISOString()
+  };
+}
+function loadCachedAuthProfile() {
+  try {
+    let e = localStorage.getItem(AUTH_PROFILE_KEY);
+    if (!e) {
+      return null;
+    }
+    let t = JSON.parse(e);
+    if (!t?.email || !t?.rol) {
+      return null;
+    }
+    return t;
+  } catch {
+    return null;
+  }
+}
+function saveCachedAuthProfile(e) {
+  if (e) {
+    localStorage.setItem(AUTH_PROFILE_KEY, JSON.stringify(e));
+  } else {
+    localStorage.removeItem(AUTH_PROFILE_KEY);
+  }
+}
+function rolLabel(e) {
+  switch (e) {
+    case `guardia`:
+      return `Guardia`;
+    case `encargado_yarda`:
+      return `Encargado yarda`;
+    case `patio`:
+      return `Patio`;
+    case `admin`:
+      return `Admin`;
+    default:
+      return e || `—`;
+  }
+}
+function ubicacionLabel(e) {
+  if (!e || e === `todas`) {
+    return `Todas las yardas`;
+  }
+  return ye(e);
+}
 async function Lt(e) {
   return jt() || Ft(e);
 }
@@ -3386,17 +3515,26 @@ function Sn() {
     u(true);
     f(null);
     try {
-      let e = await It(await Ft(i));
-      a(e);
+      let profile = await It(await Ft(i));
+      let authorized = await assertUsuarioAutorizado(i, profile);
+      a(authorized);
+      saveCachedAuthProfile(authorized);
+      if (authorized.ubicacion && authorized.ubicacion !== `todas` && _e.some(y => y.id === authorized.ubicacion)) {
+        A(authorized.ubicacion);
+      }
       await _(i);
       r(`workspace`);
       let {
-        remaining: t
+        remaining: rem
       } = await xn(i);
-      g(t);
-    } catch (e) {
-      f(e instanceof Error ? e.message : `No se pudo conectar`);
-      throw e;
+      g(rem);
+    } catch (err) {
+      Nt();
+      a(null);
+      saveCachedAuthProfile(null);
+      r(`local`);
+      f(err instanceof Error ? err.message : `No se pudo conectar`);
+      throw err;
     } finally {
       u(false);
     }
@@ -3404,6 +3542,7 @@ function Sn() {
   let b = (0, l.useCallback)(() => {
     Nt();
     a(null);
+    saveCachedAuthProfile(null);
     r(`local`);
     s(Ce());
   }, []);
@@ -3796,7 +3935,8 @@ function An({
   onHistorial: a,
   onKpis: o,
   mode: mode = `local`,
-  onCloud: onCloud
+  onCloud: onCloud,
+  user: authUser = null
 }) {
   let [s, c] = (0, l.useState)(`todas`);
   let [u, d] = (0, l.useState)(`todas`);
@@ -3896,9 +4036,11 @@ function An({
   const Component579 = `ul`;
   const Component580 = `section`;
   const Component581 = `div`;
-  return <Component581 className={`page`}>{mode !== `workspace` && <div className={`banner warn`} style={{
+  return <Component581 className={`page`}>{mode === `workspace` && authUser ? <div className={`banner success`} style={{
       marginBottom: 12
-    }}><strong>{`Modo local`}</strong>{` · Este celular no comparte patio con Chihuahua/Calera/Calpulalpan. `}{onCloud ? <button type={`button`} className={`text-btn`} onClick={onCloud}>{`Conectar Cloud ahora`}</button> : `Ve a Cloud y conecta Google.`}</div>}<Component521 className={`hero-ops`}><Component511><Component508 className={`eyebrow`}>{`Gate · 3 yardas · API / Carbal-Pia`}</Component508><Component509>{`Control de accesos/salidas en los patios de trabajo`}</Component509><Component510 className={`lede`}>{`Chihuahua, Calera y Calpulalpan · ~25 viajes/día por sentido. Fotos guiadas, sello, firma y GPS.`}</Component510></Component511><Component512 className={`hero-prompt`}>{`Selecciona el tipo de movimiento o registro que necesitas hacer:`}</Component512><Component518 className={`hero-actions`}><Component513 type={`button`} className={`btn ghost`} onClick={() => t()}>{`Nueva entrada`}</Component513><Component514 type={`button`} className={`btn ghost`} onClick={() => n()}>{`Registrar salida`}</Component514><Component516 type={`button`} className={`btn ghost`} onClick={() => r()}>{`Equipo parado`}<Component515 className={`btn-sub`}>{`Inventariar`}</Component515></Component516>{o && <Component517 type={`button`} className={`btn ghost`} onClick={o}>{`Ver KPIs`}</Component517>}</Component518><Component520 className={`hero-hint`}><Component519>{`Equipo parado`}</Component519>{` = unidad que ya está en yarda sin viaje de entrada ni salida (vacío en pool, taller, retenida, drop sin ciclo…). No es un arribo: es un conteo.`}</Component520></Component521><Component526 className={`fieldset`}><Component522>{`Empresa`}</Component522><Component525 className={`seg big wrap`}><Component523 type={`button`} className={u === `todas` ? `seg-btn on-ok` : `seg-btn`} onClick={() => C(`todas`)}>{`Todas`}</Component523>{ie.map(e => <Component524 type={`button`} className={u === e.id ? `seg-btn on-ok` : `seg-btn`} onClick={() => C(e.id)} key={e.id}>{e.nombre}</Component524>)}</Component525></Component526><Component531 className={`fieldset`}><Component527>{`Yarda`}</Component527><Component530 className={`seg big wrap`}><Component528 type={`button`} className={s === `todas` ? `seg-btn on-ok` : `seg-btn`} onClick={() => S(`todas`)}>{`Todas`}</Component528>{_e.map(e => <Component529 type={`button`} className={s === e.id ? `seg-btn on-ok` : `seg-btn`} onClick={() => S(e.id)} key={e.id}>{e.nombre}</Component529>)}</Component530></Component531><Component541 className={`stats stats-patio`}><Component534 className={`stat`}><Component532 className={`stat-label`}>{`En patio`}</Component532><Component533 className={`stat-value`}>{f.length}</Component533></Component534><Component537 className={`stat`}><Component535 className={`stat-label`}>{`En ciclo`}</Component535><Component536 className={`stat-value`}>{p.length}</Component536></Component537><Component540 className={`stat`}><Component538 className={`stat-label`}>{`Parados`}</Component538><Component539 className={`stat-value`}>{m.length}</Component539></Component540></Component541><Component552 className={`stats`}><Component544 className={`stat`}><Component542 className={`stat-label`}>{`Entradas hoy`}</Component542><Component543 className={`stat-value`}>{_}</Component543></Component544><Component547 className={`stat`}><Component545 className={`stat-label`}>{`Salidas hoy`}</Component545><Component546 className={`stat-value`}>{v}</Component546></Component547><Component551 className={`stat`}><Component548 className={`stat-label`}>{`Alertas`}</Component548><Component549 className={`stat-value`}>{b.length || y}</Component549><Component550 className={`hint`}>{x}{` críticas`}</Component550></Component551></Component552>{b.length > 0 && <Component560 className={`panel alerts-panel`}><Component554 className={`panel-head`}><Component553>{`Alertas operativas`}</Component553></Component554><Component559 className={`alert-list`}>{b.slice(0, 6).map(e => <Component558 className={`alert-row ${e.level}`} key={e.id}><Component555 className={`unit-placa`}>{e.title}</Component555><Component556 className={`unit-meta`}>{e.detail}</Component556><Component557 className={`unit-time`}>{kn(e.when)}</Component557></Component558>)}</Component559></Component560>}<Component580 className={`panel`}><Component563 className={`panel-head`}><Component561>{`Equipos en patio`}{u === `todas` ? `` : ` · ${k(u)}`}{s === `todas` ? `` : ` · ${ye(s)}`}</Component561><Component562 type={`button`} className={`text-btn`} onClick={a}>{`Ver historial`}</Component562></Component563>{f.length === 0 ? <Component564 className={`empty`}>{`No hay equipos en patio en este filtro.`}</Component564> : <Component579 className={`unit-list`}>{f.map(({
+    }}><strong>{authUser.nombreKardex || authUser.name}</strong>{` · `}{rolLabel(authUser.rol)}{` · `}{ubicacionLabel(authUser.ubicacion)}{` · `}{authUser.email}</div> : mode !== `workspace` ? <div className={`banner warn`} style={{
+      marginBottom: 12
+    }}><strong>{`Modo local`}</strong>{` · Solo personal del kardex Autorizados puede conectar Cloud. `}{onCloud ? <button type={`button`} className={`text-btn`} onClick={onCloud}>{`Conectar Cloud ahora`}</button> : `Ve a Cloud y conecta Google.`}</div> : null}<Component521 className={`hero-ops`}><Component511><Component508 className={`eyebrow`}>{`Gate · 3 yardas · API / Carbal-Pia`}</Component508><Component509>{`Control de accesos/salidas en los patios de trabajo`}</Component509><Component510 className={`lede`}>{`Chihuahua, Calera y Calpulalpan · ~25 viajes/día por sentido. Fotos guiadas, sello, firma y GPS.`}</Component510></Component511><Component512 className={`hero-prompt`}>{`Selecciona el tipo de movimiento o registro que necesitas hacer:`}</Component512><Component518 className={`hero-actions`}><Component513 type={`button`} className={`btn ghost`} onClick={() => t()}>{`Nueva entrada`}</Component513><Component514 type={`button`} className={`btn ghost`} onClick={() => n()}>{`Registrar salida`}</Component514><Component516 type={`button`} className={`btn ghost`} onClick={() => r()}>{`Equipo parado`}<Component515 className={`btn-sub`}>{`Inventariar`}</Component515></Component516>{o && <Component517 type={`button`} className={`btn ghost`} onClick={o}>{`Ver KPIs`}</Component517>}</Component518><Component520 className={`hero-hint`}><Component519>{`Equipo parado`}</Component519>{` = unidad que ya está en yarda sin viaje de entrada ni salida (vacío en pool, taller, retenida, drop sin ciclo…). No es un arribo: es un conteo.`}</Component520></Component521><Component526 className={`fieldset`}><Component522>{`Empresa`}</Component522><Component525 className={`seg big wrap`}><Component523 type={`button`} className={u === `todas` ? `seg-btn on-ok` : `seg-btn`} onClick={() => C(`todas`)}>{`Todas`}</Component523>{ie.map(e => <Component524 type={`button`} className={u === e.id ? `seg-btn on-ok` : `seg-btn`} onClick={() => C(e.id)} key={e.id}>{e.nombre}</Component524>)}</Component525></Component526><Component531 className={`fieldset`}><Component527>{`Yarda`}</Component527><Component530 className={`seg big wrap`}><Component528 type={`button`} className={s === `todas` ? `seg-btn on-ok` : `seg-btn`} onClick={() => S(`todas`)}>{`Todas`}</Component528>{_e.map(e => <Component529 type={`button`} className={s === e.id ? `seg-btn on-ok` : `seg-btn`} onClick={() => S(e.id)} key={e.id}>{e.nombre}</Component529>)}</Component530></Component531><Component541 className={`stats stats-patio`}><Component534 className={`stat`}><Component532 className={`stat-label`}>{`En patio`}</Component532><Component533 className={`stat-value`}>{f.length}</Component533></Component534><Component537 className={`stat`}><Component535 className={`stat-label`}>{`En ciclo`}</Component535><Component536 className={`stat-value`}>{p.length}</Component536></Component537><Component540 className={`stat`}><Component538 className={`stat-label`}>{`Parados`}</Component538><Component539 className={`stat-value`}>{m.length}</Component539></Component540></Component541><Component552 className={`stats`}><Component544 className={`stat`}><Component542 className={`stat-label`}>{`Entradas hoy`}</Component542><Component543 className={`stat-value`}>{_}</Component543></Component544><Component547 className={`stat`}><Component545 className={`stat-label`}>{`Salidas hoy`}</Component545><Component546 className={`stat-value`}>{v}</Component546></Component547><Component551 className={`stat`}><Component548 className={`stat-label`}>{`Alertas`}</Component548><Component549 className={`stat-value`}>{b.length || y}</Component549><Component550 className={`hint`}>{x}{` críticas`}</Component550></Component551></Component552>{b.length > 0 && <Component560 className={`panel alerts-panel`}><Component554 className={`panel-head`}><Component553>{`Alertas operativas`}</Component553></Component554><Component559 className={`alert-list`}>{b.slice(0, 6).map(e => <Component558 className={`alert-row ${e.level}`} key={e.id}><Component555 className={`unit-placa`}>{e.title}</Component555><Component556 className={`unit-meta`}>{e.detail}</Component556><Component557 className={`unit-time`}>{kn(e.when)}</Component557></Component558>)}</Component559></Component560>}<Component580 className={`panel`}><Component563 className={`panel-head`}><Component561>{`Equipos en patio`}{u === `todas` ? `` : ` · ${k(u)}`}{s === `todas` ? `` : ` · ${ye(s)}`}</Component561><Component562 type={`button`} className={`text-btn`} onClick={a}>{`Ver historial`}</Component562></Component563>{f.length === 0 ? <Component564 className={`empty`}>{`No hay equipos en patio en este filtro.`}</Component564> : <Component579 className={`unit-list`}>{f.map(({
           equipo: e,
           entrada: a,
           estado: o
@@ -4454,7 +4596,7 @@ function Vn({
     s(m);
     try {
       await c(m);
-      _(`Conectado a Google Workspace. Los datos se comparten en la hoja y Drive.`);
+      _(`Autorizado. Conectado a Google Workspace · kardex validado.`);
     } catch (e) {
       _(e instanceof Error ? e.message : `Error al conectar`);
     }
@@ -4516,7 +4658,7 @@ function Vn({
   const Component939 = `div`;
   const Component940 = `section`;
   const Component941 = `div`;
-  return <Component941 className={`page`}><Component892 className={`form-head`}><Component890>{`Google Workspace`}</Component890><Component891>{`Entradas, salidas y fotos viven en tu Drive/Sheets compartidos. Todo el personal con acceso a la hoja ve el mismo patio.`}</Component891></Component892><Component894 className={`banner ${t === `workspace` ? `success` : `info`}`}>{t === `workspace` && n ? <l.Fragment>{`Conectado como `}<Component893>{n.name}</Component893>{` (`}{n.email}{`) · modo nube`}{o ? `` : ` · OFFLINE`}{a > 0 ? ` · ${a} en cola` : ``}</l.Fragment> : <l.Fragment>{`Modo local (solo este dispositivo). Conecta Workspace para compartir con el equipo.`}</l.Fragment>}</Component894>{a > 0 && f && <Component896 className={`banner info`}>{`Hay `}{a}{` registro(s) pendientes.`}{` `}<Component895 type={`button`} className={`text-btn`} disabled={r || !o} onClick={() => void f()}>{`Subir cola ahora`}</Component895></Component896>}<Component904 className={`panel links-panel`}><Component897>{`Archivos ya creados en tu cuenta`}</Component897><Component902 className={`link-list`}><Component899><Component898 href={wt} target={`_blank`} rel={`noreferrer`}>{`Hoja PatioControl — Patio y evidencias`}</Component898></Component899><Component901><Component900 href={I} target={`_blank`} rel={`noreferrer`}>{`Carpeta PatioControl Evidencias`}</Component900></Component901></Component902><Component903 className={`hint`}>{`Compártelos en Drive con el equipo (rol Editor), p. ej. admin1@camircapital.com o un grupo @camircapital.com.`}</Component903></Component904><Component934 className={`form-panel`} onSubmit={v}><Component927 className={`fieldset`}><Component905>{`Conexión OAuth (una sola vez)`}</Component905><Component913 className={`hint setup-steps`}>{`1) En Google Cloud Console crea un proyecto → APIs: enable `}<Component906>{`Google Sheets API`}</Component906>{` y`}{` `}<Component907>{`Google Drive API`}</Component907>{`.`}<Component908 />{`2) Credenciales → OAuth client ID → tipo `}<Component909>{`Aplicación web`}</Component909>{`.`}<Component910 />{`3) Orígenes autorizados: `}<Component909>{`https://patiocontrol.netlify.app`}</Component909>{` (también http://localhost:5173 si pruebas en local).`}<Component911 />{`4) Pega el Client ID abajo. Dominio recomendado: `}<Component912>{`camircapital.com`}</Component912>{` (solo correos de la empresa).`}</Component913><Component926 className={`grid-2`}><Component916 className={`field full`}><Component914>{`Google Client ID *`}</Component914><Component915 className={`input`} value={m.clientId} onChange={e => h({
+  return <Component941 className={`page`}><Component892 className={`form-head`}><Component890>{`Google Workspace`}</Component890><Component891>{`Solo el personal listado en el kardex Autorizados puede conectar. Al firmar con Google se valida email, rol (guardia / encargado yarda / patio) y ubicación (Chihuahua, Calera o Calpulalpan).`}</Component891></Component892><Component894 className={`banner ${t === `workspace` ? `success` : `info`}`}>{t === `workspace` && n ? <l.Fragment>{`Conectado como `}<Component893>{n.nombreKardex || n.name}</Component893>{` (`}{n.email}{`) · `}{rolLabel(n.rol)}{` · `}{ubicacionLabel(n.ubicacion)}{` · modo nube`}{o ? `` : ` · OFFLINE`}{a > 0 ? ` · ${a} en cola` : ``}</l.Fragment> : <l.Fragment>{`Modo local (solo este dispositivo). Conecta con una cuenta del kardex Autorizados para compartir con el equipo.`}</l.Fragment>}</Component894>{a > 0 && f && <Component896 className={`banner info`}>{`Hay `}{a}{` registro(s) pendientes.`}{` `}<Component895 type={`button`} className={`text-btn`} disabled={r || !o} onClick={() => void f()}>{`Subir cola ahora`}</Component895></Component896>}<Component904 className={`panel links-panel`}><Component897>{`Kardex y archivos compartidos`}</Component897><Component902 className={`link-list`}><Component899><Component898 href={AUTORIZADOS_SHEET_URL} target={`_blank`} rel={`noreferrer`}>{`Hoja Autorizados (kardex · quién puede usar la app)`}</Component898></Component899><Component901><Component900 href={KARDEX_DRIVE_URL} target={`_blank`} rel={`noreferrer`}>{`Carpeta Drive — Kardex autorizados`}</Component900></Component901><li><a href={wt} target={`_blank`} rel={`noreferrer`}>{`Hoja PatioControl — Patio y evidencias`}</a></li><li><a href={I} target={`_blank`} rel={`noreferrer`}>{`Carpeta PatioControl Evidencias`}</a></li></Component902><Component903 className={`hint`}>{`Para dar acceso: agrega Email, Nombre, Apellido, Rol (guardia | encargado_yarda | patio), Ubicacion (Chihuahua | Calera | Calpulalpan | todas) y Activo=SI. Sin fila Activo=SI, la app niega el acceso.`}</Component903></Component904><Component934 className={`form-panel`} onSubmit={v}><Component927 className={`fieldset`}><Component905>{`Conexión OAuth (una sola vez)`}</Component905><Component913 className={`hint setup-steps`}>{`1) En Google Cloud Console crea un proyecto → APIs: enable `}<Component906>{`Google Sheets API`}</Component906>{` y`}{` `}<Component907>{`Google Drive API`}</Component907>{`.`}<Component908 />{`2) Credenciales → OAuth client ID → tipo `}<Component909>{`Aplicación web`}</Component909>{`.`}<Component910 />{`3) Orígenes autorizados: `}<Component909>{`https://patiocontrol.netlify.app`}</Component909>{` (también http://localhost:5173 si pruebas en local).`}<Component911 />{`4) Pega el Client ID abajo. Dominio recomendado: `}<Component912>{`camircapital.com`}</Component912>{` (solo correos de la empresa).`}</Component913><Component926 className={`grid-2`}><Component916 className={`field full`}><Component914>{`Google Client ID *`}</Component914><Component915 className={`input`} value={m.clientId} onChange={e => h({
               ...m,
               clientId: e.target.value
             })} placeholder={`123456789-abc.apps.googleusercontent.com`} required={true} /></Component916><Component919 className={`field`}><Component917>{`Dominio Workspace (opcional)`}</Component917><Component918 className={`input`} value={m.hostedDomain} onChange={e => h({
@@ -4528,7 +4670,7 @@ function Vn({
             })} /></Component922><Component925 className={`field full`}><Component923>{`ID carpeta Drive (fotos)`}</Component923><Component924 className={`input`} value={m.driveFolderId} onChange={e => h({
               ...m,
               driveFolderId: e.target.value
-            })} /></Component925></Component926></Component927>{i && <Component928 className={`banner error`}>{i}</Component928>}{g && <Component929 className={`banner ${g.startsWith(`Conectado`) ? `success` : `error`}`}>{g}</Component929>}<Component933 className={`hero-actions`}><Component930 type={`submit`} className={`btn primary`} disabled={r}>{r ? `Conectando…` : t === `workspace` ? `Reconectar` : `Conectar con Google`}</Component930>{t === `workspace` && <l.Fragment><Component931 type={`button`} className={`btn soft`} disabled={r} onClick={() => void d()}>{`Actualizar datos`}</Component931><Component932 type={`button`} className={`btn soft`} onClick={u}>{`Usar solo local`}</Component932></l.Fragment>}</Component933></Component934><Component940 className={`panel`} style={{
+            })} /></Component925></Component926></Component927>{i && <Component928 className={`banner error`}>{i}</Component928>}{g && <Component929 className={`banner ${g.startsWith(`Autorizado`) || g.startsWith(`Conectado`) ? `success` : `error`}`}>{g}</Component929>}<Component933 className={`hero-actions`}><Component930 type={`submit`} className={`btn primary`} disabled={r}>{r ? `Conectando…` : t === `workspace` ? `Reconectar` : `Conectar con Google`}</Component930>{t === `workspace` && <l.Fragment><Component931 type={`button`} className={`btn soft`} disabled={r} onClick={() => void d()}>{`Actualizar datos`}</Component931><Component932 type={`button`} className={`btn soft`} onClick={u}>{`Usar solo local`}</Component932></l.Fragment>}</Component933></Component934><Component940 className={`panel`} style={{
       marginTop: 16
     }}><Component936 className={`panel-head`}><Component935>{`Plate Recognizer (OCR de placas)`}</Component935></Component936><Component937 className={`hint`}>{`Token de platerecognizer.com para leer placas por foto en inventariar, entrada, salida, baja y equipos. Sin guiones. Si no hay token, se usa Vision (Netlify) cuando esté configurado.`}</Component937><form className={`form-panel compact`} onSubmit={savePlateToken} style={{
         marginTop: 12,
@@ -4812,7 +4954,7 @@ function Un() {
     a(e => e + 1);
     t(e);
   }
-  return <_Component7 page={e} onNavigate={e => u(e)} onBack={d} modeLabel={c.mode === `workspace` ? `Workspace` : `Local`} syncing={c.syncing} online={c.online} queueCount={c.queueCount} onFlushQueue={() => void c.flushQueue()}>{e === `dashboard` && <An state={c.state} mode={c.mode} onCloud={() => u(`workspace`)} onEntrada={e => u(`entrada`, e)} onSalida={e => u(`salida`, e)} onParado={e => u(`parado`, e)} onBaja={e => u(`baja`, e)} onHistorial={() => u(`historial`)} onKpis={() => u(`kpis`)} />}{e === `entrada` && <_Component4 tipo={`entrada`} initialPlaca={o} equipos={c.state.equipos} refrigeraciones={c.state.refrigeraciones} movimientos={c.state.movimientos} onSaveEquipo={e => void c.guardarEquipo(e)} onSubmit={async e => {
+  return <_Component7 page={e} onNavigate={e => u(e)} onBack={d} modeLabel={c.mode === `workspace` && c.user?.rol ? `${rolLabel(c.user.rol)} · ${ubicacionLabel(c.user.ubicacion)}` : c.mode === `workspace` ? `Workspace` : `Local`} syncing={c.syncing} online={c.online} queueCount={c.queueCount} onFlushQueue={() => void c.flushQueue()}>{e === `dashboard` && <An state={c.state} mode={c.mode} user={c.user} onCloud={() => u(`workspace`)} onEntrada={e => u(`entrada`, e)} onSalida={e => u(`salida`, e)} onParado={e => u(`parado`, e)} onBaja={e => u(`baja`, e)} onHistorial={() => u(`historial`)} onKpis={() => u(`kpis`)} />}{e === `entrada` && <_Component4 tipo={`entrada`} initialPlaca={o} equipos={c.state.equipos} refrigeraciones={c.state.refrigeraciones} movimientos={c.state.movimientos} onSaveEquipo={e => void c.guardarEquipo(e)} onSubmit={async e => {
       await c.registrarMovimiento(e);
     }} onDone={() => u(`dashboard`)} key={`entrada-${i}`} />}{e === `salida` && <SalidaCortaForm initialPlaca={o} equipos={c.state.equipos} movimientos={c.state.movimientos} onSubmit={async e => {
       await c.registrarMovimiento(e);
