@@ -811,7 +811,8 @@ function _Component7({
   syncing: a,
   online: o = true,
   queueCount: s = 0,
-  onFlushQueue: c
+  onFlushQueue: c,
+  navItems: navItems = Re
 }) {
   let [u, d] = (0, l.useState)(() => Fe());
   (0, l.useEffect)(() => {
@@ -835,7 +836,7 @@ function _Component7({
   const Component119 = `button`;
   const Component120 = `nav`;
   const Component121 = `div`;
-  return <Component121 className={u ? `app-shell kiosk-shell` : `app-shell`}><Component113 className={`topbar`}><Component108 className={`brand-block`}><Component106 className={`brand`}>{`PatioControl`}</Component106><Component107 className={`brand-sub`}>{`Gate · evidencias · cumplimiento`}{i ? ` · ${i}` : ``}{a ? ` · sync…` : ``}{u ? ` · quiosco` : ``}{o ? `` : ` · OFFLINE`}</Component107></Component108><Component112 className={`topbar-actions`}><Component109 type={`button`} className={u ? `nav-link active` : `nav-link`} onClick={() => d(e => !e)} title={`Botones y textos más grandes para tablet de caseta`}>{u ? `Quiosco ON` : `Quiosco`}</Component109><Component111 className={`nav-desktop`} aria-label={`Principal`}>{Re.map(n => <Component110 type={`button`} className={e === n.id ? `nav-link active` : `nav-link`} onClick={() => t(n.id)} key={n.id}>{n.label}</Component110>)}</Component111></Component112></Component113>{!o && <Component114 className={`banner error status-strip`}>{`Sin conexión · los registros se guardan en este dispositivo y se suben después.`}</Component114>}{o && s > 0 && <Component116 className={`banner info status-strip`}>{s}{` movimiento(s) pendientes de subir a Workspace.`}{` `}{c && <Component115 type={`button`} className={`text-btn`} onClick={c}>{`Subir ahora`}</Component115>}</Component116>}<Le /><Component117 className={`main`}>{r}</Component117>{f && <Component118 type={`button`} className={`btn-back-fixed`} onClick={n} aria-label={`Atrás`}>{`← Atrás`}</Component118>}<GrokDudas page={e} /><Component120 className={`nav-mobile`} aria-label={`Móvil`}>{Re.map(n => <Component119 type={`button`} className={e === n.id ? `mob-link active` : `mob-link`} onClick={() => t(n.id)} key={n.id}>{n.short}</Component119>)}</Component120></Component121>;
+  return <Component121 className={u ? `app-shell kiosk-shell` : `app-shell`}><Component113 className={`topbar`}><Component108 className={`brand-block`}><Component106 className={`brand`}>{`PatioControl`}</Component106><Component107 className={`brand-sub`}>{`Gate · evidencias · cumplimiento`}{i ? ` · ${i}` : ``}{a ? ` · sync…` : ``}{u ? ` · quiosco` : ``}{o ? `` : ` · OFFLINE`}</Component107></Component108><Component112 className={`topbar-actions`}><Component109 type={`button`} className={u ? `nav-link active` : `nav-link`} onClick={() => d(e => !e)} title={`Botones y textos más grandes para tablet de caseta`}>{u ? `Quiosco ON` : `Quiosco`}</Component109><Component111 className={`nav-desktop`} aria-label={`Principal`}>{navItems.map(n => <Component110 type={`button`} className={e === n.id ? `nav-link active` : `nav-link`} onClick={() => t(n.id)} key={n.id}>{n.label}</Component110>)}</Component111></Component112></Component113>{!o && <Component114 className={`banner error status-strip`}>{`Sin conexión · los registros se guardan en este dispositivo y se suben después.`}</Component114>}{o && s > 0 && <Component116 className={`banner info status-strip`}>{s}{` movimiento(s) pendientes de subir a Workspace.`}{` `}{c && <Component115 type={`button`} className={`text-btn`} onClick={c}>{`Subir ahora`}</Component115>}</Component116>}<Le /><Component117 className={`main`}>{r}</Component117>{f && <Component118 type={`button`} className={`btn-back-fixed`} onClick={n} aria-label={`Atrás`}>{`← Atrás`}</Component118>}<GrokDudas page={e} /><Component120 className={`nav-mobile`} aria-label={`Móvil`}>{navItems.map(n => <Component119 type={`button`} className={e === n.id ? `mob-link active` : `mob-link`} onClick={() => t(n.id)} key={n.id}>{n.short}</Component119>)}</Component120></Component121>;
 }
 function Be(e) {
   if (e.fotoUrls?.length) {
@@ -2887,6 +2888,90 @@ function normalizeTelefonoMX(raw) {
   }
   return digits.length >= 10 ? `+52${digits.slice(-10)}` : `+52${digits}`;
 }
+function parseSiNo(raw, defaultVal) {
+  let t = String(raw ?? ``).trim().toUpperCase();
+  if (t === ``) {
+    return defaultVal;
+  }
+  if ([`SI`, `SÍ`, `YES`, `1`, `TRUE`, `S`].includes(t)) {
+    return true;
+  }
+  if ([`NO`, `N`, `0`, `FALSE`].includes(t)) {
+    return false;
+  }
+  return defaultVal;
+}
+function defaultPermisosPorRol(rol) {
+  switch (rol) {
+    case `guardia`:
+      return {
+        entrada: true,
+        salida: true,
+        parado: false,
+        baja: false,
+        historial: true,
+        kpis: false,
+        equipos: false,
+        workspace: true
+      };
+    case `encargado_yarda`:
+      return {
+        entrada: true,
+        salida: true,
+        parado: true,
+        baja: true,
+        historial: true,
+        kpis: true,
+        equipos: true,
+        workspace: true
+      };
+    case `patio`:
+      return {
+        entrada: true,
+        salida: true,
+        parado: true,
+        baja: false,
+        historial: true,
+        kpis: false,
+        equipos: false,
+        workspace: true
+      };
+    case `admin`:
+    default:
+      return {
+        entrada: true,
+        salida: true,
+        parado: true,
+        baja: true,
+        historial: true,
+        kpis: true,
+        equipos: true,
+        workspace: true
+      };
+  }
+}
+function parsePermisosFromRow(e, rol) {
+  let base = defaultPermisosPorRol(rol);
+  return {
+    entrada: parseSiNo(e[9], base.entrada),
+    salida: parseSiNo(e[10], base.salida),
+    parado: parseSiNo(e[11], base.parado),
+    baja: parseSiNo(e[12], base.baja),
+    historial: parseSiNo(e[13], base.historial),
+    kpis: parseSiNo(e[14], base.kpis),
+    equipos: parseSiNo(e[15], base.equipos),
+    workspace: parseSiNo(e[16], base.workspace)
+  };
+}
+function puedeMovimiento(user, key) {
+  if (!user?.permisos) {
+    return true;
+  }
+  if (key === `dashboard`) {
+    return true;
+  }
+  return !!user.permisos[key];
+}
 function parseAutorizadoRow(e) {
   if (!e?.[0]) {
     return null;
@@ -2897,6 +2982,7 @@ function parseAutorizadoRow(e) {
   }
   let celularRaw = String(e[3] ?? ``).trim();
   let whatsappRaw = String(e[4] ?? ``).trim();
+  let rol = normalizeRol(e[5]);
   let activoRaw = String(e[8] ?? `SI`).trim().toUpperCase();
   return {
     email,
@@ -2904,16 +2990,17 @@ function parseAutorizadoRow(e) {
     apellido: String(e[2] ?? ``).trim(),
     celular: celularRaw ? normalizeTelefonoMX(celularRaw) : ``,
     whatsapp: whatsappRaw ? normalizeTelefonoMX(whatsappRaw) : celularRaw ? normalizeTelefonoMX(celularRaw) : ``,
-    rol: normalizeRol(e[5]),
+    rol,
     ubicacion: normalizeUbicacion(e[6]),
     clave: String(e[7] ?? ``).trim(),
     activo: activoRaw === `` || activoRaw === `SI` || activoRaw === `SÍ` || activoRaw === `YES` || activoRaw === `1` || activoRaw === `TRUE`,
-    notas: String(e[9] ?? ``).trim() || undefined
+    permisos: parsePermisosFromRow(e, rol),
+    notas: String(e[17] ?? ``).trim() || undefined
   };
 }
 async function loadAutorizados(e) {
   try {
-    let t = (await (await Vt(e, `/values/Autorizados!A2:K`)).json()).values ?? [];
+    let t = (await (await Vt(e, `/values/Autorizados!A2:R`)).json()).values ?? [];
     return t.map(parseAutorizadoRow).filter(Boolean);
   } catch (err) {
     throw Error(`No se pudo leer la hoja Autorizados. Créala/compártela o revisa permisos. ${err instanceof Error ? err.message : ``}`);
@@ -2952,6 +3039,7 @@ async function assertUsuarioAutorizado(config, profile, claveIngresada) {
     ubicacion: match.ubicacion,
     celular: match.celular || undefined,
     whatsapp: match.whatsapp || undefined,
+    permisos: match.permisos,
     nombreKardex: `${match.nombre} ${match.apellido}`.trim() || profile.name,
     autorizadoEn: new Date().toISOString()
   };
@@ -4074,11 +4162,11 @@ function An({
       marginBottom: 12
     }}><strong>{authUser.nombreKardex || authUser.name}</strong>{` · `}{rolLabel(authUser.rol)}{` · `}{ubicacionLabel(authUser.ubicacion)}{authUser.whatsapp ? ` · WA ${authUser.whatsapp}` : ``}{` · `}{authUser.email}</div> : mode !== `workspace` ? <div className={`banner warn`} style={{
       marginBottom: 12
-    }}><strong>{`Modo local`}</strong>{` · Solo personal del kardex Autorizados puede conectar Cloud. `}{onCloud ? <button type={`button`} className={`text-btn`} onClick={onCloud}>{`Conectar Cloud ahora`}</button> : `Ve a Cloud y conecta Google.`}</div> : null}<Component521 className={`hero-ops`}><Component511><Component508 className={`eyebrow`}>{`Gate · 3 yardas · API / Carbal-Pia`}</Component508><Component509>{`Control de accesos/salidas en los patios de trabajo`}</Component509><Component510 className={`lede`}>{`Chihuahua, Calera y Calpulalpan · ~25 viajes/día por sentido. Fotos guiadas, sello, firma y GPS.`}</Component510></Component511><Component512 className={`hero-prompt`}>{`Selecciona el tipo de movimiento o registro que necesitas hacer:`}</Component512><Component518 className={`hero-actions`}><Component513 type={`button`} className={`btn ghost`} onClick={() => t()}>{`Nueva entrada`}</Component513><Component514 type={`button`} className={`btn ghost`} onClick={() => n()}>{`Registrar salida`}</Component514><Component516 type={`button`} className={`btn ghost`} onClick={() => r()}>{`Equipo parado`}<Component515 className={`btn-sub`}>{`Inventariar`}</Component515></Component516>{o && <Component517 type={`button`} className={`btn ghost`} onClick={o}>{`Ver KPIs`}</Component517>}</Component518><Component520 className={`hero-hint`}><Component519>{`Equipo parado`}</Component519>{` = unidad que ya está en yarda sin viaje de entrada ni salida (vacío en pool, taller, retenida, drop sin ciclo…). No es un arribo: es un conteo.`}</Component520></Component521><Component526 className={`fieldset`}><Component522>{`Empresa`}</Component522><Component525 className={`seg big wrap`}><Component523 type={`button`} className={u === `todas` ? `seg-btn on-ok` : `seg-btn`} onClick={() => C(`todas`)}>{`Todas`}</Component523>{ie.map(e => <Component524 type={`button`} className={u === e.id ? `seg-btn on-ok` : `seg-btn`} onClick={() => C(e.id)} key={e.id}>{e.nombre}</Component524>)}</Component525></Component526><Component531 className={`fieldset`}><Component527>{`Yarda`}</Component527><Component530 className={`seg big wrap`}><Component528 type={`button`} className={s === `todas` ? `seg-btn on-ok` : `seg-btn`} onClick={() => S(`todas`)}>{`Todas`}</Component528>{_e.map(e => <Component529 type={`button`} className={s === e.id ? `seg-btn on-ok` : `seg-btn`} onClick={() => S(e.id)} key={e.id}>{e.nombre}</Component529>)}</Component530></Component531><Component541 className={`stats stats-patio`}><Component534 className={`stat`}><Component532 className={`stat-label`}>{`En patio`}</Component532><Component533 className={`stat-value`}>{f.length}</Component533></Component534><Component537 className={`stat`}><Component535 className={`stat-label`}>{`En ciclo`}</Component535><Component536 className={`stat-value`}>{p.length}</Component536></Component537><Component540 className={`stat`}><Component538 className={`stat-label`}>{`Parados`}</Component538><Component539 className={`stat-value`}>{m.length}</Component539></Component540></Component541><Component552 className={`stats`}><Component544 className={`stat`}><Component542 className={`stat-label`}>{`Entradas hoy`}</Component542><Component543 className={`stat-value`}>{_}</Component543></Component544><Component547 className={`stat`}><Component545 className={`stat-label`}>{`Salidas hoy`}</Component545><Component546 className={`stat-value`}>{v}</Component546></Component547><Component551 className={`stat`}><Component548 className={`stat-label`}>{`Alertas`}</Component548><Component549 className={`stat-value`}>{b.length || y}</Component549><Component550 className={`hint`}>{x}{` críticas`}</Component550></Component551></Component552>{b.length > 0 && <Component560 className={`panel alerts-panel`}><Component554 className={`panel-head`}><Component553>{`Alertas operativas`}</Component553></Component554><Component559 className={`alert-list`}>{b.slice(0, 6).map(e => <Component558 className={`alert-row ${e.level}`} key={e.id}><Component555 className={`unit-placa`}>{e.title}</Component555><Component556 className={`unit-meta`}>{e.detail}</Component556><Component557 className={`unit-time`}>{kn(e.when)}</Component557></Component558>)}</Component559></Component560>}<Component580 className={`panel`}><Component563 className={`panel-head`}><Component561>{`Equipos en patio`}{u === `todas` ? `` : ` · ${k(u)}`}{s === `todas` ? `` : ` · ${ye(s)}`}</Component561><Component562 type={`button`} className={`text-btn`} onClick={a}>{`Ver historial`}</Component562></Component563>{f.length === 0 ? <Component564 className={`empty`}>{`No hay equipos en patio en este filtro.`}</Component564> : <Component579 className={`unit-list`}>{f.map(({
+    }}><strong>{`Modo local`}</strong>{` · Solo personal del kardex Autorizados puede conectar Cloud. `}{onCloud ? <button type={`button`} className={`text-btn`} onClick={onCloud}>{`Conectar Cloud ahora`}</button> : `Ve a Cloud y conecta Google.`}</div> : null}<Component521 className={`hero-ops`}><Component511><Component508 className={`eyebrow`}>{`Gate · 3 yardas · API / Carbal-Pia`}</Component508><Component509>{`Control de accesos/salidas en los patios de trabajo`}</Component509><Component510 className={`lede`}>{`Chihuahua, Calera y Calpulalpan · ~25 viajes/día por sentido. Fotos guiadas, sello, firma y GPS.`}</Component510></Component511><Component512 className={`hero-prompt`}>{`Selecciona el tipo de movimiento o registro que necesitas hacer:`}</Component512><Component518 className={`hero-actions`}>{puedeMovimiento(authUser, `entrada`) && <Component513 type={`button`} className={`btn ghost`} onClick={() => t()}>{`Nueva entrada`}</Component513>}{puedeMovimiento(authUser, `salida`) && <Component514 type={`button`} className={`btn ghost`} onClick={() => n()}>{`Registrar salida`}</Component514>}{puedeMovimiento(authUser, `parado`) && <Component516 type={`button`} className={`btn ghost`} onClick={() => r()}>{`Equipo parado`}<Component515 className={`btn-sub`}>{`Inventariar`}</Component515></Component516>}{o && puedeMovimiento(authUser, `kpis`) && <Component517 type={`button`} className={`btn ghost`} onClick={o}>{`Ver KPIs`}</Component517>}</Component518><Component520 className={`hero-hint`}><Component519>{`Equipo parado`}</Component519>{` = unidad que ya está en yarda sin viaje de entrada ni salida (vacío en pool, taller, retenida, drop sin ciclo…). No es un arribo: es un conteo.`}</Component520></Component521><Component526 className={`fieldset`}><Component522>{`Empresa`}</Component522><Component525 className={`seg big wrap`}><Component523 type={`button`} className={u === `todas` ? `seg-btn on-ok` : `seg-btn`} onClick={() => C(`todas`)}>{`Todas`}</Component523>{ie.map(e => <Component524 type={`button`} className={u === e.id ? `seg-btn on-ok` : `seg-btn`} onClick={() => C(e.id)} key={e.id}>{e.nombre}</Component524>)}</Component525></Component526><Component531 className={`fieldset`}><Component527>{`Yarda`}</Component527><Component530 className={`seg big wrap`}><Component528 type={`button`} className={s === `todas` ? `seg-btn on-ok` : `seg-btn`} onClick={() => S(`todas`)}>{`Todas`}</Component528>{_e.map(e => <Component529 type={`button`} className={s === e.id ? `seg-btn on-ok` : `seg-btn`} onClick={() => S(e.id)} key={e.id}>{e.nombre}</Component529>)}</Component530></Component531><Component541 className={`stats stats-patio`}><Component534 className={`stat`}><Component532 className={`stat-label`}>{`En patio`}</Component532><Component533 className={`stat-value`}>{f.length}</Component533></Component534><Component537 className={`stat`}><Component535 className={`stat-label`}>{`En ciclo`}</Component535><Component536 className={`stat-value`}>{p.length}</Component536></Component537><Component540 className={`stat`}><Component538 className={`stat-label`}>{`Parados`}</Component538><Component539 className={`stat-value`}>{m.length}</Component539></Component540></Component541><Component552 className={`stats`}><Component544 className={`stat`}><Component542 className={`stat-label`}>{`Entradas hoy`}</Component542><Component543 className={`stat-value`}>{_}</Component543></Component544><Component547 className={`stat`}><Component545 className={`stat-label`}>{`Salidas hoy`}</Component545><Component546 className={`stat-value`}>{v}</Component546></Component547><Component551 className={`stat`}><Component548 className={`stat-label`}>{`Alertas`}</Component548><Component549 className={`stat-value`}>{b.length || y}</Component549><Component550 className={`hint`}>{x}{` críticas`}</Component550></Component551></Component552>{b.length > 0 && <Component560 className={`panel alerts-panel`}><Component554 className={`panel-head`}><Component553>{`Alertas operativas`}</Component553></Component554><Component559 className={`alert-list`}>{b.slice(0, 6).map(e => <Component558 className={`alert-row ${e.level}`} key={e.id}><Component555 className={`unit-placa`}>{e.title}</Component555><Component556 className={`unit-meta`}>{e.detail}</Component556><Component557 className={`unit-time`}>{kn(e.when)}</Component557></Component558>)}</Component559></Component560>}<Component580 className={`panel`}><Component563 className={`panel-head`}><Component561>{`Equipos en patio`}{u === `todas` ? `` : ` · ${k(u)}`}{s === `todas` ? `` : ` · ${ye(s)}`}</Component561>{puedeMovimiento(authUser, `historial`) && <Component562 type={`button`} className={`text-btn`} onClick={a}>{`Ver historial`}</Component562>}</Component563>{f.length === 0 ? <Component564 className={`empty`}>{`No hay equipos en patio en este filtro.`}</Component564> : <Component579 className={`unit-list`}>{f.map(({
           equipo: e,
           entrada: a,
           estado: o
-        }) => <Component578 className={`unit-row`} key={e.id}><Component573 className={`unit-main`}><Component566 className={`unit-placa`}>{e.placa}{` `}<Component565 className={`badge ${o === `parado` ? `parado` : `ciclo`}`}>{o === `parado` ? `PARADO` : `EN CICLO`}</Component565></Component566><Component567 className={`unit-meta`}>{jn(e.tipo)}{` · `}{e.numeroEconomico}{` ·`}{` `}{k(a.empresaId)}{` · `}{ye(a.yardaId)}{a.selloNumero ? ` · sello ${a.selloNumero}` : ``}{o === `parado` && a.motivoParo ? ` · ${_t(a.motivoParo, a.motivoParoOtro)}` : ``}</Component567><Component572 className={`unit-actions`}><Component568 type={`button`} className={`text-btn`} onClick={() => n(e.placa)}>{`Salida`}</Component568>{o === `parado` ? <Component569 type={`button`} className={`text-btn`} onClick={() => t(e.placa)}>{`Pasar a ciclo`}</Component569> : <Component570 type={`button`} className={`text-btn`} onClick={() => r(e.placa)}>{`Pasar a parado`}</Component570>}<Component571 type={`button`} className={`text-btn`} onClick={() => i(e.placa)}>{`Baja`}</Component571></Component572></Component573><Component576 className={`unit-side`}><Component574 className={`unit-time`}>{o === `parado` ? `Desde` : `Llegó`}{` `}{kn(a.fechaHora)}</Component574><Component575 className={`pill ${a.condicionGeneral}`}>{a.condicionGeneral}</Component575></Component576>{a.fotos[0] && <Component577 className={`unit-thumb`} src={a.fotos[0]} alt={``} />}</Component578>)}</Component579>}</Component580></Component581>;
+        }) => <Component578 className={`unit-row`} key={e.id}><Component573 className={`unit-main`}><Component566 className={`unit-placa`}>{e.placa}{` `}<Component565 className={`badge ${o === `parado` ? `parado` : `ciclo`}`}>{o === `parado` ? `PARADO` : `EN CICLO`}</Component565></Component566><Component567 className={`unit-meta`}>{jn(e.tipo)}{` · `}{e.numeroEconomico}{` ·`}{` `}{k(a.empresaId)}{` · `}{ye(a.yardaId)}{a.selloNumero ? ` · sello ${a.selloNumero}` : ``}{o === `parado` && a.motivoParo ? ` · ${_t(a.motivoParo, a.motivoParoOtro)}` : ``}</Component567><Component572 className={`unit-actions`}>{puedeMovimiento(authUser, `salida`) && <Component568 type={`button`} className={`text-btn`} onClick={() => n(e.placa)}>{`Salida`}</Component568>}{o === `parado` ? puedeMovimiento(authUser, `entrada`) && <Component569 type={`button`} className={`text-btn`} onClick={() => t(e.placa)}>{`Pasar a ciclo`}</Component569> : puedeMovimiento(authUser, `parado`) && <Component570 type={`button`} className={`text-btn`} onClick={() => r(e.placa)}>{`Pasar a parado`}</Component570>}{puedeMovimiento(authUser, `baja`) && <Component571 type={`button`} className={`text-btn`} onClick={() => i(e.placa)}>{`Baja`}</Component571>}</Component572></Component573><Component576 className={`unit-side`}><Component574 className={`unit-time`}>{o === `parado` ? `Desde` : `Llegó`}{` `}{kn(a.fechaHora)}</Component574><Component575 className={`pill ${a.condicionGeneral}`}>{a.condicionGeneral}</Component575></Component576>{a.fotos[0] && <Component577 className={`unit-thumb`} src={a.fotos[0]} alt={``} />}</Component578>)}</Component579>}</Component580></Component581>;
 }
 function jn(e) {
   switch (e) {
@@ -4696,7 +4784,7 @@ function Vn({
   const Component939 = `div`;
   const Component940 = `section`;
   const Component941 = `div`;
-  return <Component941 className={`page`}><Component892 className={`form-head`}><Component890>{`Google Workspace`}</Component890><Component891>{`Entran con su correo Google + la clave que el admin les asignó en el kardex (hoja Autorizados). Sin email autorizado o con clave incorrecta, no hay acceso.`}</Component891></Component892><Component894 className={`banner ${t === `workspace` ? `success` : `info`}`}>{t === `workspace` && n ? <l.Fragment>{`Conectado como `}<Component893>{n.nombreKardex || n.name}</Component893>{` (`}{n.email}{`) · `}{rolLabel(n.rol)}{` · `}{ubicacionLabel(n.ubicacion)}{n.whatsapp ? ` · WA ${n.whatsapp}` : n.celular ? ` · cel ${n.celular}` : ``}{` · modo nube`}{o ? `` : ` · OFFLINE`}{a > 0 ? ` · ${a} en cola` : ``}</l.Fragment> : <l.Fragment>{`Modo local (solo este dispositivo). Conecta con una cuenta del kardex Autorizados para compartir con el equipo.`}</l.Fragment>}</Component894>{a > 0 && f && <Component896 className={`banner info`}>{`Hay `}{a}{` registro(s) pendientes.`}{` `}<Component895 type={`button`} className={`text-btn`} disabled={r || !o} onClick={() => void f()}>{`Subir cola ahora`}</Component895></Component896>}<Component904 className={`panel links-panel`}><Component897>{`Kardex y archivos compartidos`}</Component897><Component902 className={`link-list`}><Component899><Component898 href={AUTORIZADOS_SHEET_URL} target={`_blank`} rel={`noreferrer`}>{`Hoja Autorizados (kardex · quién puede usar la app)`}</Component898></Component899><Component901><Component900 href={KARDEX_DRIVE_URL} target={`_blank`} rel={`noreferrer`}>{`Carpeta Drive — Kardex autorizados`}</Component900></Component901><li><a href={wt} target={`_blank`} rel={`noreferrer`}>{`Hoja PatioControl — Patio y evidencias`}</a></li><li><a href={I} target={`_blank`} rel={`noreferrer`}>{`Carpeta PatioControl Evidencias`}</a></li></Component902><Component903 className={`hint`}>{`Alta: Email (correo Google), Nombre, Apellido, Celular, WhatsApp (+52), Rol, Ubicacion, Clave (la asigna el admin), Activo=SI. La app valida correo + clave contra esa hoja.`}</Component903></Component904><Component934 className={`form-panel`} onSubmit={v}><Component927 className={`fieldset`}><Component905>{`Conexión OAuth (una sola vez)`}</Component905><Component913 className={`hint setup-steps`}>{`1) En Google Cloud Console crea un proyecto → APIs: enable `}<Component906>{`Google Sheets API`}</Component906>{` y`}{` `}<Component907>{`Google Drive API`}</Component907>{`.`}<Component908 />{`2) Credenciales → OAuth client ID → tipo `}<Component909>{`Aplicación web`}</Component909>{`.`}<Component910 />{`3) Orígenes autorizados: `}<Component909>{`https://patiocontrol.netlify.app`}</Component909>{` (también http://localhost:5173 si pruebas en local).`}<Component911 />{`4) Pega el Client ID abajo. Dominio recomendado: `}<Component912>{`camircapital.com`}</Component912>{` (solo correos de la empresa).`}</Component913><Component926 className={`grid-2`}><Component916 className={`field full`}><Component914>{`Google Client ID *`}</Component914><Component915 className={`input`} value={m.clientId} onChange={e => h({
+  return <Component941 className={`page`}><Component892 className={`form-head`}><Component890>{`Google Workspace`}</Component890><Component891>{`Entran con su correo Google + la clave que el admin les asignó en el kardex (hoja Autorizados). Sin email autorizado o con clave incorrecta, no hay acceso.`}</Component891></Component892><Component894 className={`banner ${t === `workspace` ? `success` : `info`}`}>{t === `workspace` && n ? <l.Fragment>{`Conectado como `}<Component893>{n.nombreKardex || n.name}</Component893>{` (`}{n.email}{`) · `}{rolLabel(n.rol)}{` · `}{ubicacionLabel(n.ubicacion)}{n.whatsapp ? ` · WA ${n.whatsapp}` : n.celular ? ` · cel ${n.celular}` : ``}{` · modo nube`}{o ? `` : ` · OFFLINE`}{a > 0 ? ` · ${a} en cola` : ``}</l.Fragment> : <l.Fragment>{`Modo local (solo este dispositivo). Conecta con una cuenta del kardex Autorizados para compartir con el equipo.`}</l.Fragment>}</Component894>{a > 0 && f && <Component896 className={`banner info`}>{`Hay `}{a}{` registro(s) pendientes.`}{` `}<Component895 type={`button`} className={`text-btn`} disabled={r || !o} onClick={() => void f()}>{`Subir cola ahora`}</Component895></Component896>}<Component904 className={`panel links-panel`}><Component897>{`Kardex y archivos compartidos`}</Component897><Component902 className={`link-list`}><Component899><Component898 href={AUTORIZADOS_SHEET_URL} target={`_blank`} rel={`noreferrer`}>{`Hoja Autorizados (kardex · quién puede usar la app)`}</Component898></Component899><Component901><Component900 href={KARDEX_DRIVE_URL} target={`_blank`} rel={`noreferrer`}>{`Carpeta Drive — Kardex autorizados`}</Component900></Component901><li><a href={wt} target={`_blank`} rel={`noreferrer`}>{`Hoja PatioControl — Patio y evidencias`}</a></li><li><a href={I} target={`_blank`} rel={`noreferrer`}>{`Carpeta PatioControl Evidencias`}</a></li></Component902><Component903 className={`hint`}>{`Alta: Email, Clave, Activo=SI y columnas Entrada/Salida/Parado/Baja/Historial/KPIs/Equipos/Cloud en SI o NO. Si las dejas vacías, se usa la plantilla del Rol (guardia = solo entrada/salida).`}</Component903></Component904><Component934 className={`form-panel`} onSubmit={v}><Component927 className={`fieldset`}><Component905>{`Conexión OAuth (una sola vez)`}</Component905><Component913 className={`hint setup-steps`}>{`1) En Google Cloud Console crea un proyecto → APIs: enable `}<Component906>{`Google Sheets API`}</Component906>{` y`}{` `}<Component907>{`Google Drive API`}</Component907>{`.`}<Component908 />{`2) Credenciales → OAuth client ID → tipo `}<Component909>{`Aplicación web`}</Component909>{`.`}<Component910 />{`3) Orígenes autorizados: `}<Component909>{`https://patiocontrol.netlify.app`}</Component909>{` (también http://localhost:5173 si pruebas en local).`}<Component911 />{`4) Pega el Client ID abajo. Dominio recomendado: `}<Component912>{`camircapital.com`}</Component912>{` (solo correos de la empresa).`}</Component913><Component926 className={`grid-2`}><Component916 className={`field full`}><Component914>{`Google Client ID *`}</Component914><Component915 className={`input`} value={m.clientId} onChange={e => h({
               ...m,
               clientId: e.target.value
             })} placeholder={`123456789-abc.apps.googleusercontent.com`} required={true} /></Component916><Component919 className={`field`}><Component917>{`Dominio Workspace (opcional)`}</Component917><Component918 className={`input`} value={m.hostedDomain} onChange={e => h({
@@ -4970,18 +5058,32 @@ function Un() {
   let [n, r] = (0, l.useState)([]);
   let [i, a] = (0, l.useState)(0);
   let [o, s] = (0, l.useState)(``);
+  let [permMsg, setPermMsg] = (0, l.useState)(null);
   let c = Sn();
+  let navItems = (0, l.useMemo)(() => Re.filter(item => puedeMovimiento(c.user, item.id)), [c.user]);
   (0, l.useEffect)(() => {
-    document.title = `PatioControl — ${Hn[e]}`;
+    document.title = `PatioControl — ${Hn[e] || e}`;
   }, [e]);
-  function u(e, n) {
+  (0, l.useEffect)(() => {
+    if (e !== `dashboard` && !puedeMovimiento(c.user, e)) {
+      setPermMsg(`Tu rol no tiene permiso para “${Hn[e] || e}”. Pide al admin que lo active en el kardex.`);
+      t(`dashboard`);
+      r([]);
+    }
+  }, [c.user, e]);
+  function u(page, n) {
+    if (!puedeMovimiento(c.user, page)) {
+      setPermMsg(`Sin permiso para “${Hn[page] || page}”. El admin lo habilita en Autorizados (columnas Entrada/Salida/Parado/…).`);
+      return;
+    }
+    setPermMsg(null);
     s(n?.trim().toUpperCase() ?? ``);
     a(e => e + 1);
     t(t => {
-      if (t !== e) {
+      if (t !== page) {
         r(e => [...e, t]);
       }
-      return e;
+      return page;
     });
   }
   function d() {
@@ -4989,21 +5091,29 @@ function Un() {
       t(`dashboard`);
       return;
     }
-    let e = n[n.length - 1];
+    let prev = n[n.length - 1];
     r(e => e.slice(0, -1));
     s(``);
     a(e => e + 1);
-    t(e);
+    t(prev);
   }
-  return <_Component7 page={e} onNavigate={e => u(e)} onBack={d} modeLabel={c.mode === `workspace` && c.user?.rol ? `${rolLabel(c.user.rol)} · ${ubicacionLabel(c.user.ubicacion)}` : c.mode === `workspace` ? `Workspace` : `Local`} syncing={c.syncing} online={c.online} queueCount={c.queueCount} onFlushQueue={() => void c.flushQueue()}>{e === `dashboard` && <An state={c.state} mode={c.mode} user={c.user} onCloud={() => u(`workspace`)} onEntrada={e => u(`entrada`, e)} onSalida={e => u(`salida`, e)} onParado={e => u(`parado`, e)} onBaja={e => u(`baja`, e)} onHistorial={() => u(`historial`)} onKpis={() => u(`kpis`)} />}{e === `entrada` && <_Component4 tipo={`entrada`} initialPlaca={o} equipos={c.state.equipos} refrigeraciones={c.state.refrigeraciones} movimientos={c.state.movimientos} onSaveEquipo={e => void c.guardarEquipo(e)} onSubmit={async e => {
-      await c.registrarMovimiento(e);
-    }} onDone={() => u(`dashboard`)} key={`entrada-${i}`} />}{e === `salida` && <SalidaCortaForm initialPlaca={o} equipos={c.state.equipos} movimientos={c.state.movimientos} onSubmit={async e => {
-      await c.registrarMovimiento(e);
-    }} onDone={() => u(`dashboard`)} key={`salida-${i}`} />}{e === `parado` && <_Component5 initialPlaca={o} equipos={c.state.equipos} movimientos={c.state.movimientos} onSaveEquipo={e => void c.guardarEquipo(e)} onSubmit={async e => {
-      await c.registrarMovimiento(e);
-    }} onDone={() => u(`dashboard`)} key={`parado-${i}`} />}{e === `baja` && <Ne initialPlaca={o} equipos={c.state.equipos} movimientos={c.state.movimientos} onSubmit={async e => {
-      await c.registrarMovimiento(e);
-    }} onDone={() => u(`dashboard`)} key={`baja-${i}`} />}{e === `historial` && <_Component6 state={c.state} />}{e === `kpis` && <Bn state={c.state} />}{e === `equipos` && <Mn state={c.state} onSave={e => void c.guardarEquipo(e)} onDelete={e => void c.eliminarEquipo(e)} onSaveRefrigeracion={e => void c.guardarRefrigeracion(e)} onDeleteRefrigeracion={e => void c.eliminarRefrigeracion(e)} />}{e === `workspace` && <Vn config={c.config} mode={c.mode} user={c.user} syncing={c.syncing} syncError={c.syncError} queueCount={c.queueCount} online={c.online} onSaveConfig={c.updateConfig} onConnect={c.connectWorkspace} onDisconnect={c.disconnectWorkspace} onRefresh={c.refreshFromWorkspace} onFlushQueue={c.flushQueue} onLimpiarDatos={c.limpiarDatos} />}</_Component7>;
+  async function guardSubmit(tipo, payload) {
+    if (!puedeMovimiento(c.user, tipo)) {
+      throw Error(`Sin permiso para registrar “${tipo}”.`);
+    }
+    await c.registrarMovimiento(payload);
+  }
+  return <_Component7 page={e} onNavigate={e => u(e)} onBack={d} modeLabel={c.mode === `workspace` && c.user?.rol ? `${rolLabel(c.user.rol)} · ${ubicacionLabel(c.user.ubicacion)}` : c.mode === `workspace` ? `Workspace` : `Local`} syncing={c.syncing} online={c.online} queueCount={c.queueCount} onFlushQueue={() => void c.flushQueue()} navItems={navItems}>{permMsg && <p className={`banner warn`} style={{
+      marginBottom: 12
+    }}>{permMsg}</p>}{e === `dashboard` && <An state={c.state} mode={c.mode} user={c.user} onCloud={() => u(`workspace`)} onEntrada={e => u(`entrada`, e)} onSalida={e => u(`salida`, e)} onParado={e => u(`parado`, e)} onBaja={e => u(`baja`, e)} onHistorial={() => u(`historial`)} onKpis={() => u(`kpis`)} />}{e === `entrada` && puedeMovimiento(c.user, `entrada`) && <_Component4 tipo={`entrada`} initialPlaca={o} equipos={c.state.equipos} refrigeraciones={c.state.refrigeraciones} movimientos={c.state.movimientos} onSaveEquipo={e => void c.guardarEquipo(e)} onSubmit={async e => {
+      await guardSubmit(`entrada`, e);
+    }} onDone={() => u(`dashboard`)} key={`entrada-${i}`} />}{e === `salida` && puedeMovimiento(c.user, `salida`) && <SalidaCortaForm initialPlaca={o} equipos={c.state.equipos} movimientos={c.state.movimientos} onSubmit={async e => {
+      await guardSubmit(`salida`, e);
+    }} onDone={() => u(`dashboard`)} key={`salida-${i}`} />}{e === `parado` && puedeMovimiento(c.user, `parado`) && <_Component5 initialPlaca={o} equipos={c.state.equipos} movimientos={c.state.movimientos} onSaveEquipo={e => void c.guardarEquipo(e)} onSubmit={async e => {
+      await guardSubmit(`parado`, e);
+    }} onDone={() => u(`dashboard`)} key={`parado-${i}`} />}{e === `baja` && puedeMovimiento(c.user, `baja`) && <Ne initialPlaca={o} equipos={c.state.equipos} movimientos={c.state.movimientos} onSubmit={async e => {
+      await guardSubmit(`baja`, e);
+    }} onDone={() => u(`dashboard`)} key={`baja-${i}`} />}{e === `historial` && puedeMovimiento(c.user, `historial`) && <_Component6 state={c.state} />}{e === `kpis` && puedeMovimiento(c.user, `kpis`) && <Bn state={c.state} />}{e === `equipos` && puedeMovimiento(c.user, `equipos`) && <Mn state={c.state} onSave={e => void c.guardarEquipo(e)} onDelete={e => void c.eliminarEquipo(e)} onSaveRefrigeracion={e => void c.guardarRefrigeracion(e)} onDeleteRefrigeracion={e => void c.eliminarRefrigeracion(e)} />}{e === `workspace` && puedeMovimiento(c.user, `workspace`) && <Vn config={c.config} mode={c.mode} user={c.user} syncing={c.syncing} syncError={c.syncError} queueCount={c.queueCount} online={c.online} onSaveConfig={c.updateConfig} onConnect={c.connectWorkspace} onDisconnect={c.disconnectWorkspace} onRefresh={c.refreshFromWorkspace} onFlushQueue={c.flushQueue} onLimpiarDatos={c.limpiarDatos} />}</_Component7>;
 }
 
 export default function App() {
