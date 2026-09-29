@@ -2897,7 +2897,7 @@ function parseAutorizadoRow(e) {
   }
   let celularRaw = String(e[3] ?? ``).trim();
   let whatsappRaw = String(e[4] ?? ``).trim();
-  let activoRaw = String(e[7] ?? `SI`).trim().toUpperCase();
+  let activoRaw = String(e[8] ?? `SI`).trim().toUpperCase();
   return {
     email,
     nombre: String(e[1] ?? ``).trim(),
@@ -2906,22 +2906,27 @@ function parseAutorizadoRow(e) {
     whatsapp: whatsappRaw ? normalizeTelefonoMX(whatsappRaw) : celularRaw ? normalizeTelefonoMX(celularRaw) : ``,
     rol: normalizeRol(e[5]),
     ubicacion: normalizeUbicacion(e[6]),
+    clave: String(e[7] ?? ``).trim(),
     activo: activoRaw === `` || activoRaw === `SI` || activoRaw === `SÍ` || activoRaw === `YES` || activoRaw === `1` || activoRaw === `TRUE`,
-    notas: String(e[8] ?? ``).trim() || undefined
+    notas: String(e[9] ?? ``).trim() || undefined
   };
 }
 async function loadAutorizados(e) {
   try {
-    let t = (await (await Vt(e, `/values/Autorizados!A2:J`)).json()).values ?? [];
+    let t = (await (await Vt(e, `/values/Autorizados!A2:K`)).json()).values ?? [];
     return t.map(parseAutorizadoRow).filter(Boolean);
   } catch (err) {
     throw Error(`No se pudo leer la hoja Autorizados. Créala/compártela o revisa permisos. ${err instanceof Error ? err.message : ``}`);
   }
 }
-async function assertUsuarioAutorizado(config, profile) {
+async function assertUsuarioAutorizado(config, profile, claveIngresada) {
   let email = String(profile.email ?? ``).trim().toLowerCase();
   if (!email) {
     throw Error(`Tu cuenta de Google no trae email. No se puede autorizar.`);
+  }
+  let clave = String(claveIngresada ?? ``).trim();
+  if (!clave) {
+    throw Error(`Escribe la clave que te asignó el admin (columna Clave del kardex).`);
   }
   let list = await loadAutorizados(config);
   if (list.length === 0) {
@@ -2933,6 +2938,12 @@ async function assertUsuarioAutorizado(config, profile) {
   }
   if (!match.activo) {
     throw Error(`Acceso denegado: ${email} está inactivo en el kardex (Activo ≠ SI).`);
+  }
+  if (!match.clave) {
+    throw Error(`Acceso denegado: ${email} no tiene Clave en el kardex. Pide al admin que te asigne una.`);
+  }
+  if (match.clave !== clave) {
+    throw Error(`Clave incorrecta. Revisa con el admin la columna Clave de tu fila en Autorizados.`);
   }
   return {
     ...profile,
@@ -3528,8 +3539,9 @@ function Sn() {
       v();
     }
   }, [p, n, v]);
-  let y = (0, l.useCallback)(async n => {
+  let y = (0, l.useCallback)(async (n, opts = {}) => {
     let i = n ?? e;
+    let clave = String(opts.clave ?? ``);
     if (n) {
       Ot(n);
       t(n);
@@ -3538,7 +3550,7 @@ function Sn() {
     f(null);
     try {
       let profile = await It(await Ft(i));
-      let authorized = await assertUsuarioAutorizado(i, profile);
+      let authorized = await assertUsuarioAutorizado(i, profile, clave);
       a(authorized);
       saveCachedAuthProfile(authorized);
       if (authorized.ubicacion && authorized.ubicacion !== `todas` && _e.some(y => y.id === authorized.ubicacion)) {
@@ -4609,6 +4621,7 @@ function Vn({
   onLimpiarDatos: p
 }) {
   let [m, h] = (0, l.useState)(e);
+  let [claveApp, setClaveApp] = (0, l.useState)(``);
   let [g, _] = (0, l.useState)(null);
   let [plateToken, setPlateToken] = (0, l.useState)(() => getPlateRecognizerToken());
   let [plateSaved, setPlateSaved] = (0, l.useState)(null);
@@ -4617,8 +4630,11 @@ function Vn({
     _(null);
     s(m);
     try {
-      await c(m);
-      _(`Autorizado. Conectado a Google Workspace · kardex validado.`);
+      await c(m, {
+        clave: claveApp
+      });
+      setClaveApp(``);
+      _(`Autorizado. Correo + clave del kardex OK · conectado a Workspace.`);
     } catch (e) {
       _(e instanceof Error ? e.message : `Error al conectar`);
     }
@@ -4680,7 +4696,7 @@ function Vn({
   const Component939 = `div`;
   const Component940 = `section`;
   const Component941 = `div`;
-  return <Component941 className={`page`}><Component892 className={`form-head`}><Component890>{`Google Workspace`}</Component890><Component891>{`Solo el personal listado en el kardex Autorizados puede conectar. Al firmar con Google se valida email, rol (guardia / encargado yarda / patio) y ubicación (Chihuahua, Calera o Calpulalpan).`}</Component891></Component892><Component894 className={`banner ${t === `workspace` ? `success` : `info`}`}>{t === `workspace` && n ? <l.Fragment>{`Conectado como `}<Component893>{n.nombreKardex || n.name}</Component893>{` (`}{n.email}{`) · `}{rolLabel(n.rol)}{` · `}{ubicacionLabel(n.ubicacion)}{n.whatsapp ? ` · WA ${n.whatsapp}` : n.celular ? ` · cel ${n.celular}` : ``}{` · modo nube`}{o ? `` : ` · OFFLINE`}{a > 0 ? ` · ${a} en cola` : ``}</l.Fragment> : <l.Fragment>{`Modo local (solo este dispositivo). Conecta con una cuenta del kardex Autorizados para compartir con el equipo.`}</l.Fragment>}</Component894>{a > 0 && f && <Component896 className={`banner info`}>{`Hay `}{a}{` registro(s) pendientes.`}{` `}<Component895 type={`button`} className={`text-btn`} disabled={r || !o} onClick={() => void f()}>{`Subir cola ahora`}</Component895></Component896>}<Component904 className={`panel links-panel`}><Component897>{`Kardex y archivos compartidos`}</Component897><Component902 className={`link-list`}><Component899><Component898 href={AUTORIZADOS_SHEET_URL} target={`_blank`} rel={`noreferrer`}>{`Hoja Autorizados (kardex · quién puede usar la app)`}</Component898></Component899><Component901><Component900 href={KARDEX_DRIVE_URL} target={`_blank`} rel={`noreferrer`}>{`Carpeta Drive — Kardex autorizados`}</Component900></Component901><li><a href={wt} target={`_blank`} rel={`noreferrer`}>{`Hoja PatioControl — Patio y evidencias`}</a></li><li><a href={I} target={`_blank`} rel={`noreferrer`}>{`Carpeta PatioControl Evidencias`}</a></li></Component902><Component903 className={`hint`}>{`Para dar acceso: Email (correo Google), Nombre, Apellido, Celular, WhatsApp (+52…), Rol (guardia | encargado_yarda | patio), Ubicacion (Chihuahua | Calera | Calpulalpan | todas) y Activo=SI. Sin fila Activo=SI, la app niega el acceso.`}</Component903></Component904><Component934 className={`form-panel`} onSubmit={v}><Component927 className={`fieldset`}><Component905>{`Conexión OAuth (una sola vez)`}</Component905><Component913 className={`hint setup-steps`}>{`1) En Google Cloud Console crea un proyecto → APIs: enable `}<Component906>{`Google Sheets API`}</Component906>{` y`}{` `}<Component907>{`Google Drive API`}</Component907>{`.`}<Component908 />{`2) Credenciales → OAuth client ID → tipo `}<Component909>{`Aplicación web`}</Component909>{`.`}<Component910 />{`3) Orígenes autorizados: `}<Component909>{`https://patiocontrol.netlify.app`}</Component909>{` (también http://localhost:5173 si pruebas en local).`}<Component911 />{`4) Pega el Client ID abajo. Dominio recomendado: `}<Component912>{`camircapital.com`}</Component912>{` (solo correos de la empresa).`}</Component913><Component926 className={`grid-2`}><Component916 className={`field full`}><Component914>{`Google Client ID *`}</Component914><Component915 className={`input`} value={m.clientId} onChange={e => h({
+  return <Component941 className={`page`}><Component892 className={`form-head`}><Component890>{`Google Workspace`}</Component890><Component891>{`Entran con su correo Google + la clave que el admin les asignó en el kardex (hoja Autorizados). Sin email autorizado o con clave incorrecta, no hay acceso.`}</Component891></Component892><Component894 className={`banner ${t === `workspace` ? `success` : `info`}`}>{t === `workspace` && n ? <l.Fragment>{`Conectado como `}<Component893>{n.nombreKardex || n.name}</Component893>{` (`}{n.email}{`) · `}{rolLabel(n.rol)}{` · `}{ubicacionLabel(n.ubicacion)}{n.whatsapp ? ` · WA ${n.whatsapp}` : n.celular ? ` · cel ${n.celular}` : ``}{` · modo nube`}{o ? `` : ` · OFFLINE`}{a > 0 ? ` · ${a} en cola` : ``}</l.Fragment> : <l.Fragment>{`Modo local (solo este dispositivo). Conecta con una cuenta del kardex Autorizados para compartir con el equipo.`}</l.Fragment>}</Component894>{a > 0 && f && <Component896 className={`banner info`}>{`Hay `}{a}{` registro(s) pendientes.`}{` `}<Component895 type={`button`} className={`text-btn`} disabled={r || !o} onClick={() => void f()}>{`Subir cola ahora`}</Component895></Component896>}<Component904 className={`panel links-panel`}><Component897>{`Kardex y archivos compartidos`}</Component897><Component902 className={`link-list`}><Component899><Component898 href={AUTORIZADOS_SHEET_URL} target={`_blank`} rel={`noreferrer`}>{`Hoja Autorizados (kardex · quién puede usar la app)`}</Component898></Component899><Component901><Component900 href={KARDEX_DRIVE_URL} target={`_blank`} rel={`noreferrer`}>{`Carpeta Drive — Kardex autorizados`}</Component900></Component901><li><a href={wt} target={`_blank`} rel={`noreferrer`}>{`Hoja PatioControl — Patio y evidencias`}</a></li><li><a href={I} target={`_blank`} rel={`noreferrer`}>{`Carpeta PatioControl Evidencias`}</a></li></Component902><Component903 className={`hint`}>{`Alta: Email (correo Google), Nombre, Apellido, Celular, WhatsApp (+52), Rol, Ubicacion, Clave (la asigna el admin), Activo=SI. La app valida correo + clave contra esa hoja.`}</Component903></Component904><Component934 className={`form-panel`} onSubmit={v}><Component927 className={`fieldset`}><Component905>{`Conexión OAuth (una sola vez)`}</Component905><Component913 className={`hint setup-steps`}>{`1) En Google Cloud Console crea un proyecto → APIs: enable `}<Component906>{`Google Sheets API`}</Component906>{` y`}{` `}<Component907>{`Google Drive API`}</Component907>{`.`}<Component908 />{`2) Credenciales → OAuth client ID → tipo `}<Component909>{`Aplicación web`}</Component909>{`.`}<Component910 />{`3) Orígenes autorizados: `}<Component909>{`https://patiocontrol.netlify.app`}</Component909>{` (también http://localhost:5173 si pruebas en local).`}<Component911 />{`4) Pega el Client ID abajo. Dominio recomendado: `}<Component912>{`camircapital.com`}</Component912>{` (solo correos de la empresa).`}</Component913><Component926 className={`grid-2`}><Component916 className={`field full`}><Component914>{`Google Client ID *`}</Component914><Component915 className={`input`} value={m.clientId} onChange={e => h({
               ...m,
               clientId: e.target.value
             })} placeholder={`123456789-abc.apps.googleusercontent.com`} required={true} /></Component916><Component919 className={`field`}><Component917>{`Dominio Workspace (opcional)`}</Component917><Component918 className={`input`} value={m.hostedDomain} onChange={e => h({
@@ -4692,7 +4708,10 @@ function Vn({
             })} /></Component922><Component925 className={`field full`}><Component923>{`ID carpeta Drive (fotos)`}</Component923><Component924 className={`input`} value={m.driveFolderId} onChange={e => h({
               ...m,
               driveFolderId: e.target.value
-            })} /></Component925></Component926></Component927>{i && <Component928 className={`banner error`}>{i}</Component928>}{g && <Component929 className={`banner ${g.startsWith(`Autorizado`) || g.startsWith(`Conectado`) ? `success` : `error`}`}>{g}</Component929>}<Component933 className={`hero-actions`}><Component930 type={`submit`} className={`btn primary`} disabled={r}>{r ? `Conectando…` : t === `workspace` ? `Reconectar` : `Conectar con Google`}</Component930>{t === `workspace` && <l.Fragment><Component931 type={`button`} className={`btn soft`} disabled={r} onClick={() => void d()}>{`Actualizar datos`}</Component931><Component932 type={`button`} className={`btn soft`} onClick={u}>{`Usar solo local`}</Component932></l.Fragment>}</Component933></Component934><Component940 className={`panel`} style={{
+            })} /></Component925><label className={`field full`}><span>{`Clave del kardex *`}</span><input className={`input`} type={`password`} autoComplete={`current-password`} value={claveApp} onChange={e => setClaveApp(e.target.value)} placeholder={`La que el admin puso en columna Clave`} required={true} /></label><p className={`hint`} style={{
+              gridColumn: `1 / -1`,
+              margin: 0
+            }}>{`No es la contraseña de Google: es la Clave de tu fila en Autorizados. El admin la da de alta y puede cambiarla ahí.`}</p></Component926></Component927>{i && <Component928 className={`banner error`}>{i}</Component928>}{g && <Component929 className={`banner ${g.startsWith(`Autorizado`) || g.startsWith(`Conectado`) ? `success` : `error`}`}>{g}</Component929>}<Component933 className={`hero-actions`}><Component930 type={`submit`} className={`btn primary`} disabled={r}>{r ? `Conectando…` : t === `workspace` ? `Reconectar` : `Conectar con Google`}</Component930>{t === `workspace` && <l.Fragment><Component931 type={`button`} className={`btn soft`} disabled={r} onClick={() => void d()}>{`Actualizar datos`}</Component931><Component932 type={`button`} className={`btn soft`} onClick={u}>{`Usar solo local`}</Component932></l.Fragment>}</Component933></Component934><Component940 className={`panel`} style={{
       marginTop: 16
     }}><Component936 className={`panel-head`}><Component935>{`Plate Recognizer (OCR de placas)`}</Component935></Component936><Component937 className={`hint`}>{`Token de platerecognizer.com para leer placas por foto en inventariar, entrada, salida, baja y equipos. Sin guiones. Si no hay token, se usa Vision (Netlify) cuando esté configurado.`}</Component937><form className={`form-panel compact`} onSubmit={savePlateToken} style={{
         marginTop: 12,
