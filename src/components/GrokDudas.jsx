@@ -1,6 +1,7 @@
 import { useState } from 'react'
 
 const CHIPS = [
+  'Explicación completa: ¿cómo funciona y para qué es PatioControl?',
   '¿Cómo registro una entrada?',
   '¿Cómo hago una salida?',
   '¿Para qué sirve Cloud?',
@@ -22,12 +23,14 @@ export default function GrokDudas({ page = '' }) {
   function pickChip(text) {
     setQuestion(text)
     setError(null)
+    setAnswer(null)
   }
 
-  async function preguntar(ev) {
+  async function preguntar(ev, overrideQ) {
     ev?.preventDefault?.()
-    const q = question.trim()
+    const q = String(overrideQ ?? question).trim()
     if (!q || busy) return
+    setQuestion(q)
     setBusy(true)
     setError(null)
     setAnswer(null)
@@ -52,6 +55,11 @@ export default function GrokDudas({ page = '' }) {
     }
   }
 
+  function onChip(text) {
+    pickChip(text)
+    void preguntar(null, text)
+  }
+
   return (
     <div className="grok-dudas">
       <button
@@ -72,11 +80,11 @@ export default function GrokDudas({ page = '' }) {
             </button>
           </div>
           <p className="hint grok-dudas-lede">
-            Ayuda de PatioControl (entrada, salida, Cloud, sello, Grok, offline). No es chat libre.
+            Ayuda de PatioControl. Usa «Explicación completa» o un chip; no es chat libre.
           </p>
           <div className="grok-dudas-chips" role="list">
             {CHIPS.map((c) => (
-              <button key={c} type="button" className="chip" role="listitem" onClick={() => pickChip(c)}>
+              <button key={c} type="button" className="chip" role="listitem" onClick={() => onChip(c)} disabled={busy}>
                 {c}
               </button>
             ))}
