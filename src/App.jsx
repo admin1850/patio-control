@@ -1633,6 +1633,7 @@ function _Component4({
   let [P, qe] = (0, l.useState)(null);
   let [Je, Ye] = (0, l.useState)(false);
   let [Xe, Qe] = (0, l.useState)(``);
+  let [grokObsBusy, setGrokObsBusy] = (0, l.useState)(false);
   let [$e, et] = (0, l.useState)(() => dt(`camion`));
   let [tt, nt] = (0, l.useState)({});
   let [rt, st] = (0, l.useState)(null);
@@ -2198,6 +2199,58 @@ function _Component4({
   const Component422 = `p`;
   const Component423 = `button`;
   const Component424 = `form`;
+  async function redactarConGrok() {
+    setGrokObsBusy(true);
+    F(null);
+    try {
+      const movement = {
+        tipo: e,
+        yardaId: c,
+        empresaId: d,
+        placa: normalizePlacaMX(O),
+        placaCamionTrasera: normalizePlacaMX(placaCamionTraseraVal),
+        motivoSinPlacaTrasera: motivoSinPlacaTrasera.trim(),
+        numeroEconomico: me.trim(),
+        chofer: `${Ce.trim()} ${we.trim()}`.trim(),
+        operador: xe.trim(),
+        cliente: Oe.trim(),
+        origen: Ae.trim(),
+        destino: Me.trim(),
+        selloNumero: Ue.trim(),
+        selloEntrada: P || ``,
+        selloCoincideEntrada: At === `ok` ? true : At === `mismatch` ? false : null,
+        condicionGeneral: Be,
+        kilometros: Pe === `` ? null : Number(Pe),
+        dieselPorcentaje: Ie === `` ? null : Number(Ie),
+        checklist: $e,
+        llevaRefrigerada: Boolean(wt)
+      };
+      const res = await fetch(`/api/patio-grok`, {
+        method: `POST`,
+        headers: {
+          "Content-Type": `application/json`
+        },
+        body: JSON.stringify({
+          action: `redactar-observaciones`,
+          draft: Xe,
+          movement
+        })
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(j.error || `Grok HTTP ${res.status}`);
+      }
+      if (!j.text) {
+        throw new Error(`Grok no devolvió texto`);
+      }
+      Qe(String(j.text));
+      vt(`Borrador de Grok listo. Revísalo y guarda tú el movimiento.`);
+    } catch (err) {
+      F(err instanceof Error ? err.message : `No se pudo redactar con Grok`);
+    } finally {
+      setGrokObsBusy(false);
+    }
+  }
   return <Component424 className={`form-panel`} id={`movement-form`} onSubmit={e => void jt(e)}>{(0, createPortal)(<Component273 className={`sticky-save-bar`}><Component272 type={`button`} className={`btn primary sticky-save`} disabled={yt} onClick={() => {
         document.getElementById(`movement-form`)?.requestSubmit();
       }}>{yt ? `Guardando…` : e === `entrada` ? `Guardar entrada` : `Guardar salida`}</Component272></Component273>, document.body)}<Component276 className={`form-head`}><Component274>{e === `entrada` ? `Registrar entrada a planta` : `Registrar salida a ruta`}</Component274><Component275>{`Gate check con fotos guiadas, sello, firma y GPS · ~50 mov/día entre Chihuahua, Calera y Calpulalpan.`}</Component275></Component276><Component280 className={`fieldset`}><Component277>{`Empresa`}</Component277><Component279 className={`seg big wrap`}>{ie.map(e => <Component278 type={`button`} className={d === e.id ? `seg-btn on-ok` : `seg-btn`} onClick={() => Ot(e.id)} key={e.id}>{e.nombre}</Component278>)}</Component279></Component280><Component284 className={`fieldset`}><Component281>{`Yarda`}</Component281><Component283 className={`seg big wrap`}>{_e.map(e => <Component282 type={`button`} className={c === e.id ? `seg-btn on-ok` : `seg-btn`} onClick={() => Dt(e.id)} key={e.id}>{e.nombre}</Component282>)}</Component283></Component284>{e === `entrada` && <Component288 className={`quick-picks`}><Component285 className={`label`}>{`Catálogo de equipos`}{n.length === 0 ? ` (vacío · cárgalos en Equipos)` : ``}</Component285>{n.length > 0 && <l.Fragment><input className={`input`} style={{
@@ -2311,7 +2364,9 @@ function _Component4({
             setPlacaCaja1: le,
             setPlacaCaja2: de
           });
-        }} /></Component412><Component414 className={`fieldset`}><Component413>{`Cumplimiento México (gate)`}</Component413><Ge value={ut} onChange={pt} /></Component414><Component417 className={`fieldset`}><Component415>{`Firma digital`}</Component415><_Component3 value={rt} onChange={st} signerName={ct} onSignerNameChange={lt} /><Component416 className={`hint`}>{`Al guardar se captura GPS del dispositivo (si el cel lo permite).`}</Component416></Component417><Component420 className={`fieldset`}><Component418>{`Observaciones`}</Component418><Component419 className={`input textarea`} rows={3} value={Xe} onChange={e => Qe(e.target.value)} placeholder={`Daños, incidencias, NOM-068 / pesos…`} /></Component420>{gt && <Component421 className={`banner error`}>{gt}</Component421>}{_t && <Component422 className={`banner success`}>{_t}</Component422>}<Component423 type={`submit`} className={`btn primary wide`} disabled={yt}>{yt ? `Guardando…` : e === `entrada` ? `Guardar entrada` : `Guardar salida`}</Component423></Component424>;
+        }} /></Component412><Component414 className={`fieldset`}><Component413>{`Cumplimiento México (gate)`}</Component413><Ge value={ut} onChange={pt} /></Component414><Component417 className={`fieldset`}><Component415>{`Firma digital`}</Component415><_Component3 value={rt} onChange={st} signerName={ct} onSignerNameChange={lt} /><Component416 className={`hint`}>{`Al guardar se captura GPS del dispositivo (si el cel lo permite).`}</Component416></Component417><Component420 className={`fieldset`}><Component418>{`Observaciones`}</Component418><Component419 className={`input textarea`} rows={3} value={Xe} onChange={e => Qe(e.target.value)} placeholder={`Daños, incidencias, NOM-068 / pesos…`} /><div className={`hero-actions`} style={{
+          marginTop: 10
+        }}><button type={`button`} className={`btn soft`} disabled={grokObsBusy} onClick={() => void redactarConGrok()}>{grokObsBusy ? `Redactando…` : `Redactar con Grok`}</button><span className={`hint`}>{`Solo sugiere texto. Tú revisas y guardas.`}</span></div></Component420>{gt && <Component421 className={`banner error`}>{gt}</Component421>}{_t && <Component422 className={`banner success`}>{_t}</Component422>}<Component423 type={`submit`} className={`btn primary wide`} disabled={yt}>{yt ? `Guardando…` : e === `entrada` ? `Guardar entrada` : `Guardar salida`}</Component423></Component424>;
 }
 var F = [{
   id: `espera-carga`,
