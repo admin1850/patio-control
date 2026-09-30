@@ -34,6 +34,8 @@ Base para que el navegador deje de hablar directo con Sheets/Drive. **Modo dual*
 | `POST /api/auth/logout` | Borra la cookie |
 | `GET /api/movimientos?limit=500` | Lista movimientos (sesión). Solo lectura, más reciente primero |
 | `POST /api/movimientos` | Alta **append-only** (sesión + permiso del `tipo`). Idempotente por `id`. Audita `crear_movimiento` |
+| `POST /api/media/upload` | Sube JPEG/PNG **privado** a Drive (sesión). 120/min por email. Devuelve `{ fileId, viewPath }` |
+| `GET /api/media?id=<fileId>` | Sirve esa evidencia con la cuenta de servicio (sesión). También `GET /api/media/<fileId>` |
 
 Variables de entorno en Netlify (Site settings → Environment variables):
 
@@ -47,6 +49,7 @@ Variables de entorno en Netlify (Site settings → Environment variables):
 | `PATIO_SPREADSHEET_ID` | sí (login) | `1yH8vAbXoMFvHdKEt8XMvXWDOc0R1VjVdp1Y3MtCGLp0` |
 | `PATIO_ALLOWED_ORIGIN` | recomendado | `https://patiocontrol.netlify.app` (lista por comas). Sin ella CORS responde `*` |
 | `PATIO_SESSION_TTL_SEC` | no | Duración de sesión, default `43200` (12 h) |
+| `PATIO_DRIVE_FOLDER_ID` | no | Carpeta de evidencias. Default `1Usz_zTK3kqO-Pah3seSdPpMQPMfLHDJh`. Compártela con la cuenta de servicio como **Content manager** o Editor |
 
 Flujo de conexión (pantalla Workspace): clave del kardex → **ID token de Google** (Google Identity
 Services, `google.accounts.id.prompt`) → token OAuth de Sheets/Drive (sincronización legada, igual que
@@ -55,14 +58,26 @@ antes) → `POST /api/auth/login`. Si el backend responde 503 (variables faltant
 backend sí bloquean la conexión. Al abrir la app, `GET /api/auth/me` recupera rol/permisos si hay sesión
 (sin forzar modo nube). Desconectar también llama a `/api/auth/logout`.
 
-Movimientos (`/api/movimientos`): la caseta sigue subiendo fotos a Drive desde el navegador y después
-intenta `POST` con esas URLs (`http`). Si el API responde, **no** se vuelve a agregar la fila desde el
+Movimientos (`/api/movimientos`): con sesión de servidor la caseta intenta subir cada foto a
+`POST /api/media/upload` (cuenta de servicio, archivo **privado**, sin permiso "anyone") y guarda en la
+hoja la ruta `/api/media?id=…`. Quien abre la foto necesita sesión: `GET /api/media` la entrega con el
+token de la cuenta de servicio (`alt=media`), no con un enlace público. Si ese upload responde 503/404
+(Drive sin configurar, o `vite dev` sin funciones), se usa el upload legado del navegador a Drive.
+Después se intenta el `POST` del movimiento. Si el API responde, **no** se vuelve a agregar la fila desde el
 navegador (evita duplicados). Si el API no está (503 sin configurar, 404/405 en `vite dev` sin
 `netlify dev`, u otra caída), se conserva el append directo a Sheets. Un 400/401/403/409 no cae al camino
-legado ni entra a la cola offline: la regla del servidor se muestra en pantalla. `fechaHora` es la hora
+legado ni entra a la cola offline: la regla del servidor se muestra en pantalla. Si el `POST` falla por
+red y había sesión de servidor, el movimiento queda en el outbox IndexedDB (`src/lib/outbox.js`) y se
+reintenta al volver en línea. Sin sesión de servidor, la cola sigue siendo `localStorage`
+(`patio-control-offline-queue`). `fechaHora` es la hora
 del dispositivo; `horaServidor` y `usuarioEmail` los escribe el servidor y el cliente no puede pisarlos.
 El servidor no limpia la hoja. La sincronización de la lista (`en`) sigue leyendo Sheets; `listMovimientosServer`
 queda listo para una fase posterior.
+
+Fotos: comparte la carpeta de Evidencias con `GOOGLE_SERVICE_ACCOUNT_EMAIL` como Content manager (o Editor).
+Sin ese permiso el upload de servidor responde 503 y la tablet vuelve al flujo legado. El service worker
+usa `registerType: 'prompt'` y `skipWaiting: false`: si hay captura abierta (`window.__PATIO_CAPTURE_OPEN`)
+u outbox pendiente, muestra «Actualización lista — reinicia al terminar» en lugar de recargar solo.
 
 Nota de despliegue: puedes definir `PATIO_SESSION_SECRET` (y las demás variables) en un **Deploy
 Preview** de Netlify para probar el login de servidor; con ella, OCR y Grok exigen sesión. Para
@@ -80,7 +95,7 @@ Migración del Sheet (solo agrega columnas/pestañas; no borra datos):
 npm run migrate:fase0 -- --dry-run      # ver cambios
 npm run migrate:fase0                   # aplicar (dry-run automático sin credenciales)
 npm run migrate:fase0 -- --hash-claves  # además llena ClaveHash desde Clave
-npm run test:fase0                      # auth + API de movimientos (filas, idempotencia, permisos, km)
+npm run test:fase0                      # auth + movimientos + Drive privado + outbox
 ```
 
 Agrega `Movimientos!AE:AI` (`motivoParo, paradoDesde, zonaSlot, usuarioEmail, horaServidor`),

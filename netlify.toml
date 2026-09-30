@@ -38,6 +38,21 @@
   status = 200
 
 [[redirects]]
+  from = "/api/media/upload"
+  to = "/.netlify/functions/media-upload"
+  status = 200
+
+[[redirects]]
+  from = "/api/media"
+  to = "/.netlify/functions/media"
+  status = 200
+
+[[redirects]]
+  from = "/api/media/*"
+  to = "/.netlify/functions/media/:splat"
+  status = 200
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
