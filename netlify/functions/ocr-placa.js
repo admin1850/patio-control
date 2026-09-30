@@ -4,8 +4,12 @@
  * Env: GOOGLE_VISION_API_KEY (o GCP_VISION_API_KEY)
  *
  * Sin key → 503 con { needsManual: true } (mismo espíritu que Carta Porte).
+ * Con PATIO_SESSION_SECRET → requiere sesión (cookie patio_session / Bearer); sin él, compat.
  */
 
+import { clientIp, corsHeaders, enforceRateLimit, requireSession } from './lib/http.js'
+
+const OCR_MAX_PER_MIN = 60
 const VISION_URL = 'https://vision.googleapis.com/v1/images:annotate'
 
 function normalizePlacaMX(raw) {
@@ -49,20 +53,22 @@ function stripDataUrl(dataUrl) {
   return i >= 0 ? dataUrl.slice(i + 7) : dataUrl
 }
 
-exports.handler = async (event) => {
-  const headers = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Content-Type': 'application/json',
+export const handler = async (event) => {
+  if (event.httpMethod === 'OPTIONS') {
+    return { statusCode: 204, headers: corsHeaders(event), body: '' }
   }
 
-  if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 204, headers, body: '' }
-  }
+  const auth = requireSession(event)
+  if (auth.error) return auth.error
+  const headers = { ...corsHeaders(event), ...auth.headers }
 
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, headers, body: JSON.stringify({ error: 'POST only' }) }
   }
+
+  const rateKey = auth.session ? `ocr:${auth.session.email}` : `ocr-ip:${clientIp(event)}`
+  const limited = enforceRateLimit(event, rateKey, OCR_MAX_PER_MIN, auth.headers)
+  if (limited) return limited
 
   let body
   try {

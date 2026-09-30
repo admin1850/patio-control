@@ -22,6 +22,60 @@ Tras cada foto de slot `silhouette: plate` (post `re(file, 1280, 0.72)`):
 - Env Netlify: `GOOGLE_VISION_API_KEY` (o `GCP_VISION_API_KEY`)
 - Sin key → captura manual (mismo espíritu que Carta Porte / BarcodeDetector)
 
+## Fase 0 backend
+
+Base para que el navegador deje de hablar directo con Sheets/Drive. **Modo dual**: el login legado
+(OAuth Google en el navegador + Sheets API) sigue funcionando igual; el backend corre en paralelo.
+
+| Endpoint | Función |
+|----------|---------|
+| `POST /api/auth/login` `{ idToken, clave, dispositivoId }` | Google ID token → kardex Autorizados → cookie `patio_session` |
+| `GET /api/auth/me` | Usuario de la sesión (cookie o `Authorization: Bearer`) o 401 |
+| `POST /api/auth/logout` | Borra la cookie |
+
+Variables de entorno en Netlify (Site settings → Environment variables):
+
+| Variable | Requerida | Uso |
+|----------|-----------|-----|
+| `PATIO_SESSION_SECRET` | sí (login) | Secreto HMAC de sesiones, ≥32 caracteres aleatorios (`openssl rand -base64 48`). **Al definirla, `/api/ocr-placa` y `/api/patio-grok` exigen sesión** (ver nota). |
+| `PATIO_GOOGLE_CLIENT_ID` | sí (login) | OAuth Client ID web (el mismo de la pantalla Workspace); acepta varios separados por coma |
+| `PATIO_GOOGLE_HOSTED_DOMAIN` | recomendado | p. ej. `camircapital.com`: solo cuentas de ese dominio |
+| `GOOGLE_SERVICE_ACCOUNT_EMAIL` | sí (login) | Cuenta de servicio con acceso **Editor** al Sheet |
+| `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` | sí (login) | `private_key` del JSON de la cuenta de servicio (los `\n` literales se convierten) |
+| `PATIO_SPREADSHEET_ID` | sí (login) | `1yH8vAbXoMFvHdKEt8XMvXWDOc0R1VjVdp1Y3MtCGLp0` |
+| `PATIO_ALLOWED_ORIGIN` | recomendado | `https://patiocontrol.netlify.app` (lista por comas). Sin ella CORS responde `*` |
+| `PATIO_SESSION_TTL_SEC` | no | Duración de sesión, default `43200` (12 h) |
+
+Flujo de conexión (pantalla Workspace): clave del kardex → **ID token de Google** (Google Identity
+Services, `google.accounts.id.prompt`) → token OAuth de Sheets/Drive (sincronización legada, igual que
+antes) → `POST /api/auth/login`. Si el backend responde 503 (variables faltantes) o no existe
+(`npm run dev` sin `netlify dev`), la app valida el kardex en el navegador como antes. 401/403 del
+backend sí bloquean la conexión. Al abrir la app, `GET /api/auth/me` recupera rol/permisos si hay sesión
+(sin forzar modo nube). Desconectar también llama a `/api/auth/logout`.
+
+Nota de despliegue: puedes definir `PATIO_SESSION_SECRET` (y las demás variables) en un **Deploy
+Preview** de Netlify para probar el login de servidor; con ella, OCR y Grok exigen sesión. Para
+producción todavía falta: cuenta de servicio con acceso Editor al Sheet, `npm run migrate:fase0`, y
+agregar el dominio del sitio en *Authorized JavaScript origins* del Client ID. Sin `PATIO_SESSION_SECRET`,
+OCR y Grok siguen abiertos como hoy (`X-Patio-Auth: optional`) y el login cae al flujo legado.
+Límites en memoria por instancia: OCR 60/min y Grok 30/min por email (por IP sin sesión); login 20/min por IP.
+
+Claves: el login valida contra `ClaveHash` (columna S, bcrypt) si existe; si no, contra `Clave` (H) en texto
+plano. Nunca se devuelven al cliente. Cada login (y cada intento denegado) se agrega a la pestaña `Auditoria`.
+
+Migración del Sheet (solo agrega columnas/pestañas; no borra datos):
+
+```bash
+npm run migrate:fase0 -- --dry-run      # ver cambios
+npm run migrate:fase0                   # aplicar (dry-run automático sin credenciales)
+npm run migrate:fase0 -- --hash-claves  # además llena ClaveHash desde Clave
+npm run test:fase0                      # pruebas de sesión, claves, permisos y handlers
+```
+
+Agrega `Movimientos!AE:AI` (`motivoParo, paradoDesde, zonaSlot, usuarioEmail, horaServidor`),
+`Autorizados!S` (`ClaveHash`) y las pestañas `Auditoria`, `OrdenesTrabajo`, `OT_Eventos` (solo encabezados).
+El script imprime cómo revertir.
+
 ```bash
 npm install
 npm run dev

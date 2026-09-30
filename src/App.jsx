@@ -11,6 +11,16 @@ import {
   readPlacaFromDataUrl,
   setPlateRecognizerToken,
 } from "./lib/placaOcr.js";
+import {
+  ApiError,
+  fetchMe,
+  getDispositivoId,
+  isBackendUnavailable,
+  jwtExpiresAtMs,
+  loginWithGoogleIdToken,
+  logout as logoutServer,
+  mapServerUserToAuthProfile,
+} from "./lib/serverApi.js";
 
 function _Component({
   slots: e,
@@ -2821,6 +2831,84 @@ function Ft(e) {
     }).catch(n);
   });
 }
+var cachedIdToken = null;
+function clearCachedIdToken() {
+  cachedIdToken = null;
+}
+function requestGoogleIdToken(clientId, hostedDomain) {
+  let id = String(clientId ?? ``).trim();
+  let hd = String(hostedDomain ?? ``).trim();
+  // Reusar un ID token vigente permite reintentar en un solo toque si el popup de Sheets se bloqueó.
+  if (cachedIdToken && cachedIdToken.clientId === id && jwtExpiresAtMs(cachedIdToken.credential) - Date.now() > 5 * 60000) {
+    return Promise.resolve(cachedIdToken.credential);
+  }
+  return new Promise((resolve, reject) => {
+    if (!id) {
+      reject(Error(`Falta el Google Client ID. Configúralo en la pantalla de Workspace.`));
+      return;
+    }
+    let settled = false;
+    let timer = null;
+    let finish = (err, credential) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      if (err) {
+        try {
+          window.google?.accounts?.id?.cancel();
+        } catch {}
+        reject(err);
+      } else {
+        cachedIdToken = {
+          clientId: id,
+          credential
+        };
+        resolve(credential);
+      }
+    };
+    let bloqueado = motivo => Error(`Google no mostró el inicio de sesión${motivo ? ` (${motivo})` : ``}. Permite ventanas emergentes y cookies de accounts.google.com para este sitio, inicia sesión en Google en este navegador y vuelve a tocar Conectar.`);
+    timer = setTimeout(() => finish(Error(`Se agotó el tiempo para iniciar sesión con Google (60 s). Vuelve a tocar Conectar.`)), 60000);
+    Pt().then(() => {
+      let gid = window.google?.accounts?.id;
+      if (!gid) {
+        finish(Error(`Google Identity no disponible`));
+        return;
+      }
+      gid.initialize({
+        client_id: id,
+        callback: res => {
+          if (res?.credential) {
+            finish(null, res.credential);
+          } else {
+            finish(Error(`Google no devolvió el token de identidad. Vuelve a tocar Conectar.`));
+          }
+        },
+        auto_select: false,
+        ux_mode: `popup`,
+        cancel_on_tap_outside: false,
+        context: `signin`,
+        itp_support: true,
+        use_fedcm_for_prompt: true,
+        ...(hd ? {
+          hd
+        } : {})
+      });
+      gid.prompt(n => {
+        try {
+          if (n?.isNotDisplayed?.()) {
+            finish(bloqueado(n.getNotDisplayedReason?.()));
+          } else if (n?.isSkippedMoment?.()) {
+            finish(bloqueado(n.getSkippedReason?.()));
+          } else if (n?.isDismissedMoment?.() && n.getDismissedReason?.() !== `credential_returned`) {
+            finish(Error(`Cerraste el inicio de sesión de Google. Vuelve a tocar Conectar y elige tu cuenta.`));
+          }
+        } catch {}
+      });
+    }).catch(err => finish(err instanceof Error ? err : Error(`No se pudo cargar Google Identity`)));
+  });
+}
 async function It(e) {
   let t = await fetch(`https://www.googleapis.com/oauth2/v3/userinfo`, {
     headers: {
@@ -3324,8 +3412,40 @@ function Yt(e) {
         llevaRefrigerada: t ? true : undefined,
         refrigerada: t
       };
-    })()
+    })(),
+    ...parseMovimientoFase0Cells(e)
   };
+}
+var MOVIMIENTOS_BASE_COLS = 30;
+function parseMovimientoFase0Cells(e) {
+  let motivoRaw = String(e[30] ?? ``).trim();
+  let sep = motivoRaw.indexOf(`|`);
+  let motivoParo = sep >= 0 ? motivoRaw.slice(0, sep).trim() : motivoRaw;
+  let motivoParoOtro = sep >= 0 ? motivoRaw.slice(sep + 1).trim() : ``;
+  return {
+    ...(motivoParo ? {
+      motivoParo
+    } : {}),
+    ...(motivoParoOtro ? {
+      motivoParoOtro
+    } : {}),
+    ...(e[31] ? {
+      paradoDesde: e[31]
+    } : {}),
+    ...(e[32] ? {
+      zonaSlot: e[32]
+    } : {}),
+    ...(e[33] ? {
+      usuarioEmail: e[33]
+    } : {}),
+    ...(e[34] ? {
+      horaServidor: e[34]
+    } : {})
+  };
+}
+function movimientoFase0Cells(e) {
+  let motivo = e.motivoParo ? e.motivoParo === `otro` && e.motivoParoOtro ? `otro|${e.motivoParoOtro}` : e.motivoParo : ``;
+  return [motivo, e.paradoDesde ?? ``, e.zonaSlot ?? ``, e.usuarioEmail ?? ``, e.horaServidor ?? ``];
 }
 function Xt(e) {
   if (e) {
@@ -3358,13 +3478,13 @@ function Qt(e) {
   return [e.id, e.tipo, e.equipoId, e.placa, e.numeroEconomico, e.equipoTipo, e.fechaHora, e.operador, e.chofer ?? ``, Kt(e), e.kilometros, e.dieselPorcentaje, e.dieselLitros, JSON.stringify(e.checklist), e.fotos.join(`|`), e.condicionGeneral, e.observaciones ?? ``, e.creadoEn, e.yardaId, e.selloNumero ?? ``, e.firmaNombre ?? ``, e.firmaUrl ?? ``, e.geoLat ?? ``, JSON.stringify(e.fotosEvidencia ?? []), e.geoLng ?? ``, JSON.stringify({
     ...(e.cumplimiento ?? {}),
     selloCoincideEntrada: e.selloCoincideEntrada ?? null
-  }), L(e), e.empresaId ?? `api`, e.llevaRefrigerada && e.refrigerada ? JSON.stringify(e.refrigerada) : ``, e.whatsapp ?? ``];
+  }), L(e), e.empresaId ?? `api`, e.llevaRefrigerada && e.refrigerada ? JSON.stringify(e.refrigerada) : ``, e.whatsapp ?? ``, ...movimientoFase0Cells(e)];
 }
 async function $t(e) {
   return ((await (await Vt(e, `/values/Equipos!A2:I`)).json()).values ?? []).map(Ht).filter(Boolean);
 }
 async function en(e) {
-  return ((await (await Vt(e, `/values/Movimientos!A2:AD`)).json()).values ?? []).map(Yt).filter(Boolean).sort((e, t) => new Date(t.fechaHora).getTime() - new Date(e.fechaHora).getTime());
+  return ((await (await Vt(e, `/values/Movimientos!A2:AI`)).json()).values ?? []).map(Yt).filter(Boolean).sort((e, t) => new Date(t.fechaHora).getTime() - new Date(e.fechaHora).getTime());
 }
 async function tn(e, t) {
   await Vt(e, `/values/Equipos!A:I:append?valueInputOption=USER_ENTERED`, {
@@ -3406,12 +3526,28 @@ async function rn(e, t, n) {
   });
 }
 async function an(e, t) {
-  await Vt(e, `/values/Movimientos!A:AD:append?valueInputOption=USER_ENTERED`, {
+  let row = Qt(t);
+  let hasFase0 = row.slice(MOVIMIENTOS_BASE_COLS).some(c => c !== ``);
+  let append = r => Vt(e, `/values/Movimientos!A:${r.length > MOVIMIENTOS_BASE_COLS ? `AI` : `AD`}:append?valueInputOption=USER_ENTERED`, {
     method: `POST`,
     body: JSON.stringify({
-      values: [Qt(t)]
+      values: [r]
     })
   });
+  if (!hasFase0) {
+    await append(row.slice(0, MOVIMIENTOS_BASE_COLS));
+    return;
+  }
+  try {
+    await append(row);
+  } catch (err) {
+    // Hoja sin columnas AE:AI (falta `npm run migrate:fase0`): guardar sin ellas antes que perder el movimiento.
+    if (!/exceeds grid limits|grid limits/i.test(err instanceof Error ? err.message : ``)) {
+      throw err;
+    }
+    console.warn(`Movimientos sin columnas AE:AI; se guarda sin motivoParo/paradoDesde/zonaSlot/usuarioEmail/horaServidor.`);
+    await append(row.slice(0, MOVIMIENTOS_BASE_COLS));
+  }
 }
 async function on(e, t, n) {
   await nn(e, n.filter(e => e.id !== t));
@@ -3637,8 +3773,37 @@ function Sn() {
     u(true);
     f(null);
     try {
-      let profile = await It(await Ft(i));
-      let authorized = await assertUsuarioAutorizado(i, profile, clave);
+      if (!clave.trim()) {
+        throw Error(`Escribe la clave que te asignó el admin (columna Clave del kardex).`);
+      }
+      let idToken = await requestGoogleIdToken(i.clientId, i.hostedDomain);
+      let accessToken = await Ft(i);
+      let authorized;
+      try {
+        let res = await loginWithGoogleIdToken({
+          idToken,
+          clave,
+          dispositivoId: getDispositivoId()
+        });
+        authorized = mapServerUserToAuthProfile(res?.user);
+        if (!authorized) {
+          throw Error(`El servidor no devolvió el usuario. Vuelve a intentar.`);
+        }
+      } catch (err) {
+        if (!isBackendUnavailable(err)) {
+          if (err.status === 401) {
+            clearCachedIdToken();
+            throw Error(`El servidor no aceptó tu cuenta de Google (${err.message}). Revisa que el Client ID de Workspace sea el mismo que PATIO_GOOGLE_CLIENT_ID y vuelve a tocar Conectar.`);
+          }
+          if (err.status === 429) {
+            throw Error(`Demasiados intentos de conexión. Espera un minuto y vuelve a intentar.`);
+          }
+          throw Error(err.message || `Acceso denegado por el servidor.`);
+        }
+        // Backend sin configurar (503) o sin Netlify Functions (vite dev): validación legada en el navegador.
+        let profile = await It(accessToken);
+        authorized = await assertUsuarioAutorizado(i, profile, clave);
+      }
       a(authorized);
       saveCachedAuthProfile(authorized);
       if (authorized.ubicacion && authorized.ubicacion !== `todas` && _e.some(y => y.id === authorized.ubicacion)) {
@@ -3652,6 +3817,7 @@ function Sn() {
       g(rem);
     } catch (err) {
       Nt();
+      void logoutServer();
       a(null);
       saveCachedAuthProfile(null);
       r(`local`);
@@ -3663,10 +3829,38 @@ function Sn() {
   }, [e, _]);
   let b = (0, l.useCallback)(() => {
     Nt();
+    clearCachedIdToken();
+    try {
+      window.google?.accounts?.id?.disableAutoSelect();
+    } catch {}
+    void logoutServer();
     a(null);
     saveCachedAuthProfile(null);
     r(`local`);
     s(Ce());
+  }, []);
+  (0, l.useEffect)(() => {
+    let alive = true;
+    fetchMe().then(user => {
+      let mapped = mapServerUserToAuthProfile(user);
+      if (!alive || !mapped) {
+        return;
+      }
+      let cached = loadCachedAuthProfile();
+      let profile = cached?.email === mapped.email ? {
+        ...mapped,
+        nombreKardex: cached.nombreKardex || mapped.nombreKardex,
+        celular: mapped.celular || cached.celular,
+        whatsapp: mapped.whatsapp || cached.whatsapp,
+        picture: mapped.picture || cached.picture,
+        autorizadoEn: cached.autorizadoEn || mapped.autorizadoEn
+      } : mapped;
+      a(prev => prev ?? profile);
+      saveCachedAuthProfile(profile);
+    }).catch(() => {});
+    return () => {
+      alive = false;
+    };
   }, []);
   let x = (0, l.useCallback)(e => {
     Ot(e);
@@ -3712,6 +3906,12 @@ function Sn() {
     }
   }, [n, e, o.refrigeraciones]);
   let w = (0, l.useCallback)(async t => {
+    if (i?.email && !t.usuarioEmail) {
+      t = {
+        ...t,
+        usuarioEmail: i.email
+      };
+    }
     s(e => {
       let n = Ee(e, t);
       let r = t.refrigerada?.refrigeracionId;
@@ -3759,7 +3959,7 @@ function Sn() {
         u(false);
       }
     }
-  }, [n, e, o.refrigeraciones]);
+  }, [n, e, o.refrigeraciones, i]);
   let te = (0, l.useCallback)(async t => {
     s(e => {
       let n = {
