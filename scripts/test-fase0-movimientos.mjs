@@ -334,6 +334,37 @@ test('permiso: guardia no registra parado ni baja; no escribe ni audita', async 
   assert.equal(repo.rows.length, 1)
 })
 
+test('captura tardía: encargado conserva fechaHora; guardia no puede', async () => {
+  const { svc, repo } = service()
+  const encargado = { ...admin, rol: 'encargado_yarda', email: 'yarda@camircapital.com' }
+  const result = await svc.crear(encargado, baseMov({
+    id: 'tarde-1',
+    equipoId: 'eq-tarde',
+    fechaHora: '2026-09-30T12:00:00.000Z',
+    capturaTardiaMotivo: 'Se cayó la red en caseta',
+    fechaCapturaDispositivo: '2026-09-30T18:00:00.000Z',
+    observaciones: 'todo bien',
+  }))
+  assert.equal(result.movimiento.fechaHora, '2026-09-30T12:00:00.000Z')
+  assert.equal(result.movimiento.horaServidor, NOW.toISOString())
+  assert.equal(result.movimiento.cumplimiento.capturaTardiaMotivo, 'Se cayó la red en caseta')
+  assert.equal(result.movimiento.cumplimiento.fechaCapturaDispositivo, '2026-09-30T18:00:00.000Z')
+  assert.equal(result.movimiento.cumplimiento.cartaPorte, true)
+  assert.match(result.movimiento.observaciones, /Captura tardía: Se cayó la red en caseta/)
+  assert.match(JSON.stringify(repo.auditoria[0].despues), /capturaTardiaMotivo/)
+  assert.equal(repo.auditoria[0].accion, 'crear_movimiento')
+  const denied = await svc.crear(guardia, baseMov({
+    id: 'tarde-g',
+    equipoId: 'eq-tarde-g',
+    capturaTardiaMotivo: 'quiero atrasar',
+    fechaHora: '2026-09-30T10:00:00.000Z',
+  })).catch((e) => e)
+  assert.equal(denied.status, 403)
+  assert.equal(denied.code, 'CAPTURA_TARDIA')
+  assert.match(denied.message, /captura tardía/i)
+  assert.equal(repo.rows.length, 1)
+})
+
 test('auditoría crear_movimiento sin data URLs; si falla, el movimiento queda', async () => {
   const { svc, repo } = service()
   const big = `data:image/jpeg;base64,${'A'.repeat(4000)}`

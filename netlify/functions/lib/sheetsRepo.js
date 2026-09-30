@@ -193,6 +193,18 @@ export const LLEGADAS_ESPERADAS_COLUMNS = [
   'estatus',
 ]
 
+/** Catálogo de unidades. A:I, mismo orden que la app (Ht / Ut). */
+export const EQUIPOS_SHEET = 'Equipos'
+export const EQUIPOS_COLUMNS = ['id', 'tipo', 'placa', 'numeroEconomico', 'marca', 'modelo', 'notas', 'creadoEn', 'operadorAsignado']
+export const EQUIPOS_READ_RANGE = 'Equipos!A2:I'
+export const EQUIPOS_APPEND_RANGE = 'Equipos!A:I'
+
+/** Equipos Thermo. A:I, mismo orden que la app (sn / cn). F es el horómetro. */
+export const REFRIGERACION_SHEET = 'Refrigeracion'
+export const REFRIGERACION_COLUMNS = ['id', 'marca', 'modelo', 'numeroActivo', 'economicoMontado', 'horometro', 'estatus', 'notas', 'creadoEn']
+export const REFRIGERACION_READ_RANGE = 'Refrigeracion!A2:I'
+export const REFRIGERACION_APPEND_RANGE = 'Refrigeracion!A:I'
+
 /** Ubicación de la unidad (columna `ubicacion` cuando el valor es de Fase 2). */
 export const UBICACIONES_UNIDAD = ['EN_PATIO', 'EN_RUTA', 'EN_TALLER_EXTERNO', 'EN_CLIENTE']
 export const ESTATUS_CARGA = ['VACIA', 'CARGADA', 'EN_CARGA', 'NA']
@@ -994,6 +1006,62 @@ export function rowToMovimiento(e) {
 }
 
 /**
+ * Equipo → fila A:I. Igual que Ut: la placa va en C y el económico vacío no se inventa aquí.
+ * @param {Record<string, any>} equipo
+ */
+export function equipoToRow(equipo) {
+  const e = equipo && typeof equipo === 'object' ? equipo : {}
+  return [e.id, e.tipo, e.placa, e.numeroEconomico, e.marca ?? '', e.modelo ?? '', e.notas ?? '', e.creadoEn, e.operadorAsignado ?? '']
+}
+
+/**
+ * Fila A:I → equipo. Sin id (A) o sin placa (C) no cuenta, igual que Ht.
+ * @param {unknown[] | null | undefined} e
+ */
+export function rowToEquipo(e) {
+  if (!e?.[0] || !e?.[2]) return null
+  return {
+    id: e[0],
+    tipo: e[1] || 'camion',
+    placa: e[2],
+    numeroEconomico: e[3] || e[2],
+    marca: e[4] || undefined,
+    modelo: e[5] || undefined,
+    notas: e[6] || undefined,
+    creadoEn: e[7] || new Date().toISOString(),
+    operadorAsignado: e[8] || undefined,
+  }
+}
+
+/**
+ * Refrigeración → fila A:I. Igual que cn: el horómetro vacío queda en blanco (columna F).
+ * @param {Record<string, any>} refri
+ */
+export function refrigeracionToRow(refri) {
+  const e = refri && typeof refri === 'object' ? refri : {}
+  return [e.id, e.marca, e.modelo, e.numeroActivo, e.economicoMontado, e.horometro ?? '', e.estatus, e.notas ?? '', e.creadoEn]
+}
+
+/**
+ * Fila A:I → refrigeración. Sin id o sin número de activo (D) no cuenta, igual que sn.
+ * @param {unknown[] | null | undefined} e
+ */
+export function rowToRefrigeracion(e) {
+  if (!e?.[0] || !e?.[3]) return null
+  return {
+    id: e[0],
+    marca: e[1] || '',
+    modelo: e[2] || '',
+    numeroActivo: e[3],
+    economicoMontado: e[4] || '',
+    horometro: e[5] === '' || e[5] == null ? null : Number(e[5]),
+    estatus: e[6] || 'operando',
+    notas: e[7] || undefined,
+    creadoEn: e[8] || new Date().toISOString(),
+  }
+}
+
+/**
  * Entrada de `equipoId` que no tiene después una salida, parado o baja del mismo equipo.
  * Recorre en orden de hoja (append), no por fecha del dispositivo.
  * @param {Array<{ id?: string, tipo?: string, equipoId?: string, placa?: string }> | null | undefined} movimientos
@@ -1401,6 +1469,52 @@ export function createSheetsRepo(opts = {}) {
     return updateRowById(LLEGADAS_ESPERADAS_SHEET, LLEGADAS_ESPERADAS_COLUMNS, id, rowValues)
   }
 
+  async function listEquipos() {
+    const rows = await sheetsGetTab(EQUIPOS_READ_RANGE, EQUIPOS_SHEET)
+    return rows.map(rowToEquipo).filter(Boolean)
+  }
+
+  async function appendEquipo(rowValues) {
+    return appendTab(EQUIPOS_APPEND_RANGE, EQUIPOS_SHEET, rowValues)
+  }
+
+  async function updateEquipoById(id, rowValues) {
+    return updateRowById(EQUIPOS_SHEET, EQUIPOS_COLUMNS, id, rowValues)
+  }
+
+  async function listRefrigeracion() {
+    const rows = await sheetsGetTab(REFRIGERACION_READ_RANGE, REFRIGERACION_SHEET)
+    return rows.map(rowToRefrigeracion).filter(Boolean)
+  }
+
+  async function appendRefrigeracion(rowValues) {
+    return appendTab(REFRIGERACION_APPEND_RANGE, REFRIGERACION_SHEET, rowValues)
+  }
+
+  async function updateRefrigeracionById(id, rowValues) {
+    return updateRowById(REFRIGERACION_SHEET, REFRIGERACION_COLUMNS, id, rowValues)
+  }
+
+  /**
+   * Deja en blanco una sola fila (la del id en la columna A).
+   * No limpia el resto de la pestaña ni reescribe A2:I.
+   * @param {string} sheetTitle
+   * @param {string[]} columns
+   * @param {string} id
+   */
+  async function clearRowById(sheetTitle, columns, id) {
+    const blank = Array(columns.length).fill('')
+    return updateRowById(sheetTitle, columns, id, blank)
+  }
+
+  async function clearEquipoById(id) {
+    return clearRowById(EQUIPOS_SHEET, EQUIPOS_COLUMNS, id)
+  }
+
+  async function clearRefrigeracionById(id) {
+    return clearRowById(REFRIGERACION_SHEET, REFRIGERACION_COLUMNS, id)
+  }
+
   return {
     spreadsheetId,
     getAccessToken,
@@ -1446,6 +1560,15 @@ export function createSheetsRepo(opts = {}) {
     listLlegadasEsperadas,
     appendLlegadaEsperada,
     updateLlegadaEsperadaById,
+    listEquipos,
+    appendEquipo,
+    updateEquipoById,
+    listRefrigeracion,
+    appendRefrigeracion,
+    updateRefrigeracionById,
+    clearRowById,
+    clearEquipoById,
+    clearRefrigeracionById,
   }
 }
 
@@ -1466,6 +1589,15 @@ export const listMovimientos = () => repo().listMovimientos()
 export const findMovimientoById = (id) => repo().findMovimientoById(id)
 export const appendMovimiento = (rowValues) => repo().appendMovimiento(rowValues)
 export const findOpenEntrada = (equipoId) => repo().findOpenEntrada(equipoId)
+export const listEquipos = () => repo().listEquipos()
+export const appendEquipo = (rowValues) => repo().appendEquipo(rowValues)
+export const updateEquipoById = (id, rowValues) => repo().updateEquipoById(id, rowValues)
+export const listRefrigeracion = () => repo().listRefrigeracion()
+export const appendRefrigeracion = (rowValues) => repo().appendRefrigeracion(rowValues)
+export const updateRefrigeracionById = (id, rowValues) => repo().updateRefrigeracionById(id, rowValues)
+export const clearRowById = (sheetTitle, columns, id) => repo().clearRowById(sheetTitle, columns, id)
+export const clearEquipoById = (id) => repo().clearEquipoById(id)
+export const clearRefrigeracionById = (id) => repo().clearRefrigeracionById(id)
 
 export function getSheetsRepo() {
   return repo()

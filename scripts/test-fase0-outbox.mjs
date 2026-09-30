@@ -11,6 +11,7 @@ import {
   enqueueMovimiento,
   flushOutbox,
   listPending,
+  migrateLegacyQueueToOutbox,
   resetOutboxForTests,
 } from '../src/lib/outbox.js'
 
@@ -210,6 +211,41 @@ test('flush rehidrata Blob y conserva data URL como texto', async () => {
   assert.equal(got.firma.type, 'image/png')
   assert.equal(await got.firma.text(), 'firma')
   assert.equal(typeof got.fotos[0], 'string')
+})
+
+test('migrateLegacyQueueToOutbox copia la cola legada y no la borra', async () => {
+  const legacy = [
+    {
+      id: 'leg-1',
+      movimiento: { id: 'leg-1', tipo: 'entrada', placa: 'AAA111A' },
+      queuedAt: '2026-09-30T12:00:00.000Z',
+      attempts: 1,
+      lastError: 'Sin conexión',
+    },
+    {
+      id: 'leg-2',
+      movimiento: { id: 'leg-2', tipo: 'salida', placa: 'BBB222B' },
+      queuedAt: '2026-09-30T12:05:00.000Z',
+    },
+    { id: 'skip', lastError: 'sin movimiento' },
+  ]
+  const stored = []
+  const result = await migrateLegacyQueueToOutbox(() => legacy, async (event) => {
+    stored.push(event)
+    return event.id
+  })
+  assert.equal(result.migrated, 2)
+  assert.deepEqual(result.ids, ['leg-1', 'leg-2'])
+  assert.equal(stored[0].movimiento.placa, 'AAA111A')
+  assert.equal(stored[0].type, 'movimiento')
+  assert.equal(stored[0].lastError, 'Sin conexión')
+  assert.equal(stored[1].movimiento.placa, 'BBB222B')
+  assert.equal(legacy.length, 3)
+  const empty = await migrateLegacyQueueToOutbox(() => [], async () => {
+    throw new Error('no debía encolar')
+  })
+  assert.equal(empty.migrated, 0)
+  assert.deepEqual(empty.ids, [])
 })
 
 let failed = 0

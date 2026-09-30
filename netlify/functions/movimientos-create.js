@@ -7,6 +7,7 @@
 import { json, parseJsonBody, preflight, requireSession } from './lib/http.js'
 import { intentarAviso } from './lib/avisosService.js'
 import { aplicarCumplimientoServidor, createGateService, persistirDefectos } from './lib/gateService.js'
+import { createEquiposService } from './lib/equiposService.js'
 import { createMovimientosService } from './lib/movimientosService.js'
 import { marcarLlegadaRecibida } from './lib/llegadasService.js'
 import { lecturaDeMovimiento, createPreventivoService } from './lib/preventivoService.js'
@@ -100,6 +101,12 @@ export async function handler(event, deps) {
     const result = await svc.crear(auth.session, mov)
     const avisos = []
     if (!result.idempotent) {
+      // El horómetro del Thermo no puede tumbar un movimiento que ya quedó guardado.
+      try {
+        await createEquiposService(repo).aplicarHorometro(result.movimiento)
+      } catch (err) {
+        console.warn('[movimientos] No se pudo actualizar el horómetro:', err?.message || err)
+      }
       const lectura = lecturaDeMovimiento(result.movimiento)
       if ((lectura.km != null || lectura.horometro != null) && typeof repo.listPlanesPreventivo === 'function') {
         try {

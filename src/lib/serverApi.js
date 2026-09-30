@@ -86,6 +86,36 @@ export function listMovimientosServer(limit = 500) {
   return apiFetch(`/api/movimientos${q}`, { method: 'GET' })
 }
 
+/** Catálogo de equipos. `{ equipos }`. */
+export function listEquiposServer() {
+  return apiFetch('/api/equipos', { method: 'GET' })
+}
+
+/** Alta o actualización. Body = equipo. `{ equipo, created }`. */
+export function guardarEquipoServer(equipo) {
+  return apiFetch('/api/equipos', { method: 'POST', json: equipo })
+}
+
+/** `{ ok, id }`. */
+export function eliminarEquipoServer(id) {
+  return apiFetch(`/api/equipos?id=${encodeURIComponent(String(id ?? ''))}`, { method: 'DELETE' })
+}
+
+/** Catálogo Thermo. `{ refrigeraciones }`. */
+export function listRefrigeracionServer() {
+  return apiFetch('/api/refrigeracion', { method: 'GET' })
+}
+
+/** Alta o actualización. `{ refrigeracion, created }`. */
+export function guardarRefrigeracionServer(ref) {
+  return apiFetch('/api/refrigeracion', { method: 'POST', json: ref })
+}
+
+/** `{ ok, id }`. */
+export function eliminarRefrigeracionServer(id) {
+  return apiFetch(`/api/refrigeracion?id=${encodeURIComponent(String(id ?? ''))}`, { method: 'DELETE' })
+}
+
 /** Inventario de la yarda (agregados, unidades y slots). */
 export function fetchInventario(yarda) {
   const q = yarda && yarda !== 'todas' ? `?yarda=${encodeURIComponent(yarda)}` : ''

@@ -11,9 +11,15 @@ import { SESSION_COOKIE, signSession } from '../netlify/functions/lib/session.js
 import { handler as estadoHandler } from '../netlify/functions/estado-unidades.js'
 import { ApiError } from '../src/lib/serverApi.js'
 import {
+  eliminarEquipoServer,
+  eliminarRefrigeracionServer,
   fetchEstadoUnidadesOpcional,
+  guardarEquipoServer,
+  guardarRefrigeracionServer,
+  listEquiposServer,
   listEstadoUnidadesServer,
   listMovimientosServer,
+  listRefrigeracionServer,
 } from '../src/lib/serverApi.js'
 import {
   LOCAL_READONLY_BANNER,
@@ -23,6 +29,7 @@ import {
   indexEstadosUnidad,
   isAuthenticated,
   isLocalReadOnly,
+  loadCatalogoRefresh,
   loadMovimientosRefresh,
   movimientoWriteMode,
   puedeVerPagina,
@@ -224,6 +231,94 @@ test('sin sesión el refresh no llama al API', async () => {
   })
   assert.equal(keep.source, 'server-unavailable')
   assert.equal(keep.movimientos, null)
+})
+
+test('catálogo con sesión no cae a Sheets si el API no está', async () => {
+  let sheets = 0
+  const ok = await loadCatalogoRefresh({
+    user: serverUser,
+    listServer: async () => [{ id: 'eq-1', placa: 'ABC123A' }],
+    listSheets: async () => {
+      sheets++
+      return [{ id: 'sheet' }]
+    },
+  })
+  assert.equal(ok.source, 'server')
+  assert.equal(sheets, 0)
+  assert.equal(ok.items[0].id, 'eq-1')
+  for (const status of [404, 503]) {
+    sheets = 0
+    const down = await loadCatalogoRefresh({
+      user: serverUser,
+      listServer: async () => { throw new ApiError('no', status, {}) },
+      listSheets: async () => { sheets++; return [{ id: 'legacy' }] },
+    })
+    assert.equal(down.source, 'server-unavailable', String(status))
+    assert.equal(down.items, null)
+    assert.equal(sheets, 0)
+  }
+  const red = await loadCatalogoRefresh({
+    user: serverUser,
+    listServer: async () => { throw new TypeError('Failed to fetch') },
+    listSheets: async () => [{ id: 'red' }],
+  })
+  assert.equal(red.source, 'server-unavailable')
+  assert.equal(red.items, null)
+  let serverCalls = 0
+  const sheetsOnly = await loadCatalogoRefresh({
+    user: { email: 'a@b.com' },
+    listServer: async () => { serverCalls++; return [] },
+    listSheets: async () => [{ id: 'solo-sheets' }],
+  })
+  assert.equal(serverCalls, 0)
+  assert.equal(sheetsOnly.source, 'sheets')
+  assert.equal(sheetsOnly.items[0].id, 'solo-sheets')
+  const denied = await loadCatalogoRefresh({
+    user: serverUser,
+    listServer: async () => { throw new ApiError('Sesión requerida', 401, { needsLogin: true }) },
+    listSheets: async () => [],
+  }).catch((e) => e)
+  assert.ok(denied instanceof ApiError)
+  assert.equal(denied.status, 401)
+})
+
+test('cliente catálogo: rutas de equipos y refrigeración', async () => {
+  const realFetch = globalThis.fetch
+  const calls = []
+  try {
+    globalThis.fetch = async (url, init) => {
+      calls.push({ url: String(url), method: init.method })
+      const path = String(url)
+      if (path === '/api/equipos' && init.method === 'GET') {
+        return new Response(JSON.stringify({ equipos: [{ id: 'e1' }] }), { status: 200 })
+      }
+      if (path === '/api/equipos' && init.method === 'POST') {
+        return new Response(JSON.stringify({ equipo: { id: 'e1' }, created: true }), { status: 200 })
+      }
+      if (path.startsWith('/api/equipos?id=') && init.method === 'DELETE') {
+        return new Response(JSON.stringify({ ok: true, id: 'e1' }), { status: 200 })
+      }
+      if (path === '/api/refrigeracion' && init.method === 'GET') {
+        return new Response(JSON.stringify({ refrigeraciones: [{ id: 'r1' }] }), { status: 200 })
+      }
+      if (path === '/api/refrigeracion' && init.method === 'POST') {
+        return new Response(JSON.stringify({ refrigeracion: { id: 'r1' }, created: false }), { status: 200 })
+      }
+      if (path.startsWith('/api/refrigeracion?id=') && init.method === 'DELETE') {
+        return new Response(JSON.stringify({ ok: true, id: 'r1' }), { status: 200 })
+      }
+      return new Response(JSON.stringify({ error: 'no' }), { status: 404 })
+    }
+    assert.equal((await listEquiposServer()).equipos[0].id, 'e1')
+    assert.equal((await guardarEquipoServer({ id: 'e1' })).created, true)
+    await eliminarEquipoServer('a b')
+    assert.equal(calls.find((c) => c.method === 'DELETE').url, '/api/equipos?id=a%20b')
+    assert.equal((await listRefrigeracionServer()).refrigeraciones[0].id, 'r1')
+    assert.equal((await guardarRefrigeracionServer({ id: 'r1' })).created, false)
+    assert.equal((await eliminarRefrigeracionServer('r1')).ok, true)
+  } finally {
+    globalThis.fetch = realFetch
+  }
 })
 
 test('indexEstadosUnidad indexa unidad y placa', () => {

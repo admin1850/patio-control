@@ -4,8 +4,10 @@
  * DB `patio-outbox`, store `pending` (keyPath `id`, índice `status`).
  * Registro: { id, type, movimiento, queuedAt, status, attempts, lastError, event }
  *
- * App.jsx lo usa cuando el alta por servidor se intentó y falló la red.
- * La cola localStorage `patio-control-offline-queue` sigue para el modo legado (sin sesión de servidor).
+ * Con sesión de servidor App.jsx encola aquí (enqueueOutbox) y no escribe
+ * movimientos nuevos en localStorage. La cola `patio-control-offline-queue`
+ * queda solo para Workspace híbrido (sin sesión). Al arrancar o vaciar con
+ * sesión, esas filas se pasan con migrateLegacyQueueToOutbox.
  *
  * Blobs (fotos ya comprimidas con re(file, 1280, 0.72), firma PNG) se guardan como
  * ArrayBuffer `{ __blob: true, type, data }`: Safari/iOS ha tenido fallas guardando Blob
@@ -129,6 +131,45 @@ export async function enqueue(event) {
   return id
 }
 
+/** Misma cola IndexedDB. La usa la sesión de servidor (no localStorage). */
+export function enqueueOutbox(event) {
+  return enqueue(event)
+}
+
+/**
+ * Copia la cola localStorage legada al outbox. No la borra: el caller la limpia
+ * si esta promesa resuelve.
+ * @param {() => Promise<unknown>|unknown} getLegacyItems
+ * @param {(event: Record<string, any>) => Promise<string>} [enqueueFn]
+ * @returns {Promise<{ migrated: number, ids: string[] }>}
+ */
+export async function migrateLegacyQueueToOutbox(getLegacyItems, enqueueFn = enqueueOutbox) {
+  if (typeof getLegacyItems !== 'function') {
+    throw new Error('migrateLegacyQueueToOutbox requiere getLegacyItems')
+  }
+  if (typeof enqueueFn !== 'function') {
+    throw new Error('migrateLegacyQueueToOutbox requiere enqueue')
+  }
+  const raw = await getLegacyItems()
+  const items = Array.isArray(raw) ? raw : []
+  const ids = []
+  for (const item of items) {
+    if (!item || typeof item !== 'object') continue
+    const movimiento = item.movimiento && typeof item.movimiento === 'object' ? item.movimiento : null
+    if (!movimiento) continue
+    const event = await serializeEvent({
+      id: String(item.id || movimiento.id || ''),
+      type: item.type || 'movimiento',
+      tipo: item.tipo || item.type || 'movimiento',
+      movimiento,
+      queuedAt: item.queuedAt || new Date().toISOString(),
+      ...(item.lastError ? { lastError: String(item.lastError) } : {}),
+    })
+    ids.push(await enqueueFn(event))
+  }
+  return { migrated: ids.length, ids }
+}
+
 /**
  * Encola un movimiento que no pudo crearse en el servidor.
  * Fotos: Blob preferido (se persiste como ArrayBuffer). Si vienen data URLs ya
@@ -139,7 +180,7 @@ export async function enqueue(event) {
  */
 export function enqueueMovimiento(movimiento, lastError = null) {
   const id = String(movimiento?.id || newId())
-  return enqueue({
+  return enqueueOutbox({
     id,
     type: 'movimiento',
     tipo: 'movimiento',

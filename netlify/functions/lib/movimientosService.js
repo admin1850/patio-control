@@ -78,6 +78,55 @@ function timeOf(m) {
   return Number.isFinite(t) ? t : 0
 }
 
+const ROLES_CAPTURA_TARDIA = new Set([
+  'encargado_yarda',
+  'encargado',
+  'yarda',
+  'admin',
+  'administrador',
+  'supervisor',
+])
+
+function rolPuedeCapturaTardia(rol) {
+  const t = String(rol ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+    .replace(/-/g, '_')
+  return ROLES_CAPTURA_TARDIA.has(t)
+}
+
+/**
+ * Captura tardía: se conserva la fechaHora que reclama el encargado y
+ * horaServidor sigue siendo el reloj del servidor. El motivo queda en
+ * cumplimiento y en observaciones. El guardia no puede usarla.
+ */
+function aplicarCapturaTardia(mov, session) {
+  const desdeCumplimiento =
+    mov?.cumplimiento && typeof mov.cumplimiento === 'object' ? mov.cumplimiento.capturaTardiaMotivo : ''
+  const motivo = String(mov?.capturaTardiaMotivo ?? desdeCumplimiento ?? '').trim()
+  if (!motivo) return mov
+  if (!rolPuedeCapturaTardia(session?.rol)) {
+    throw new MovimientoError(
+      'La captura tardía solo la registra un encargado de yarda o un admin.',
+      403,
+      'CAPTURA_TARDIA',
+    )
+  }
+  const cumplimiento = {
+    ...(mov.cumplimiento && typeof mov.cumplimiento === 'object' && !Array.isArray(mov.cumplimiento)
+      ? mov.cumplimiento
+      : {}),
+    capturaTardiaMotivo: motivo,
+  }
+  const dispositivo = String(mov.fechaCapturaDispositivo ?? cumplimiento.fechaCapturaDispositivo ?? '').trim()
+  if (dispositivo) cumplimiento.fechaCapturaDispositivo = dispositivo
+  const nota = `Captura tardía: ${motivo}`
+  const obs = String(mov.observaciones ?? '').trim()
+  const observaciones = obs.includes(nota) ? obs : obs ? `${obs}\n${nota}` : nota
+  return { ...mov, cumplimiento, observaciones, capturaTardiaMotivo: motivo }
+}
+
 /**
  * @param {{ listMovimientos: Function, findMovimientoById: Function, findOpenEntrada: Function, appendMovimiento: Function, appendAuditoria: Function }} repo
  * @param {{ now?: () => Date }} [options]
@@ -140,8 +189,10 @@ export function createMovimientosService(repo, options = {}) {
     const clock = callOpts.now ?? options.now ?? (() => new Date())
     const now = clock()
     const horaServidor = (now instanceof Date ? now : new Date(now)).toISOString()
+    // fechaHora reclamada se conserva; horaServidor es el sello del servidor.
+    const preparado = aplicarCapturaTardia(mov, session)
     const stamped = {
-      ...mov,
+      ...preparado,
       id,
       tipo,
       equipoId,
