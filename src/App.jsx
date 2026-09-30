@@ -15,6 +15,7 @@ import {
   ApiError,
   createMovimientoServer,
   fetchMe,
+  fetchTableroOpcional,
   getDispositivoId,
   isBackendUnavailable,
   isNetworkFailure,
@@ -25,7 +26,9 @@ import {
   sessionLikelyAvailable,
   tryCreateMovimientoViaServer,
   uploadMediaServer,
+  validarSalidaAntesDeGuardar,
 } from "./lib/serverApi.js";
+import Mantenimiento, { EstatusOperativoChip, MantenimientoBoard, puedeAutorizarSalidaCliente } from "./components/Mantenimiento.jsx";
 import { countPending, enqueueMovimiento, flushOutbox } from "./lib/outbox.js";
 
 function _Component({
@@ -810,6 +813,10 @@ var Re = [{
   id: `salida`,
   label: `Salida`,
   short: `Salida`
+}, {
+  id: `mantenimiento`,
+  label: `Mantenimiento`,
+  short: `Taller`
 }, {
   id: `historial`,
   label: `Historial`,
@@ -2514,7 +2521,8 @@ function _Component5({
   initialPlaca: n = ``,
   onSaveEquipo: r,
   onSubmit: i,
-  onDone: a
+  onDone: a,
+  onPromptOt
 }) {
   let [o, s] = (0, l.useState)(() => be());
   let [c, u] = (0, l.useState)(() => oe());
@@ -2537,6 +2545,7 @@ function _Component5({
   let [Se, Ce] = (0, l.useState)(null);
   let [M, we] = (0, l.useState)(false);
   let [N, Te] = (0, l.useState)(false);
+  let [otPrompt, setOtPrompt] = (0, l.useState)(null);
   let Ee = d ? `camion` : h && !p && !_ ? `dolly` : p || _ ? `caja` : `camion`;
   let ke = (0, l.useMemo)(() => y.trim() ? De({
     equipos: e
@@ -2638,8 +2647,26 @@ function _Component5({
       se(c);
       await i(l);
       let u = _t(C, te);
-      Ce(`${t.placa} queda en ${_e.find(e => e.id === o)?.nombre ?? o} como PARADO · ${u}. No cuenta como entrada de hoy.`);
-      setTimeout(() => a(), 1400);
+      let yardaNombre = _e.find(e => e.id === o)?.nombre ?? o;
+      let pideOt = C === `taller` || C === `thermo`;
+      if (pideOt) {
+        let fotosOt = n.map(item => item.url).filter(url => /^https?:\/\//i.test(url) || String(url).startsWith(`/api/`));
+        setOtPrompt({
+          unidadId: t.id,
+          placa: t.placa,
+          yarda: o,
+          tipo: C === `thermo` ? `THERMO` : `CORRECTIVO`,
+          motivo: me.trim() || u,
+          movimientoOrigenId: l.id,
+          fotosAntesJson: fotosOt,
+          zonaSlot: ue.trim() || ``
+        });
+        Ce(`${t.placa} queda en ${yardaNombre} como PARADO · ${u}. Motivo de taller o fallas: abre o enlaza la orden de trabajo. El ETR es obligatorio.`);
+      } else {
+        setOtPrompt(null);
+        Ce(`${t.placa} queda en ${yardaNombre} como PARADO · ${u}. No cuenta como entrada de hoy.`);
+        setTimeout(() => a(), 1400);
+      }
     } catch (e) {
       xe(e instanceof Error ? e.message : `No se pudo guardar`);
     } finally {
@@ -2755,7 +2782,7 @@ function _Component5({
           applyPlacaOcrToForm(slotId, placa, {
             setPlaca: b
           });
-        }} /></Component503>{j && <Component504 className={`banner error`}>{j}</Component504>}{Se && <Component505 className={`banner success`}>{Se}</Component505>}<Component506 type={`submit`} className={`btn primary wide`} disabled={M}>{M ? `Guardando…` : `Sumar a patio`}</Component506></Component507>;
+        }} /></Component503>{j && <Component504 className={`banner error`}>{j}</Component504>}{Se && <Component505 className={`banner success`}>{Se}</Component505>}{otPrompt && <p className={`banner warn`}>{`Esta unidad va a taller. `}<button type={`button`} className={`btn primary`} onClick={() => onPromptOt?.(otPrompt)}>{`Abrir orden de trabajo`}</button></p>}<Component506 type={`submit`} className={`btn primary wide`} disabled={M}>{M ? `Guardando…` : `Sumar a patio`}</Component506></Component507>;
 }
 var St = `1yH8vAbXoMFvHdKEt8XMvXWDOc0R1VjVdp1Y3MtCGLp0`;
 var Ct = `1Usz_zTK3kqO-Pah3seSdPpMQPMfLHDJh`;
@@ -3084,7 +3111,7 @@ function puedeMovimiento(user, key) {
   if (!user?.permisos) {
     return true;
   }
-  if (key === `dashboard`) {
+  if (key === `dashboard` || key === `mantenimiento`) {
     return true;
   }
   return !!user.permisos[key];
@@ -4435,6 +4462,7 @@ function An({
   onKpis: o,
   mode: mode = `local`,
   onCloud: onCloud,
+  onMantenimiento,
   user: authUser = null
 }) {
   let [s, c] = (0, l.useState)(`todas`);
@@ -4449,6 +4477,23 @@ function An({
   let y = g.filter(e => e.condicionGeneral === `mala` || e.checklist.some(e => e.ok === false)).length;
   let b = (0, l.useMemo)(() => On(e, s, u), [e, s, u]);
   let x = b.filter(e => e.level === `critical`).length;
+  let [estadoMap, setEstadoMap] = (0, l.useState)({});
+  (0, l.useEffect)(() => {
+    let cancel = false;
+    fetchTableroOpcional().then(data => {
+      if (cancel || !data) return;
+      let map = {};
+      for (let est of data.estados || data.tablero?.estados || []) {
+        if (!est?.unidadId) continue;
+        map[est.unidadId] = est;
+        map[String(est.unidadId).toUpperCase()] = est;
+      }
+      setEstadoMap(map);
+    }).catch(() => {});
+    return () => {
+      cancel = true;
+    };
+  }, []);
   function S(e) {
     c(e);
     if (e !== `todas`) {
@@ -4539,11 +4584,11 @@ function An({
       marginBottom: 12
     }}><strong>{authUser.nombreKardex || authUser.name}</strong>{` · `}{rolLabel(authUser.rol)}{` · `}{ubicacionLabel(authUser.ubicacion)}{authUser.whatsapp ? ` · WA ${authUser.whatsapp}` : ``}{` · `}{authUser.email}</div> : mode !== `workspace` ? <div className={`banner warn`} style={{
       marginBottom: 12
-    }}><strong>{`Modo local`}</strong>{` · Solo personal del kardex Autorizados puede conectar Cloud. `}{onCloud ? <button type={`button`} className={`text-btn`} onClick={onCloud}>{`Conectar Cloud ahora`}</button> : `Ve a Cloud y conecta Google.`}</div> : null}<Component521 className={`hero-ops`}><Component511><Component508 className={`eyebrow`}>{`Gate · 3 yardas · API / Carbal-Pia`}</Component508><Component509>{`Control de accesos/salidas en los patios de trabajo`}</Component509><Component510 className={`lede`}>{`Chihuahua, Calera y Calpulalpan · ~25 viajes/día por sentido. Fotos guiadas, sello, firma y GPS.`}</Component510></Component511><Component512 className={`hero-prompt`}>{`Selecciona el tipo de movimiento o registro que necesitas hacer:`}</Component512><Component518 className={`hero-actions`}>{puedeMovimiento(authUser, `entrada`) && <Component513 type={`button`} className={`btn ghost`} onClick={() => t()}>{`Nueva entrada`}</Component513>}{puedeMovimiento(authUser, `salida`) && <Component514 type={`button`} className={`btn ghost`} onClick={() => n()}>{`Registrar salida`}</Component514>}{puedeMovimiento(authUser, `parado`) && <Component516 type={`button`} className={`btn ghost`} onClick={() => r()}>{`Equipo parado`}<Component515 className={`btn-sub`}>{`Inventariar`}</Component515></Component516>}{o && puedeMovimiento(authUser, `kpis`) && <Component517 type={`button`} className={`btn ghost`} onClick={o}>{`Ver KPIs`}</Component517>}</Component518><Component520 className={`hero-hint`}><Component519>{`Equipo parado`}</Component519>{` = unidad que ya está en yarda sin viaje de entrada ni salida (vacío en pool, taller, retenida, drop sin ciclo…). No es un arribo: es un conteo.`}</Component520></Component521><Component526 className={`fieldset`}><Component522>{`Empresa`}</Component522><Component525 className={`seg big wrap`}><Component523 type={`button`} className={u === `todas` ? `seg-btn on-ok` : `seg-btn`} onClick={() => C(`todas`)}>{`Todas`}</Component523>{ie.map(e => <Component524 type={`button`} className={u === e.id ? `seg-btn on-ok` : `seg-btn`} onClick={() => C(e.id)} key={e.id}>{e.nombre}</Component524>)}</Component525></Component526><Component531 className={`fieldset`}><Component527>{`Yarda`}</Component527><Component530 className={`seg big wrap`}><Component528 type={`button`} className={s === `todas` ? `seg-btn on-ok` : `seg-btn`} onClick={() => S(`todas`)}>{`Todas`}</Component528>{_e.map(e => <Component529 type={`button`} className={s === e.id ? `seg-btn on-ok` : `seg-btn`} onClick={() => S(e.id)} key={e.id}>{e.nombre}</Component529>)}</Component530></Component531><Component541 className={`stats stats-patio`}><Component534 className={`stat`}><Component532 className={`stat-label`}>{`En patio`}</Component532><Component533 className={`stat-value`}>{f.length}</Component533></Component534><Component537 className={`stat`}><Component535 className={`stat-label`}>{`En ciclo`}</Component535><Component536 className={`stat-value`}>{p.length}</Component536></Component537><Component540 className={`stat`}><Component538 className={`stat-label`}>{`Parados`}</Component538><Component539 className={`stat-value`}>{m.length}</Component539></Component540></Component541><Component552 className={`stats`}><Component544 className={`stat`}><Component542 className={`stat-label`}>{`Entradas hoy`}</Component542><Component543 className={`stat-value`}>{_}</Component543></Component544><Component547 className={`stat`}><Component545 className={`stat-label`}>{`Salidas hoy`}</Component545><Component546 className={`stat-value`}>{v}</Component546></Component547><Component551 className={`stat`}><Component548 className={`stat-label`}>{`Alertas`}</Component548><Component549 className={`stat-value`}>{b.length || y}</Component549><Component550 className={`hint`}>{x}{` críticas`}</Component550></Component551></Component552>{b.length > 0 && <Component560 className={`panel alerts-panel`}><Component554 className={`panel-head`}><Component553>{`Alertas operativas`}</Component553></Component554><Component559 className={`alert-list`}>{b.slice(0, 6).map(e => <Component558 className={`alert-row ${e.level}`} key={e.id}><Component555 className={`unit-placa`}>{e.title}</Component555><Component556 className={`unit-meta`}>{e.detail}</Component556><Component557 className={`unit-time`}>{kn(e.when)}</Component557></Component558>)}</Component559></Component560>}<Component580 className={`panel`}><Component563 className={`panel-head`}><Component561>{`Equipos en patio`}{u === `todas` ? `` : ` · ${k(u)}`}{s === `todas` ? `` : ` · ${ye(s)}`}</Component561>{puedeMovimiento(authUser, `historial`) && <Component562 type={`button`} className={`text-btn`} onClick={a}>{`Ver historial`}</Component562>}</Component563>{f.length === 0 ? <Component564 className={`empty`}>{`No hay equipos en patio en este filtro.`}</Component564> : <Component579 className={`unit-list`}>{f.map(({
+    }}><strong>{`Modo local`}</strong>{` · Solo personal del kardex Autorizados puede conectar Cloud. `}{onCloud ? <button type={`button`} className={`text-btn`} onClick={onCloud}>{`Conectar Cloud ahora`}</button> : `Ve a Cloud y conecta Google.`}</div> : null}<Component521 className={`hero-ops`}><Component511><Component508 className={`eyebrow`}>{`Gate · 3 yardas · API / Carbal-Pia`}</Component508><Component509>{`Control de accesos/salidas en los patios de trabajo`}</Component509><Component510 className={`lede`}>{`Chihuahua, Calera y Calpulalpan · ~25 viajes/día por sentido. Fotos guiadas, sello, firma y GPS.`}</Component510></Component511><Component512 className={`hero-prompt`}>{`Selecciona el tipo de movimiento o registro que necesitas hacer:`}</Component512><Component518 className={`hero-actions`}>{puedeMovimiento(authUser, `entrada`) && <Component513 type={`button`} className={`btn ghost`} onClick={() => t()}>{`Nueva entrada`}</Component513>}{puedeMovimiento(authUser, `salida`) && <Component514 type={`button`} className={`btn ghost`} onClick={() => n()}>{`Registrar salida`}</Component514>}{puedeMovimiento(authUser, `parado`) && <Component516 type={`button`} className={`btn ghost`} onClick={() => r()}>{`Equipo parado`}<Component515 className={`btn-sub`}>{`Inventariar`}</Component515></Component516>}{o && puedeMovimiento(authUser, `kpis`) && <Component517 type={`button`} className={`btn ghost`} onClick={o}>{`Ver KPIs`}</Component517>}</Component518><Component520 className={`hero-hint`}><Component519>{`Equipo parado`}</Component519>{` = unidad que ya está en yarda sin viaje de entrada ni salida (vacío en pool, taller, retenida, drop sin ciclo…). No es un arribo: es un conteo.`}</Component520></Component521><Component526 className={`fieldset`}><Component522>{`Empresa`}</Component522><Component525 className={`seg big wrap`}><Component523 type={`button`} className={u === `todas` ? `seg-btn on-ok` : `seg-btn`} onClick={() => C(`todas`)}>{`Todas`}</Component523>{ie.map(e => <Component524 type={`button`} className={u === e.id ? `seg-btn on-ok` : `seg-btn`} onClick={() => C(e.id)} key={e.id}>{e.nombre}</Component524>)}</Component525></Component526><Component531 className={`fieldset`}><Component527>{`Yarda`}</Component527><Component530 className={`seg big wrap`}><Component528 type={`button`} className={s === `todas` ? `seg-btn on-ok` : `seg-btn`} onClick={() => S(`todas`)}>{`Todas`}</Component528>{_e.map(e => <Component529 type={`button`} className={s === e.id ? `seg-btn on-ok` : `seg-btn`} onClick={() => S(e.id)} key={e.id}>{e.nombre}</Component529>)}</Component530></Component531><Component541 className={`stats stats-patio`}><Component534 className={`stat`}><Component532 className={`stat-label`}>{`En patio`}</Component532><Component533 className={`stat-value`}>{f.length}</Component533></Component534><Component537 className={`stat`}><Component535 className={`stat-label`}>{`En ciclo`}</Component535><Component536 className={`stat-value`}>{p.length}</Component536></Component537><Component540 className={`stat`}><Component538 className={`stat-label`}>{`Parados`}</Component538><Component539 className={`stat-value`}>{m.length}</Component539></Component540></Component541><Component552 className={`stats`}><Component544 className={`stat`}><Component542 className={`stat-label`}>{`Entradas hoy`}</Component542><Component543 className={`stat-value`}>{_}</Component543></Component544><Component547 className={`stat`}><Component545 className={`stat-label`}>{`Salidas hoy`}</Component545><Component546 className={`stat-value`}>{v}</Component546></Component547><Component551 className={`stat`}><Component548 className={`stat-label`}>{`Alertas`}</Component548><Component549 className={`stat-value`}>{b.length || y}</Component549><Component550 className={`hint`}>{x}{` críticas`}</Component550></Component551></Component552>{b.length > 0 && <Component560 className={`panel alerts-panel`}><Component554 className={`panel-head`}><Component553>{`Alertas operativas`}</Component553></Component554><Component559 className={`alert-list`}>{b.slice(0, 6).map(e => <Component558 className={`alert-row ${e.level}`} key={e.id}><Component555 className={`unit-placa`}>{e.title}</Component555><Component556 className={`unit-meta`}>{e.detail}</Component556><Component557 className={`unit-time`}>{kn(e.when)}</Component557></Component558>)}</Component559></Component560>}<MantenimientoBoard onOpen={onMantenimiento} compact={true} /><Component580 className={`panel`}><Component563 className={`panel-head`}><Component561>{`Equipos en patio`}{u === `todas` ? `` : ` · ${k(u)}`}{s === `todas` ? `` : ` · ${ye(s)}`}</Component561>{puedeMovimiento(authUser, `historial`) && <Component562 type={`button`} className={`text-btn`} onClick={a}>{`Ver historial`}</Component562>}</Component563>{f.length === 0 ? <Component564 className={`empty`}>{`No hay equipos en patio en este filtro.`}</Component564> : <Component579 className={`unit-list`}>{f.map(({
           equipo: e,
           entrada: a,
           estado: o
-        }) => <Component578 className={`unit-row`} key={e.id}><Component573 className={`unit-main`}><Component566 className={`unit-placa`}>{e.placa}{` `}<Component565 className={`badge ${o === `parado` ? `parado` : `ciclo`}`}>{o === `parado` ? `PARADO` : `EN CICLO`}</Component565></Component566><Component567 className={`unit-meta`}>{jn(e.tipo)}{` · `}{e.numeroEconomico}{` ·`}{` `}{k(a.empresaId)}{` · `}{ye(a.yardaId)}{a.selloNumero ? ` · sello ${a.selloNumero}` : ``}{o === `parado` && a.motivoParo ? ` · ${_t(a.motivoParo, a.motivoParoOtro)}` : ``}</Component567><Component572 className={`unit-actions`}>{puedeMovimiento(authUser, `salida`) && <Component568 type={`button`} className={`text-btn`} onClick={() => n(e.placa)}>{`Salida`}</Component568>}{o === `parado` ? puedeMovimiento(authUser, `entrada`) && <Component569 type={`button`} className={`text-btn`} onClick={() => t(e.placa)}>{`Pasar a ciclo`}</Component569> : puedeMovimiento(authUser, `parado`) && <Component570 type={`button`} className={`text-btn`} onClick={() => r(e.placa)}>{`Pasar a parado`}</Component570>}{puedeMovimiento(authUser, `baja`) && <Component571 type={`button`} className={`text-btn`} onClick={() => i(e.placa)}>{`Baja`}</Component571>}</Component572></Component573><Component576 className={`unit-side`}><Component574 className={`unit-time`}>{o === `parado` ? `Desde` : `Llegó`}{` `}{kn(a.fechaHora)}</Component574><Component575 className={`pill ${a.condicionGeneral}`}>{a.condicionGeneral}</Component575></Component576>{a.fotos[0] && <Component577 className={`unit-thumb`} src={a.fotos[0]} alt={``} />}</Component578>)}</Component579>}</Component580></Component581>;
+        }) => <Component578 className={`unit-row`} key={e.id}><Component573 className={`unit-main`}><Component566 className={`unit-placa`}>{e.placa}{` `}<Component565 className={`badge ${o === `parado` ? `parado` : `ciclo`}`}>{o === `parado` ? `PARADO` : `EN CICLO`}</Component565>{estadoMap[e.id] || estadoMap[String(e.placa || ``).toUpperCase()] ? <EstatusOperativoChip estado={estadoMap[e.id] || estadoMap[String(e.placa || ``).toUpperCase()]} /> : null}</Component566><Component567 className={`unit-meta`}>{jn(e.tipo)}{` · `}{e.numeroEconomico}{` ·`}{` `}{k(a.empresaId)}{` · `}{ye(a.yardaId)}{a.selloNumero ? ` · sello ${a.selloNumero}` : ``}{o === `parado` && a.motivoParo ? ` · ${_t(a.motivoParo, a.motivoParoOtro)}` : ``}</Component567><Component572 className={`unit-actions`}>{puedeMovimiento(authUser, `salida`) && <Component568 type={`button`} className={`text-btn`} onClick={() => n(e.placa)}>{`Salida`}</Component568>}{o === `parado` ? puedeMovimiento(authUser, `entrada`) && <Component569 type={`button`} className={`text-btn`} onClick={() => t(e.placa)}>{`Pasar a ciclo`}</Component569> : puedeMovimiento(authUser, `parado`) && <Component570 type={`button`} className={`text-btn`} onClick={() => r(e.placa)}>{`Pasar a parado`}</Component570>}{puedeMovimiento(authUser, `baja`) && <Component571 type={`button`} className={`text-btn`} onClick={() => i(e.placa)}>{`Baja`}</Component571>}</Component572></Component573><Component576 className={`unit-side`}><Component574 className={`unit-time`}>{o === `parado` ? `Desde` : `Llegó`}{` `}{kn(a.fechaHora)}</Component574><Component575 className={`pill ${a.condicionGeneral}`}>{a.condicionGeneral}</Component575></Component576>{a.fotos[0] && <Component577 className={`unit-thumb`} src={a.fotos[0]} alt={``} />}</Component578>)}</Component579>}</Component580></Component581>;
 }
 function jn(e) {
   switch (e) {
@@ -5202,6 +5247,7 @@ var Hn = {
   dashboard: `Patio`,
   entrada: `Entrada`,
   salida: `Salida`,
+  mantenimiento: `Mantenimiento`,
   parado: `Equipo parado`,
   baja: `Baja`,
   historial: `Historial`,
@@ -5243,7 +5289,8 @@ function SalidaCortaForm({
   equipos,
   movimientos,
   onSubmit,
-  onDone
+  onDone,
+  user = null
 }) {
   let [yardaId, setYardaId] = (0, l.useState)(() => be());
   let [empresaId, setEmpresaId] = (0, l.useState)(() => oe());
@@ -5262,6 +5309,11 @@ function SalidaCortaForm({
   let [error, setError] = (0, l.useState)(null);
   let [okMsg, setOkMsg] = (0, l.useState)(null);
   let [busy, setBusy] = (0, l.useState)(false);
+  let [gateMsg, setGateMsg] = (0, l.useState)(null);
+  let [gateLevel, setGateLevel] = (0, l.useState)(null);
+  let [overrideMotivo, setOverrideMotivo] = (0, l.useState)(``);
+  let [trasladoExterno, setTrasladoExterno] = (0, l.useState)(false);
+  let [pideAutorizacion, setPideAutorizacion] = (0, l.useState)(false);
   let enPatio = (0, l.useMemo)(() => equipos.map(eq => {
     let mov = findMovAbierto(movimientos, eq.id);
     if (!mov || mov.tipo !== `entrada`) {
@@ -5316,6 +5368,9 @@ function SalidaCortaForm({
     setObs(``);
     setFotos({});
     setError(null);
+    setGateMsg(null);
+    setGateLevel(null);
+    setPideAutorizacion(false);
   }
   async function onSave(ev) {
     ev.preventDefault();
@@ -5351,6 +5406,34 @@ function SalidaCortaForm({
     }
     setBusy(true);
     try {
+      let relacionados = [];
+      if (sel.entrada.placaCaja1) relacionados.push({ placa: sel.entrada.placaCaja1, tipo: `caja` });
+      if (sel.entrada.placaCaja2) relacionados.push({ placa: sel.entrada.placaCaja2, tipo: `caja` });
+      if (sel.equipo.tipo === `dolly` || sel.entrada.equipoTipo === `dolly`) {
+        relacionados.push({ unidadId: sel.equipo.id, placa: sel.equipo.placa, tipo: `dolly` });
+      }
+      let gate = await validarSalidaAntesDeGuardar({
+        equipoId: sel.equipo.id,
+        placa: sel.equipo.placa,
+        relacionados,
+        overrideMotivo: overrideMotivo.trim() || undefined,
+        trasladoTallerExterno: trasladoExterno || undefined,
+        consultar: sessionLikelyAvailable()
+      });
+      if (!gate.ok) {
+        setGateLevel(`error`);
+        setGateMsg(gate.message);
+        setPideAutorizacion(Boolean(gate.puedeAutorizar) || puedeAutorizarSalidaCliente(user));
+        return;
+      }
+      setPideAutorizacion(false);
+      if (gate.warning) {
+        setGateLevel(`warn`);
+        setGateMsg(gate.warning);
+      } else {
+        setGateMsg(null);
+        setGateLevel(null);
+      }
       let geo = await ht();
       let fotosEvidencia = SALIDA_CORTA_SLOTS.filter(s => fotos[s.id]).map(s => ({
         slotId: s.id,
@@ -5397,6 +5480,8 @@ function SalidaCortaForm({
           validadoGate: true,
           salidaCorta: true
         },
+        overrideMotivo: overrideMotivo.trim() || undefined,
+        trasladoTallerExterno: trasladoExterno || undefined,
         llevaRefrigerada: entrada.llevaRefrigerada,
         refrigerada: entrada.refrigerada,
         creadoEn: new Date().toISOString()
@@ -5428,7 +5513,9 @@ function SalidaCortaForm({
         marginTop: 12
       }}><label className={`field`}><span>{`Kilómetros`}</span><input className={`input`} type={`number`} min={0} value={km} onChange={e => setKm(e.target.value)} placeholder={`Km al salir`} /></label><label className={`field`}><span>{`Diésel %`}</span><input className={`input`} type={`number`} min={0} max={100} value={dieselPct} onChange={e => setDieselPct(e.target.value)} placeholder={`%`} /></label><label className={`field`}><span>{`Diésel litros`}</span><input className={`input`} type={`number`} min={0} step={0.1} value={dieselL} onChange={e => setDieselL(e.target.value)} placeholder={`L`} /></label></div>{dieselDelta != null && dieselDelta <= -15 && <p className={`banner warn`} style={{
         marginTop: 10
-      }}>{`Merma de diésel: ${dieselDelta.toFixed(0)}% vs entrada (${sel.entrada.dieselPorcentaje}% → ${dieselPct}%).`}</p>}</fieldset>}<fieldset className={`fieldset`}><legend>{`Condición al salir`}</legend><div className={`seg big`}>{[`buena`, `regular`, `mala`].map(c => <button type={`button`} className={condicion === c ? `seg-btn ${c === `buena` ? `on-ok` : c === `regular` ? `on-warn` : `on-bad`}` : `seg-btn`} onClick={() => setCondicion(c)} key={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</button>)}</div></fieldset><fieldset className={`fieldset`}><legend>{`Fotos de salida`}</legend><_Component slots={SALIDA_CORTA_SLOTS} captured={fotos} onChange={setFotos} /></fieldset><fieldset className={`fieldset`}><legend>{`Firma digital`}</legend><_Component3 value={firma} onChange={setFirma} signerName={firmaNombre} onSignerNameChange={setFirmaNombre} /><p className={`hint`}>{`Al guardar se captura GPS (si el cel lo permite).`}</p></fieldset><fieldset className={`fieldset`}><legend>{`Observaciones`}</legend><textarea className={`input textarea`} rows={2} value={obs} onChange={e => setObs(e.target.value)} placeholder={`Daños nuevos, discrepancia de sello, incidencias…`} /></fieldset>{error && <p className={`banner error`}>{error}</p>}{okMsg && <p className={`banner success`}>{okMsg}</p>}<button type={`submit`} className={`btn primary wide`} disabled={busy}>{busy ? `Guardando…` : `Guardar salida y cerrar ciclo`}</button></form>;
+      }}>{`Merma de diésel: ${dieselDelta.toFixed(0)}% vs entrada (${sel.entrada.dieselPorcentaje}% → ${dieselPct}%).`}</p>}</fieldset>}<fieldset className={`fieldset`}><legend>{`Condición al salir`}</legend><div className={`seg big`}>{[`buena`, `regular`, `mala`].map(c => <button type={`button`} className={condicion === c ? `seg-btn ${c === `buena` ? `on-ok` : c === `regular` ? `on-warn` : `on-bad`}` : `seg-btn`} onClick={() => setCondicion(c)} key={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</button>)}</div></fieldset><fieldset className={`fieldset`}><legend>{`Fotos de salida`}</legend><_Component slots={SALIDA_CORTA_SLOTS} captured={fotos} onChange={setFotos} /></fieldset><fieldset className={`fieldset`}><legend>{`Firma digital`}</legend><_Component3 value={firma} onChange={setFirma} signerName={firmaNombre} onSignerNameChange={setFirmaNombre} /><p className={`hint`}>{`Al guardar se captura GPS (si el cel lo permite).`}</p></fieldset><fieldset className={`fieldset`}><legend>{`Observaciones`}</legend><textarea className={`input textarea`} rows={2} value={obs} onChange={e => setObs(e.target.value)} placeholder={`Daños nuevos, discrepancia de sello, incidencias…`} /></fieldset>{gateMsg && <p className={`banner ${gateLevel === `error` ? `error` : `warn`}`}>{gateMsg}</p>}{gateLevel === `error` && <fieldset className={`fieldset`}><legend>{`Excepción de salida`}</legend><label className={`check-inline`}><input type={`checkbox`} checked={trasladoExterno} onChange={e => setTrasladoExterno(e.target.checked)} />{`Traslado a taller externo`}</label>{(pideAutorizacion || puedeAutorizarSalidaCliente(user)) && <label className={`field`} style={{
+        marginTop: 10
+      }}><span>{`Motivo de autorización (encargado o admin) *`}</span><textarea className={`input textarea`} rows={2} value={overrideMotivo} onChange={e => setOverrideMotivo(e.target.value)} placeholder={`Escríbelo. Queda en la bitácora de la OT.`} /></label>}</fieldset>}{error && <p className={`banner error`}>{error}</p>}{okMsg && <p className={`banner success`}>{okMsg}</p>}<button type={`submit`} className={`btn primary wide`} disabled={busy}>{busy ? `Guardando…` : `Guardar salida y cerrar ciclo`}</button></form>;
 }
 function Un() {
   let [e, t] = (0, l.useState)(`dashboard`);
@@ -5436,6 +5523,7 @@ function Un() {
   let [i, a] = (0, l.useState)(0);
   let [o, s] = (0, l.useState)(``);
   let [permMsg, setPermMsg] = (0, l.useState)(null);
+  let [otDraft, setOtDraft] = (0, l.useState)(null);
   let c = Sn();
   let navItems = (0, l.useMemo)(() => Re.filter(item => puedeMovimiento(c.user, item.id)), [c.user]);
   (0, l.useEffect)(() => {
@@ -5480,13 +5568,19 @@ function Un() {
     }
     await c.registrarMovimiento(payload);
   }
-  return <_Component7 page={e} onNavigate={e => u(e)} onBack={d} modeLabel={c.mode === `workspace` && c.user?.rol ? `${rolLabel(c.user.rol)} · ${ubicacionLabel(c.user.ubicacion)}` : c.mode === `workspace` ? `Workspace` : `Local`} syncing={c.syncing} online={c.online} queueCount={c.queueCount} onFlushQueue={() => void c.flushQueue()} navItems={navItems}>{permMsg && <p className={`banner warn`} style={{
+  return <_Component7 page={e} onNavigate={page => {
+    if (page === `mantenimiento`) setOtDraft(null);
+    u(page);
+  }} onBack={d} modeLabel={c.mode === `workspace` && c.user?.rol ? `${rolLabel(c.user.rol)} · ${ubicacionLabel(c.user.ubicacion)}` : c.mode === `workspace` ? `Workspace` : `Local`} syncing={c.syncing} online={c.online} queueCount={c.queueCount} onFlushQueue={() => void c.flushQueue()} navItems={navItems}>{permMsg && <p className={`banner warn`} style={{
       marginBottom: 12
-    }}>{permMsg}</p>}{e === `dashboard` && <An state={c.state} mode={c.mode} user={c.user} onCloud={() => u(`workspace`)} onEntrada={e => u(`entrada`, e)} onSalida={e => u(`salida`, e)} onParado={e => u(`parado`, e)} onBaja={e => u(`baja`, e)} onHistorial={() => u(`historial`)} onKpis={() => u(`kpis`)} />}{e === `entrada` && puedeMovimiento(c.user, `entrada`) && <_Component4 tipo={`entrada`} initialPlaca={o} equipos={c.state.equipos} refrigeraciones={c.state.refrigeraciones} movimientos={c.state.movimientos} onSaveEquipo={e => void c.guardarEquipo(e)} onSubmit={async e => {
+    }}>{permMsg}</p>}{e === `dashboard` && <An state={c.state} mode={c.mode} user={c.user} onCloud={() => u(`workspace`)} onEntrada={e => u(`entrada`, e)} onSalida={e => u(`salida`, e)} onParado={e => u(`parado`, e)} onBaja={e => u(`baja`, e)} onHistorial={() => u(`historial`)} onKpis={() => u(`kpis`)} onMantenimiento={() => u(`mantenimiento`)} />}{e === `entrada` && puedeMovimiento(c.user, `entrada`) && <_Component4 tipo={`entrada`} initialPlaca={o} equipos={c.state.equipos} refrigeraciones={c.state.refrigeraciones} movimientos={c.state.movimientos} onSaveEquipo={e => void c.guardarEquipo(e)} onSubmit={async e => {
       await guardSubmit(`entrada`, e);
-    }} onDone={() => u(`dashboard`)} key={`entrada-${i}`} />}{e === `salida` && puedeMovimiento(c.user, `salida`) && <SalidaCortaForm initialPlaca={o} equipos={c.state.equipos} movimientos={c.state.movimientos} onSubmit={async e => {
+    }} onDone={() => u(`dashboard`)} key={`entrada-${i}`} />}{e === `salida` && puedeMovimiento(c.user, `salida`) && <SalidaCortaForm initialPlaca={o} equipos={c.state.equipos} movimientos={c.state.movimientos} user={c.user} onSubmit={async e => {
       await guardSubmit(`salida`, e);
-    }} onDone={() => u(`dashboard`)} key={`salida-${i}`} />}{e === `parado` && puedeMovimiento(c.user, `parado`) && <_Component5 initialPlaca={o} equipos={c.state.equipos} movimientos={c.state.movimientos} onSaveEquipo={e => void c.guardarEquipo(e)} onSubmit={async e => {
+    }} onDone={() => u(`dashboard`)} key={`salida-${i}`} />}{e === `mantenimiento` && <Mantenimiento user={c.user} draft={otDraft} key={`mant-${i}`} />}{e === `parado` && puedeMovimiento(c.user, `parado`) && <_Component5 initialPlaca={o} equipos={c.state.equipos} movimientos={c.state.movimientos} onSaveEquipo={e => void c.guardarEquipo(e)} onPromptOt={draft => {
+      setOtDraft(draft);
+      u(`mantenimiento`);
+    }} onSubmit={async e => {
       await guardSubmit(`parado`, e);
     }} onDone={() => u(`dashboard`)} key={`parado-${i}`} />}{e === `baja` && puedeMovimiento(c.user, `baja`) && <Ne initialPlaca={o} equipos={c.state.equipos} movimientos={c.state.movimientos} onSubmit={async e => {
       await guardSubmit(`baja`, e);

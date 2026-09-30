@@ -53,6 +53,26 @@
   status = 200
 
 [[redirects]]
+  from = "/api/ot/tablero"
+  to = "/.netlify/functions/ot-tablero"
+  status = 200
+
+[[redirects]]
+  from = "/api/ot/:id"
+  to = "/.netlify/functions/ot-item/:id"
+  status = 200
+
+[[redirects]]
+  from = "/api/ot"
+  to = "/.netlify/functions/ot"
+  status = 200
+
+[[redirects]]
+  from = "/api/gate/validar-salida"
+  to = "/.netlify/functions/gate-validar-salida"
+  status = 200
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

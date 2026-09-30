@@ -128,7 +128,7 @@ textarea {
   backdrop-filter: blur(12px);
   z-index: 30;
   background: #f7f9fbf5;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
   gap: 2px;
   display: grid;
   position: fixed;
@@ -1196,6 +1196,99 @@ html.kiosk .nav-mobile .mob-link {
 }
 .alert-row.warn .unit-placa {
   color: var(--warn);
+}
+.badge.op-disponible {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+.badge.op-en_mantenimiento {
+  background: var(--warn-soft);
+  color: #8a5a10;
+  margin-left: 6px;
+}
+.badge.op-danado_no_operable {
+  background: var(--bad-soft);
+  color: var(--bad);
+  margin-left: 6px;
+}
+.badge.op-baja {
+  background: #eceff3;
+  color: #3d4b5c;
+  margin-left: 6px;
+}
+.ot-board-panel {
+  margin-bottom: 16px;
+}
+.ot-resumen {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.ot-yarda h3 {
+  font-family: var(--font-display);
+  margin: 8px 0;
+  font-size: 1.25rem;
+}
+.ot-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.ot-card {
+  border: 1px solid var(--line);
+  border-left: 6px solid var(--ok);
+  border-radius: 12px;
+  background: #fff;
+  padding: 12px;
+  display: grid;
+  gap: 6px;
+}
+.ot-card.amarillo {
+  border-left-color: var(--warn);
+}
+.ot-card.rojo {
+  border-left-color: var(--bad);
+}
+.ot-card.verde {
+  border-left-color: var(--ok);
+}
+.ot-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: end;
+}
+.ot-actions .field {
+  min-width: min(100%, 180px);
+  flex: 1;
+}
+.semaforo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  font-size: 0.78rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.semaforo i {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: inline-block;
+  background: var(--muted);
+}
+.semaforo.verde i {
+  background: var(--ok);
+}
+.semaforo.amarillo i {
+  background: var(--warn);
+}
+.semaforo.rojo i {
+  background: var(--bad);
 }
 
 /* FAB ¿Dudas? — FIJO arriba-derecha; no se mueve al hacer scroll */

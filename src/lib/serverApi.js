@@ -86,6 +86,106 @@ export function createMovimientoServer(mov) {
   return apiFetch('/api/movimientos', { method: 'POST', json: mov })
 }
 
+/** Lista de órdenes de trabajo (sesión). */
+export function listOrdenesServidor(query = {}) {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) {
+    if (value != null && value !== '') params.set(key, String(value))
+  }
+  const q = params.toString()
+  return apiFetch(`/api/ot${q ? `?${q}` : ''}`, { method: 'GET' })
+}
+
+/** Abre una OT. El ETR es obligatorio; si ya hay una abierta de la unidad, el servidor la enlaza. */
+export function crearOrdenServidor(orden) {
+  return apiFetch('/api/ot', { method: 'POST', json: orden })
+}
+
+/** Cambia estatus, mueve el ETR (con motivo) o cierra la OT. */
+export function actualizarOrdenServidor(id, patch) {
+  return apiFetch(`/api/ot/${encodeURIComponent(id)}`, { method: 'PATCH', json: patch })
+}
+
+/** Tablero En mantenimiento. `yarda` opcional. */
+export function fetchTableroMantenimiento(yarda) {
+  const q = yarda && yarda !== 'todas' ? `?yarda=${encodeURIComponent(yarda)}` : ''
+  return apiFetch(`/api/ot/tablero${q}`, { method: 'GET' })
+}
+
+/**
+ * Tablero para la UI. `null` si el backend no está (503, sin funciones, sin sesión):
+ * el patio sigue y no se muestra chip.
+ */
+export async function fetchTableroOpcional(yarda) {
+  try {
+    const data = await fetchTableroMantenimiento(yarda)
+    if (!data || data.raw || !data.tablero) return null
+    return data
+  } catch (err) {
+    if (isGateUnavailable(err)) return null
+    throw err
+  }
+}
+
+/**
+ * Gate de salida. 503/404/red/sin sesión → se permite con aviso (no se traba la caseta).
+ * BLOQUEADO y REQUIERE_AUTORIZACION sí detienen el guardado.
+ * @param {{ equipoId?: string, placa?: string, relacionados?: unknown[], overrideMotivo?: string, trasladoTallerExterno?: boolean, consultar?: boolean }} body
+ */
+export async function validarSalidaAntesDeGuardar(body) {
+  try {
+    const data = await apiFetch('/api/gate/validar-salida', { method: 'POST', json: body })
+    if (data?.raw || !data?.resultado) {
+      return {
+        ok: true,
+        offline: true,
+        resultado: 'SIN_VALIDACION',
+        warning: 'Sin validación de servidor. La salida se registra igual; confirma en patio que la unidad no está en taller.',
+      }
+    }
+    const resultado = data.resultado
+    if (resultado === 'PERMITIDO') {
+      const via = data?.via
+      const warning =
+        via === 'TRASLADO_TALLER_EXTERNO'
+          ? 'Salida permitida: traslado a taller externo. Queda en la bitácora.'
+          : via === 'OVERRIDE'
+            ? 'Salida autorizada por encargado. Queda en la bitácora.'
+            : null
+      return { ok: true, resultado, via, warning, data }
+    }
+    return {
+      ok: false,
+      blocked: true,
+      resultado: resultado || 'BLOQUEADO',
+      puedeAutorizar: Boolean(data?.puedeAutorizar),
+      message: data?.mensaje || 'Salida bloqueada por el estado de la unidad.',
+      data,
+    }
+  } catch (err) {
+    if (isGateUnavailable(err)) {
+      return {
+        ok: true,
+        offline: true,
+        resultado: 'SIN_VALIDACION',
+        warning: 'Sin validación de servidor. La salida se registra igual; confirma en patio que la unidad no está en taller.',
+      }
+    }
+    throw err
+  }
+}
+
+/**
+ * El gate no debe atascar la caseta si el API no está.
+ * 401 = modo local sin cookie de servidor. 503 = sin configurar.
+ * @param {unknown} err
+ */
+export function isGateUnavailable(err) {
+  if (!(err instanceof ApiError)) return true
+  if (err.data?.raw) return true
+  return [401, 404, 405, 500, 502, 503, 504].includes(err.status)
+}
+
 /**
  * Sube una foto comprimida (data URL) al backend. El archivo queda privado en Drive.
  * @param {{ fileName: string, dataUrl: string, yardaId?: string, movimientoId?: string, slotId?: string }} args
