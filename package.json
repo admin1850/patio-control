@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0 --port 4173",
-    "lint": "oxlint"
+    "lint": "oxlint",
+    "test:fase0": "node scripts/test-fase0-auth.mjs",
+    "migrate:fase0": "node scripts/migrate-fase0-sheet.mjs"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
