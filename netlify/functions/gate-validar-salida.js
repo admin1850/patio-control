@@ -1,16 +1,22 @@
 /**
  * POST /api/gate/validar-salida
- * { equipoId, placa, relacionados[], overrideMotivo?, trasladoTallerExterno? }
- * → PERMITIDO | BLOQUEADO | REQUIERE_AUTORIZACION
+ * { equipoId, placa, relacionados[], selloCapturado, kilometros, cartaPorteUuid, licenciaFederal,
+ *   llevaRefrigerada, setPoint, tempReal, dieselThermo, horometro, overrideMotivo?, trasladoTallerExterno? }
+ * → PERMITIDO | BLOQUEADO (motivos[]) | REQUIERE_AUTORIZACION
+ *
+ * No devuelve el sello esperado. `validadoGate` del cliente no se usa.
  */
 
 import { json, parseJsonBody, preflight, requireSession } from './lib/http.js'
-import { createOtService } from './lib/otService.js'
+import { createGateService } from './lib/gateService.js'
 import { getSheetsRepo } from './lib/sheetsRepo.js'
 
 function serviceFrom(deps) {
-  if (deps?.service) return deps.service
-  return createOtService(deps?.repo ?? getSheetsRepo())
+  if (deps?.gate?.validarSalida) return deps.gate
+  if (deps?.service?.esGateFuerte) return deps.service
+  const repo = deps?.repo ?? getSheetsRepo()
+  const ot = deps?.service?.validarSalida ? deps.service : undefined
+  return createGateService(repo, { otService: ot, now: deps?.now })
 }
 
 export async function handler(event, deps) {

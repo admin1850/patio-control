@@ -107,7 +107,9 @@ npm run test:fase0                      # auth + movimientos + Drive privado + o
 npm run migrate:fase1 -- --dry-run      # pestañas OT reales + EstadoUnidad
 npm run migrate:fase1
 npm run test:fase1                      # OT, ETR, semáforo, bloqueo de salida
-npm test                                # fase 0 + fase 1
+npm run migrate:fase3 -- --dry-run      # pestaña Defectos
+npm run test:fase3                      # sello ciego, documentos, Thermo y daños
+npm test                                # fase 0 + fase 1 + fase 2 + fase 3
 ```
 
 Agrega `Movimientos!AE:AI` (`motivoParo, paradoDesde, zonaSlot, usuarioEmail, horaServidor`),
@@ -128,6 +130,18 @@ Estatus operativo de la unidad: `DISPONIBLE`, `EN_MANTENIMIENTO`, `DANADO_NO_OPE
 `npm run migrate:fase1` crea `OrdenesTrabajo`, `OT_Eventos` y `EstadoUnidad` si no existen (solo encabezados). Si Fase 0 dejó encabezados provisionales y no hay filas, reescribe la fila 1. No limpia la hoja. Sin credenciales imprime el plan y cómo revertir.
 
 En la tablet: pestaña **Taller**. Si el API responde 503, la caseta avisa «Sin validación de servidor» y deja registrar la salida.
+
+## Fase 3 — salida fuerte
+
+`POST /api/gate/validar-salida` sigue respondiendo `PERMITIDO`, `BLOQUEADO` (con `motivos[]`) o `REQUIERE_AUTORIZACION`. Además del bloqueo de mantenimiento/baja:
+
+- Sello ciego: el cliente envía `selloCapturado`. El servidor lo compara con la entrada y no devuelve el sello esperado.
+- Km: si viene, no puede ser menor al último registro (tampoco con override).
+- Carta Porte (UUID) y licencia federal, salvo autorización del encargado.
+- Caja refrigerada: set point, temperatura real, diésel y horómetro. Si la temperatura se aleja más de 2°C o el diésel es menor a 25, pide autorización.
+- `validadoGate` lo escribe el servidor. Un `true` del cliente no cuenta.
+
+En la salida corta no se muestra el sello de entrada ni se rellenan km/diésel. Cada ángulo de daño se marca `SIN_CAMBIO` o `DANO_NUEVO`; el daño nuevo puede abrir una OT `CORRECTIVO`. `npm run migrate:fase3` agrega la pestaña `Defectos` (solo encabezados, no borra filas). Si el API responde 503, la caseta avisa y deja registrar.
 
 ```bash
 npm install

@@ -151,6 +151,10 @@ export const ZONAS_SLOTS_COLUMNS = ['id', 'yardaId', 'zona', 'slot', 'tipo', 'ca
 export const CONTEOS_SHEET = 'ConteosFisicos'
 export const CONTEOS_COLUMNS = ['id', 'yardaId', 'zona', 'iniciadoEn', 'cerradoEn', 'usuarioEmail', 'resumenJson', 'activo']
 
+/** Daños nuevos detectados en la salida (Fase 3). Solo se agregan filas. */
+export const DEFECTOS_SHEET = 'Defectos'
+export const DEFECTOS_COLUMNS = ['id', 'movimientoId', 'equipoId', 'angulo', 'tipo', 'fotosJson', 'otId', 'usuarioEmail', 'horaServidor']
+
 /** Ubicación de la unidad (columna `ubicacion` cuando el valor es de Fase 2). */
 export const UBICACIONES_UNIDAD = ['EN_PATIO', 'EN_RUTA', 'EN_TALLER_EXTERNO', 'EN_CLIENTE']
 export const ESTATUS_CARGA = ['VACIA', 'CARGADA', 'EN_CARGA', 'NA']
@@ -178,6 +182,8 @@ export const ZONAS_SLOTS_READ_RANGE = `${ZONAS_SLOTS_SHEET}!A2:${columnLetter(ZO
 export const ZONAS_SLOTS_APPEND_RANGE = `${ZONAS_SLOTS_SHEET}!A:${columnLetter(ZONAS_SLOTS_COLUMNS.length - 1)}`
 export const CONTEOS_READ_RANGE = `${CONTEOS_SHEET}!A2:${columnLetter(CONTEOS_COLUMNS.length - 1)}`
 export const CONTEOS_APPEND_RANGE = `${CONTEOS_SHEET}!A:${columnLetter(CONTEOS_COLUMNS.length - 1)}`
+export const DEFECTOS_READ_RANGE = `${DEFECTOS_SHEET}!A2:${columnLetter(DEFECTOS_COLUMNS.length - 1)}`
+export const DEFECTOS_APPEND_RANGE = `${DEFECTOS_SHEET}!A:${columnLetter(DEFECTOS_COLUMNS.length - 1)}`
 
 /**
  * Índice dentro de `A:A` (la fila 1 es el encabezado, índice 0, y no cuenta).
@@ -519,6 +525,40 @@ export function rowToConteo(e) {
     usuarioEmail: String(e[5] ?? ''),
     resumenJson: resumen && typeof resumen === 'object' ? resumen : {},
     activo: readActivo(e[7]),
+  }
+}
+
+/** @param {Record<string, any>} defecto */
+export function defectoToRow(defecto) {
+  const o = defecto && typeof defecto === 'object' ? defecto : {}
+  const fotos = o.fotosJson ?? o.fotos ?? []
+  return [
+    textCell(o.id),
+    textCell(o.movimientoId),
+    textCell(o.equipoId),
+    textCell(o.angulo),
+    textCell(o.tipo || 'DANO_NUEVO'),
+    fotos == null || fotos === '' ? '[]' : typeof fotos === 'string' ? fotos : JSON.stringify(fotos),
+    textCell(o.otId),
+    textCell(o.usuarioEmail),
+    textCell(o.horaServidor),
+  ]
+}
+
+/** @param {unknown[] | null | undefined} e */
+export function rowToDefecto(e) {
+  if (!e?.[0]) return null
+  const fotos = parseJsonCell(e[5])
+  return {
+    id: String(e[0]),
+    movimientoId: String(e[1] ?? ''),
+    equipoId: String(e[2] ?? ''),
+    angulo: String(e[3] ?? ''),
+    tipo: String(e[4] ?? ''),
+    fotosJson: Array.isArray(fotos) ? fotos : [],
+    otId: String(e[6] ?? ''),
+    usuarioEmail: String(e[7] ?? ''),
+    horaServidor: String(e[8] ?? ''),
   }
 }
 
@@ -910,6 +950,7 @@ export function createSheetsRepo(opts = {}) {
   }
 
   function migrateHint(title) {
+    if (title === DEFECTOS_SHEET) return 'npm run migrate:fase3'
     if (title === ZONAS_SLOTS_SHEET || title === CONTEOS_SHEET) return 'npm run migrate:fase2'
     if (title === ESTADO_UNIDAD_SHEET) return 'npm run migrate:fase2'
     if (title === OT_SHEET || title === OT_EVENTOS_SHEET) return 'npm run migrate:fase1'
@@ -1025,6 +1066,15 @@ export function createSheetsRepo(opts = {}) {
     return updateRowById(CONTEOS_SHEET, CONTEOS_COLUMNS, id, rowValues)
   }
 
+  async function listDefectos() {
+    const rows = await sheetsGetTab(DEFECTOS_READ_RANGE, DEFECTOS_SHEET)
+    return rows.map(rowToDefecto).filter(Boolean)
+  }
+
+  async function appendDefecto(rowValues) {
+    return appendTab(DEFECTOS_APPEND_RANGE, DEFECTOS_SHEET, rowValues)
+  }
+
   return {
     spreadsheetId,
     getAccessToken,
@@ -1054,6 +1104,8 @@ export function createSheetsRepo(opts = {}) {
     listConteos,
     appendConteo,
     updateConteoById,
+    listDefectos,
+    appendDefecto,
   }
 }
 

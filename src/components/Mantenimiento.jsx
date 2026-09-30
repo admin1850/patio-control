@@ -326,11 +326,13 @@ export default function Mantenimiento({ user = null, draft = null }) {
   const [movimientoOrigenId] = useState(draft?.movimientoOrigenId || '')
   const [zonaSlot] = useState(draft?.zonaSlot || '')
   const [busy, setBusy] = useState(false)
-  const [banner, setBanner] = useState(() =>
-    draft
-      ? { level: 'info', text: 'Viene de equipo parado (taller o fallas). El ETR es obligatorio para abrir o enlazar la OT.' }
-      : null,
-  )
+  const [banner, setBanner] = useState(() => {
+    if (!draft) return null
+    if (draft.origen === 'dano-salida') {
+      return { level: 'info', text: 'Daño nuevo en la salida. El ETR es obligatorio para abrir la OT correctiva.' }
+    }
+    return { level: 'info', text: 'Viene de equipo parado (taller o fallas). El ETR es obligatorio para abrir o enlazar la OT.' }
+  })
   const [reloadKey, setReloadKey] = useState(0)
   const puedeAbrir = puedeAbrirOtCliente(user)
 

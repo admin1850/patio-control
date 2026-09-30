@@ -218,13 +218,14 @@ export async function validarSalidaAntesDeGuardar(body) {
     const resultado = data.resultado
     if (resultado === 'PERMITIDO') {
       const via = data?.via
-      const warning =
-        via === 'TRASLADO_TALLER_EXTERNO'
-          ? 'Salida permitida: traslado a taller externo. Queda en la bitácora.'
-          : via === 'OVERRIDE'
-            ? 'Salida autorizada por encargado. Queda en la bitácora.'
-            : null
-      return { ok: true, resultado, via, warning, data }
+      const avisos = []
+      if (via === 'TRASLADO_TALLER_EXTERNO') avisos.push('Salida permitida: traslado a taller externo. Queda en la bitácora.')
+      else if (via === 'OVERRIDE') avisos.push('Salida autorizada por encargado. Queda en la bitácora.')
+      for (const item of data?.advertencias || []) {
+        const texto = typeof item === 'string' ? item : item?.mensaje
+        if (texto) avisos.push(texto)
+      }
+      return { ok: true, resultado, via, warning: avisos.length ? avisos.join(' ') : null, data, cumplimiento: data?.cumplimiento || null }
     }
     return {
       ok: false,
