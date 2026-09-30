@@ -73,6 +73,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/estado-unidades"
+  to = "/.netlify/functions/estado-unidades"
+  status = 200
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

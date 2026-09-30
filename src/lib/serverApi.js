@@ -74,11 +74,31 @@ export async function logout() {
   }
 }
 
-/** Lista de movimientos en el servidor (sesión). La app sigue leyendo Sheets hasta una fase posterior. */
+/** Lista de movimientos en el servidor (sesión). Con `sesionServidor` el refresh del patio usa esta lista. */
 export function listMovimientosServer(limit = 500) {
   const n = Number(limit)
   const q = Number.isFinite(n) && n > 0 ? `?limit=${encodeURIComponent(String(Math.floor(n)))}` : ''
   return apiFetch(`/api/movimientos${q}`, { method: 'GET' })
+}
+
+/** Filas de EstadoUnidad para los chips del patio. */
+export function listEstadoUnidadesServer() {
+  return apiFetch('/api/estado-unidades', { method: 'GET' })
+}
+
+/**
+ * Estados de unidad, o `null` si el API no está (503, sin funciones, sin sesión).
+ * El tablero de OT sigue como respaldo de los chips.
+ */
+export async function fetchEstadoUnidadesOpcional() {
+  try {
+    const data = await listEstadoUnidadesServer()
+    if (!data || data.raw || !Array.isArray(data.estados)) return null
+    return data.estados
+  } catch (err) {
+    if (isGateUnavailable(err)) return null
+    throw err
+  }
 }
 
 /** Alta append-only. `mov` es el movimiento ya con fotos en URL http o `/api/media`. */

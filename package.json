@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0 --port 4173",
     "lint": "oxlint",
-    "test:fase0": "node scripts/test-fase0-auth.mjs && node scripts/test-fase0-movimientos.mjs && node scripts/test-fase0-media.mjs && node scripts/test-fase0-outbox.mjs",
+    "test:fase0": "node scripts/test-fase0-auth.mjs && node scripts/test-fase0-movimientos.mjs && node scripts/test-fase0-media.mjs && node scripts/test-fase0-outbox.mjs && node scripts/test-fase0-cierre.mjs",
     "test:fase1": "node scripts/test-fase1-ot.mjs",
     "test": "npm run test:fase0 && npm run test:fase1",
     "migrate:fase0": "node scripts/migrate-fase0-sheet.mjs",
