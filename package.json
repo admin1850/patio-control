@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0 --port 4173",
     "lint": "oxlint",
-    "test:fase0": "node scripts/test-fase0-auth.mjs",
+    "test:fase0": "node scripts/test-fase0-auth.mjs && node scripts/test-fase0-movimientos.mjs",
     "migrate:fase0": "node scripts/migrate-fase0-sheet.mjs"
   },
   "dependencies": {

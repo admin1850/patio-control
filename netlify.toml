@@ -33,6 +33,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/movimientos"
+  to = "/.netlify/functions/movimientos"
+  status = 200
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

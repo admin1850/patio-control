@@ -74,10 +74,40 @@ export async function logout() {
   }
 }
 
+/** Lista de movimientos en el servidor (sesión). La app sigue leyendo Sheets hasta una fase posterior. */
+export function listMovimientosServer(limit = 500) {
+  const n = Number(limit)
+  const q = Number.isFinite(n) && n > 0 ? `?limit=${encodeURIComponent(String(Math.floor(n)))}` : ''
+  return apiFetch(`/api/movimientos${q}`, { method: 'GET' })
+}
+
+/** Alta append-only. `mov` es el movimiento ya con fotos en URL http. */
+export function createMovimientoServer(mov) {
+  return apiFetch('/api/movimientos', { method: 'POST', json: mov })
+}
+
+/**
+ * Intenta crear en el servidor. Devuelve el movimiento público si el API respondió.
+ * Devuelve `null` si el backend no está (404/405/503, red, HTML del SPA) para que el
+ * caller siga con el append legado a Sheets. 400/401/403/409 se propagan: no se duplica la fila.
+ * @param {Record<string, any>} mov
+ * @returns {Promise<null | Record<string, any>>}
+ */
+export async function tryCreateMovimientoViaServer(mov) {
+  try {
+    const data = await createMovimientoServer(mov)
+    if (data?.movimiento?.id) return data.movimiento
+    return null
+  } catch (err) {
+    if (isBackendUnavailable(err)) return null
+    throw err
+  }
+}
+
 /**
  * ¿El error indica que el backend no está disponible/configurado (y conviene usar el flujo legado)?
  * 503 = env faltante; 404/405 = sin Netlify Functions (p. ej. `vite dev`); 5xx/red = caído.
- * 400/401/403/429 son respuestas reales del backend y NO deben caer al legado.
+ * 400/401/403/409/429 son respuestas reales del backend y NO deben caer al legado.
  */
 export function isBackendUnavailable(err) {
   if (!(err instanceof ApiError)) return true

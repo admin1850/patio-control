@@ -20,6 +20,7 @@ import {
   loginWithGoogleIdToken,
   logout as logoutServer,
   mapServerUserToAuthProfile,
+  tryCreateMovimientoViaServer,
 } from "./lib/serverApi.js";
 
 function _Component({
@@ -3679,6 +3680,9 @@ async function bn(e, t) {
     fotos: n.map(e => e.url),
     firmaUrl: r
   };
+  // Fotos ya quedaron en Drive. Si el API acepta el movimiento, no se vuelve a agregar la fila desde el navegador.
+  let viaServer = await tryCreateMovimientoViaServer(i);
+  if (viaServer) return viaServer;
   await an(e, i);
   return i;
 }
@@ -3953,6 +3957,19 @@ function Sn() {
         }
       } catch (e) {
         let n = e instanceof Error ? e.message : `Error al registrar movimiento`;
+        // 400/401/403/409 ya los decidió el servidor: no encolar (un reintento no debe saltarse la regla por Sheets).
+        if (e instanceof ApiError && !isBackendUnavailable(e)) {
+          s(state => {
+            let next = {
+              ...state,
+              movimientos: state.movimientos.filter(m => m.id !== t.id)
+            };
+            M(next);
+            return next;
+          });
+          f(n);
+          throw e;
+        }
         f(`${n} · quedó en cola offline`);
         g(_n(t, n));
       } finally {
