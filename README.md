@@ -109,7 +109,8 @@ npm run migrate:fase1
 npm run test:fase1                      # OT, ETR, semáforo, bloqueo de salida
 npm run migrate:fase3 -- --dry-run      # pestaña Defectos
 npm run test:fase3                      # sello ciego, documentos, Thermo y daños
-npm test                                # fase 0 + fase 1 + fase 2 + fase 3
+npm run test:fase4                      # preventivo, avisos y KPIs
+npm test                                # fase 0 a fase 4
 ```
 
 Agrega `Movimientos!AE:AI` (`motivoParo, paradoDesde, zonaSlot, usuarioEmail, horaServidor`),
@@ -142,6 +143,67 @@ En la tablet: pestaña **Taller**. Si el API responde 503, la caseta avisa «Sin
 - `validadoGate` lo escribe el servidor. Un `true` del cliente no cuenta.
 
 En la salida corta no se muestra el sello de entrada ni se rellenan km/diésel. Cada ángulo de daño se marca `SIN_CAMBIO` o `DANO_NUEVO`; el daño nuevo puede abrir una OT `CORRECTIVO`. `npm run migrate:fase3` agrega la pestaña `Defectos` (solo encabezados, no borra filas). Si el API responde 503, la caseta avisa y deja registrar.
+
+## Fase 4 — preventivo, avisos y KPIs
+
+`npm run migrate:fase4` solo agrega encabezados (no borra filas):
+
+| Pestaña | Columnas |
+|---------|----------|
+| `PlanPreventivo` | tipoUnidad, cadaKm, cadaDias, cadaHorasThermo, avisoPct |
+| `ServicioProgramado` | id, unidadId, planId, proximoKm, proximaFecha, proximoHorometro, estatus (`PENDIENTE` \| `AVISO` \| `VENCIDO` \| `HECHO`), otId |
+| `AvisosLog` | id, tipo, yarda, unidadId, canal, estatus, destino, mensaje, dedupeKey, horaServidor, detalle |
+| `AvisosSuscripciones` | id, tipo, yarda, canal, destino, activo |
+
+| Endpoint | Uso |
+|----------|-----|
+| `GET /api/preventivo/proximos?yarda=` | Próximos servicios con semáforo (verde en tiempo, amarillo aviso, rojo vencido) |
+| `POST /api/preventivo/ot` | Abre OT `PREVENTIVO` de un servicio en aviso o vencido |
+| `POST /api/preventivo/planes` | Alta o actualización del plan por tipo de unidad |
+| `GET /api/kpis?yarda=&desde=&hasta=` | Disponibilidad, downtime/MTTR, % de OT dentro del ETR original, dwell |
+| `GET /api/kpis?format=csv` | El mismo resumen en CSV |
+| `POST /api/avisos/resumen-diario` | Resumen por yarda (manual; encargado o admin) |
+| `POST /api/avisos/revisar-etr` | Revisa ETR vencidos del tablero y los encola |
+| `POST /api/avisos/suscripciones` | Destino de WhatsApp o correo |
+
+Al crear un movimiento con km u horómetro, el servidor recalcula el servicio del tipo de unidad. Si las pestañas no existen (503), el movimiento **sí se guarda** y la respuesta trae un aviso. En Taller, la sección **Preventivo** lista los próximos y tiene el botón **Abrir OT**. Si el API no está, el taller sigue igual.
+
+El semáforo del preventivo usa `avisoPct` (default 80): al consumir ese porcentaje del intervalo pasa a aviso; al llegar al próximo km, fecha u horómetro, a vencido. Cerrar la OT marca el servicio `HECHO` y programa el siguiente.
+
+### Avisos
+
+Tipos: `ETR_VENCIDA`, `UNIDAD_LISTA`, `SELLO_DISTINTO`, `OVERRIDE_GATE`, `PARADO_AGING`, `THERMO_FUERA`, `PREVENTIVO_VENCIDO`, `RESUMEN_DIARIO`.
+
+Siempre se escribe `AvisosLog`. Si están `WHATSAPP_TOKEN` y `WHATSAPP_PHONE_ID`, o `SENDGRID_API_KEY`, o `SMTP` / `SMTP_HOST`, se intenta el envío al destino de `AvisosSuscripciones` (o a `AVISOS_WHATSAPP_TO` / `AVISOS_EMAIL_TO`). Si no hay canal, la fila queda `canal=log`. No hace falta la aprobación de WhatsApp Business para dejar el stub listo.
+
+El tablero de OT encola `ETR_VENCIDA` cuando el ETR ya venció (una vez por OT y día). La función programada `avisos-diario` corre `0 13 * * *` (07:00 hora del centro, UTC−6). Netlify la dispara con `{ "next_run" }`. A mano: `POST /api/avisos/resumen-diario`.
+
+| Variable | Uso |
+|----------|-----|
+| `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_ID` | WhatsApp Cloud API |
+| `AVISOS_WHATSAPP_TO` | Destino si no hay suscripción |
+| `SENDGRID_API_KEY`, `SENDGRID_FROM` o `SMTP_FROM` | Correo por SendGrid |
+| `SMTP` o `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | Correo SMTP |
+| `AVISOS_EMAIL_TO` o `SMTP_TO` | Destino si no hay suscripción |
+| `AVISOS_CRON_SECRET` | Opcional, header `X-Avisos-Cron` si el cron no manda `next_run` |
+| `PARADO_AGING_HORAS` | Horas para avisar un parado (default 48) |
+
+### KPIs
+
+`GET /api/kpis` (permiso de KPIs en el kardex):
+
+- **Disponibilidad %** — `100 × (1 − horas de downtime / (unidades × horas del periodo))`, entre 0 y 100. Unidades: `EstadoUnidad` que no están en baja.
+- **Downtime / MTTR** — downtime es el traslape de las OT (cerradas y abiertas) con el periodo. MTTR es el promedio de horas de las OT cerradas en el periodo.
+- **% OT dentro del ETR original** — cerradas cuya `fechaLiberada` no pasa de `etrOriginal` (o del ETR si no se movió).
+- **Dwell** — ciclos entrada→salida. Si ambas traen `horaServidor`, se usa esa hora; si no, `fechaHora`.
+
+En la página de KPIs, las tarjetas nuevas aparecen cuando el API responde. Si no (local, 503, sin sesión), se quedan los KPIs que ya calculaba el dispositivo.
+
+```bash
+npm run migrate:fase4 -- --dry-run
+npm run test:fase4
+npm test                                # fase 0 + fase 1 + fase 2 + fase 3 + fase 4
+```
 
 ```bash
 npm install

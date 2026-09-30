@@ -5,8 +5,10 @@
  */
 
 import { json, parseJsonBody, preflight, requireSession } from './lib/http.js'
+import { intentarAviso } from './lib/avisosService.js'
 import { aplicarCumplimientoServidor, createGateService, persistirDefectos } from './lib/gateService.js'
 import { createMovimientosService } from './lib/movimientosService.js'
+import { lecturaDeMovimiento, createPreventivoService } from './lib/preventivoService.js'
 import { getSheetsRepo } from './lib/sheetsRepo.js'
 
 function sheets(deps) {
@@ -96,6 +98,55 @@ export async function handler(event, deps) {
     const svc = createMovimientosService(repo)
     const result = await svc.crear(auth.session, mov)
     const avisos = []
+    if (!result.idempotent) {
+      const lectura = lecturaDeMovimiento(result.movimiento)
+      if ((lectura.km != null || lectura.horometro != null) && typeof repo.listPlanesPreventivo === 'function') {
+        try {
+          const preventivo = await createPreventivoService(repo).recalcularPorMovimiento(result.movimiento)
+          if (preventivo?.servicio?.estatus === 'VENCIDO') {
+            await intentarAviso(repo, (avisosSvc) => avisosSvc.enqueue('PREVENTIVO_VENCIDO', {
+              yarda: result.movimiento.yardaId || result.movimiento.yarda,
+              unidadId: result.movimiento.equipoId,
+              mensaje: `Preventivo vencido · ${result.movimiento.placa || result.movimiento.equipoId} · plan ${preventivo.servicio.planId}`,
+              dedupeKey: `PREVENTIVO_VENCIDO|${preventivo.servicio.id}|${String(result.movimiento.horaServidor || '').slice(0, 10)}`,
+            }))
+          }
+        } catch (err) {
+          if ((Number(err?.status) || 500) === 503) {
+            avisos.push('El movimiento quedó registrado. Falta la hoja de preventivo; corre npm run migrate:fase4.')
+          } else {
+            avisos.push(err?.message || 'No se pudo recalcular el preventivo.')
+          }
+        }
+      }
+      await intentarAviso(repo, async (avisosSvc) => {
+        const guardado = result.movimiento
+        if (guardado.selloCoincideEntrada === false) {
+          await avisosSvc.enqueue('SELLO_DISTINTO', {
+            yarda: guardado.yardaId,
+            unidadId: guardado.equipoId,
+            mensaje: `Sello distinto · ${guardado.placa || guardado.equipoId}`,
+            dedupeKey: `SELLO_DISTINTO|${guardado.id}`,
+          })
+        }
+        if (guardado.cumplimiento?.thermoAlerta) {
+          await avisosSvc.enqueue('THERMO_FUERA', {
+            yarda: guardado.yardaId,
+            unidadId: guardado.equipoId,
+            mensaje: `Thermo fuera de rango · ${guardado.placa || guardado.equipoId}`,
+            dedupeKey: `THERMO_FUERA|${guardado.id}`,
+          })
+        }
+        if (guardado.cumplimiento?.gateVia === 'OVERRIDE') {
+          await avisosSvc.enqueue('OVERRIDE_GATE', {
+            yarda: guardado.yardaId,
+            unidadId: guardado.equipoId,
+            mensaje: `Salida con autorización de encargado · ${guardado.placa || guardado.equipoId}`,
+            dedupeKey: `OVERRIDE_GATE|${guardado.id}`,
+          })
+        }
+      })
+    }
     if (String(mov?.tipo ?? '').trim().toLowerCase() === 'salida' && !result.idempotent) {
       try {
         await persistirDefectos(repo, auth.session, { ...mov, id: result.movimiento.id }, result.movimiento.horaServidor)

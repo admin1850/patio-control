@@ -178,6 +178,76 @@ export function actualizarOrdenServidor(id, patch) {
   return apiFetch(`/api/ot/${encodeURIComponent(id)}`, { method: 'PATCH', json: patch })
 }
 
+/** Próximos servicios preventivos con semáforo. */
+export function fetchPreventivo(yarda) {
+  const q = yarda && yarda !== 'todas' ? `?yarda=${encodeURIComponent(yarda)}` : ''
+  return apiFetch(`/api/preventivo/proximos${q}`, { method: 'GET' })
+}
+
+/** `null` si el API no está: el taller sigue sin la lista de preventivo. */
+export async function fetchPreventivoOpcional(yarda) {
+  try {
+    const data = await fetchPreventivo(yarda)
+    if (!data || data.raw || !Array.isArray(data.servicios)) return null
+    return data
+  } catch (err) {
+    if (isGateUnavailable(err)) return null
+    throw err
+  }
+}
+
+/** Abre una OT PREVENTIVO desde un servicio en aviso o vencido. */
+export function abrirOtPreventivo(body) {
+  return apiFetch('/api/preventivo/ot', { method: 'POST', json: body })
+}
+
+/** Alta o actualización del plan por tipo de unidad. */
+export function guardarPlanPreventivo(plan) {
+  return apiFetch('/api/preventivo/planes', { method: 'POST', json: plan })
+}
+
+/** KPIs de mantenimiento del servidor. `format=csv` no pasa por aquí. */
+export function fetchKpisServidor(query = {}) {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) {
+    if (value != null && value !== '' && value !== 'todas') params.set(key, String(value))
+  }
+  const q = params.toString()
+  return apiFetch(`/api/kpis${q ? `?${q}` : ''}`, { method: 'GET' })
+}
+
+/**
+ * KPIs nuevos, o `null` si el API no está (la página sigue con los KPIs del dispositivo).
+ * @param {{ yarda?: string, desde?: string, hasta?: string }} [query]
+ */
+export async function fetchKpisOpcional(query = {}) {
+  try {
+    const data = await fetchKpisServidor(query)
+    if (!data || data.raw || !data.kpis) return null
+    return data.kpis
+  } catch (err) {
+    if (isGateUnavailable(err) || (err instanceof ApiError && err.status === 403)) return null
+    throw err
+  }
+}
+
+/** CSV del resumen. Devuelve el texto; el caller arma la descarga. */
+export async function fetchKpisCsv(query = {}) {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) {
+    if (value != null && value !== '' && value !== 'todas') params.set(key, String(value))
+  }
+  params.set('format', 'csv')
+  const res = await fetch(`/api/kpis?${params.toString()}`, { credentials: 'include', headers: { Accept: 'text/csv' } })
+  const text = await res.text()
+  if (!res.ok) {
+    let data = null
+    try { data = JSON.parse(text) } catch { data = { raw: text } }
+    throw new ApiError(data?.error || `Error del servidor (${res.status})`, res.status, data)
+  }
+  return text
+}
+
 /** Tablero En mantenimiento. `yarda` opcional. */
 export function fetchTableroMantenimiento(yarda) {
   const q = yarda && yarda !== 'todas' ? `?yarda=${encodeURIComponent(yarda)}` : ''

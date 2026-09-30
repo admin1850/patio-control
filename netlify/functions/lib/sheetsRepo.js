@@ -155,6 +155,24 @@ export const CONTEOS_COLUMNS = ['id', 'yardaId', 'zona', 'iniciadoEn', 'cerradoE
 export const DEFECTOS_SHEET = 'Defectos'
 export const DEFECTOS_COLUMNS = ['id', 'movimientoId', 'equipoId', 'angulo', 'tipo', 'fotosJson', 'otId', 'usuarioEmail', 'horaServidor']
 
+/** Plan de servicio por tipo de unidad (Fase 4). Una fila por tipoUnidad. */
+export const PLAN_PREVENTIVO_SHEET = 'PlanPreventivo'
+export const PLAN_PREVENTIVO_COLUMNS = ['tipoUnidad', 'cadaKm', 'cadaDias', 'cadaHorasThermo', 'avisoPct']
+
+/** Próximo servicio de una unidad. estatus: PENDIENTE | AVISO | VENCIDO | HECHO */
+export const SERVICIO_PROGRAMADO_SHEET = 'ServicioProgramado'
+export const SERVICIO_PROGRAMADO_COLUMNS = ['id', 'unidadId', 'planId', 'proximoKm', 'proximaFecha', 'proximoHorometro', 'estatus', 'otId']
+
+export const ESTATUS_SERVICIO_PROGRAMADO = ['PENDIENTE', 'AVISO', 'VENCIDO', 'HECHO']
+
+/** Bitácora de avisos. canal: whatsapp | email | log. estatus: ENVIADO | ERROR | LOG */
+export const AVISOS_LOG_SHEET = 'AvisosLog'
+export const AVISOS_LOG_COLUMNS = ['id', 'tipo', 'yarda', 'unidadId', 'canal', 'estatus', 'destino', 'mensaje', 'dedupeKey', 'horaServidor', 'detalle']
+
+/** A quién avisar. tipo `*` = todos. yarda `todas` = todas. canal whatsapp | email */
+export const AVISOS_SUSCRIPCIONES_SHEET = 'AvisosSuscripciones'
+export const AVISOS_SUSCRIPCIONES_COLUMNS = ['id', 'tipo', 'yarda', 'canal', 'destino', 'activo']
+
 /** Ubicación de la unidad (columna `ubicacion` cuando el valor es de Fase 2). */
 export const UBICACIONES_UNIDAD = ['EN_PATIO', 'EN_RUTA', 'EN_TALLER_EXTERNO', 'EN_CLIENTE']
 export const ESTATUS_CARGA = ['VACIA', 'CARGADA', 'EN_CARGA', 'NA']
@@ -184,6 +202,14 @@ export const CONTEOS_READ_RANGE = `${CONTEOS_SHEET}!A2:${columnLetter(CONTEOS_CO
 export const CONTEOS_APPEND_RANGE = `${CONTEOS_SHEET}!A:${columnLetter(CONTEOS_COLUMNS.length - 1)}`
 export const DEFECTOS_READ_RANGE = `${DEFECTOS_SHEET}!A2:${columnLetter(DEFECTOS_COLUMNS.length - 1)}`
 export const DEFECTOS_APPEND_RANGE = `${DEFECTOS_SHEET}!A:${columnLetter(DEFECTOS_COLUMNS.length - 1)}`
+export const PLAN_PREVENTIVO_READ_RANGE = `${PLAN_PREVENTIVO_SHEET}!A2:${columnLetter(PLAN_PREVENTIVO_COLUMNS.length - 1)}`
+export const PLAN_PREVENTIVO_APPEND_RANGE = `${PLAN_PREVENTIVO_SHEET}!A:${columnLetter(PLAN_PREVENTIVO_COLUMNS.length - 1)}`
+export const SERVICIO_PROGRAMADO_READ_RANGE = `${SERVICIO_PROGRAMADO_SHEET}!A2:${columnLetter(SERVICIO_PROGRAMADO_COLUMNS.length - 1)}`
+export const SERVICIO_PROGRAMADO_APPEND_RANGE = `${SERVICIO_PROGRAMADO_SHEET}!A:${columnLetter(SERVICIO_PROGRAMADO_COLUMNS.length - 1)}`
+export const AVISOS_LOG_READ_RANGE = `${AVISOS_LOG_SHEET}!A2:${columnLetter(AVISOS_LOG_COLUMNS.length - 1)}`
+export const AVISOS_LOG_APPEND_RANGE = `${AVISOS_LOG_SHEET}!A:${columnLetter(AVISOS_LOG_COLUMNS.length - 1)}`
+export const AVISOS_SUSCRIPCIONES_READ_RANGE = `${AVISOS_SUSCRIPCIONES_SHEET}!A2:${columnLetter(AVISOS_SUSCRIPCIONES_COLUMNS.length - 1)}`
+export const AVISOS_SUSCRIPCIONES_APPEND_RANGE = `${AVISOS_SUSCRIPCIONES_SHEET}!A:${columnLetter(AVISOS_SUSCRIPCIONES_COLUMNS.length - 1)}`
 
 /**
  * Índice dentro de `A:A` (la fila 1 es el encabezado, índice 0, y no cuenta).
@@ -559,6 +585,128 @@ export function rowToDefecto(e) {
     otId: String(e[6] ?? ''),
     usuarioEmail: String(e[7] ?? ''),
     horaServidor: String(e[8] ?? ''),
+  }
+}
+
+/** @param {Record<string, any>} plan */
+export function planPreventivoToRow(plan) {
+  const o = plan && typeof plan === 'object' ? plan : {}
+  return [
+    textCell(o.tipoUnidad).toLowerCase(),
+    numCell(o.cadaKm),
+    numCell(o.cadaDias),
+    numCell(o.cadaHorasThermo),
+    numCell(o.avisoPct == null || o.avisoPct === '' ? 80 : o.avisoPct),
+  ]
+}
+
+/** @param {unknown[] | null | undefined} e */
+export function rowToPlanPreventivo(e) {
+  const tipo = String(e?.[0] ?? '').trim().toLowerCase()
+  if (!tipo || tipo === 'tipounidad') return null
+  const aviso = numOrNull(e[4])
+  return {
+    tipoUnidad: tipo,
+    cadaKm: numOrNull(e[1]),
+    cadaDias: numOrNull(e[2]),
+    cadaHorasThermo: numOrNull(e[3]),
+    avisoPct: aviso == null ? 80 : aviso,
+  }
+}
+
+/** @param {Record<string, any>} servicio */
+export function servicioProgramadoToRow(servicio) {
+  const o = servicio && typeof servicio === 'object' ? servicio : {}
+  const estatus = String(o.estatus || 'PENDIENTE').trim().toUpperCase()
+  return [
+    textCell(o.id),
+    textCell(o.unidadId),
+    textCell(o.planId).toLowerCase(),
+    numCell(o.proximoKm),
+    textCell(o.proximaFecha),
+    numCell(o.proximoHorometro),
+    ESTATUS_SERVICIO_PROGRAMADO.includes(estatus) ? estatus : 'PENDIENTE',
+    textCell(o.otId),
+  ]
+}
+
+/** @param {unknown[] | null | undefined} e */
+export function rowToServicioProgramado(e) {
+  if (!e?.[0]) return null
+  const estatus = String(e[6] ?? '').trim().toUpperCase()
+  return {
+    id: String(e[0]),
+    unidadId: String(e[1] ?? ''),
+    planId: String(e[2] ?? '').trim().toLowerCase(),
+    proximoKm: numOrNull(e[3]),
+    proximaFecha: String(e[4] ?? ''),
+    proximoHorometro: numOrNull(e[5]),
+    estatus: ESTATUS_SERVICIO_PROGRAMADO.includes(estatus) ? estatus : 'PENDIENTE',
+    otId: String(e[7] ?? ''),
+  }
+}
+
+/** @param {Record<string, any>} aviso */
+export function avisoLogToRow(aviso) {
+  const o = aviso && typeof aviso === 'object' ? aviso : {}
+  return [
+    textCell(o.id),
+    textCell(o.tipo).toUpperCase(),
+    textCell(o.yarda).toLowerCase(),
+    textCell(o.unidadId),
+    textCell(o.canal || 'log').toLowerCase(),
+    textCell(o.estatus || 'LOG').toUpperCase(),
+    textCell(o.destino),
+    textCell(o.mensaje),
+    textCell(o.dedupeKey),
+    textCell(o.horaServidor),
+    textCell(o.detalle),
+  ]
+}
+
+/** @param {unknown[] | null | undefined} e */
+export function rowToAvisoLog(e) {
+  if (!e?.[0]) return null
+  return {
+    id: String(e[0]),
+    tipo: String(e[1] ?? '').trim().toUpperCase(),
+    yarda: String(e[2] ?? '').trim().toLowerCase(),
+    unidadId: String(e[3] ?? ''),
+    canal: String(e[4] ?? 'log').trim().toLowerCase() || 'log',
+    estatus: String(e[5] ?? 'LOG').trim().toUpperCase() || 'LOG',
+    destino: String(e[6] ?? ''),
+    mensaje: String(e[7] ?? ''),
+    dedupeKey: String(e[8] ?? ''),
+    horaServidor: String(e[9] ?? ''),
+    detalle: String(e[10] ?? ''),
+  }
+}
+
+/** @param {Record<string, any>} sub */
+export function avisoSuscripcionToRow(sub) {
+  const o = sub && typeof sub === 'object' ? sub : {}
+  const canal = String(o.canal || 'whatsapp').trim().toLowerCase()
+  return [
+    textCell(o.id),
+    textCell(o.tipo || '*').toUpperCase(),
+    textCell(o.yarda || 'todas').toLowerCase(),
+    canal === 'correo' ? 'email' : canal,
+    textCell(o.destino),
+    textCell(o.activo || 'SI'),
+  ]
+}
+
+/** @param {unknown[] | null | undefined} e */
+export function rowToAvisoSuscripcion(e) {
+  if (!e?.[0]) return null
+  const canalRaw = String(e[3] ?? '').trim().toLowerCase()
+  return {
+    id: String(e[0]),
+    tipo: String(e[1] ?? '*').trim().toUpperCase() || '*',
+    yarda: String(e[2] ?? 'todas').trim().toLowerCase() || 'todas',
+    canal: canalRaw === 'correo' ? 'email' : canalRaw || 'whatsapp',
+    destino: String(e[4] ?? ''),
+    activo: readActivo(e[5]),
   }
 }
 
@@ -950,6 +1098,14 @@ export function createSheetsRepo(opts = {}) {
   }
 
   function migrateHint(title) {
+    if (
+      title === PLAN_PREVENTIVO_SHEET ||
+      title === SERVICIO_PROGRAMADO_SHEET ||
+      title === AVISOS_LOG_SHEET ||
+      title === AVISOS_SUSCRIPCIONES_SHEET
+    ) {
+      return 'npm run migrate:fase4'
+    }
     if (title === DEFECTOS_SHEET) return 'npm run migrate:fase3'
     if (title === ZONAS_SLOTS_SHEET || title === CONTEOS_SHEET) return 'npm run migrate:fase2'
     if (title === ESTADO_UNIDAD_SHEET) return 'npm run migrate:fase2'
@@ -1075,6 +1231,59 @@ export function createSheetsRepo(opts = {}) {
     return appendTab(DEFECTOS_APPEND_RANGE, DEFECTOS_SHEET, rowValues)
   }
 
+  async function listPlanesPreventivo() {
+    const rows = await sheetsGetTab(PLAN_PREVENTIVO_READ_RANGE, PLAN_PREVENTIVO_SHEET)
+    return rows.map(rowToPlanPreventivo).filter(Boolean)
+  }
+
+  async function appendPlanPreventivo(rowValues) {
+    return appendTab(PLAN_PREVENTIVO_APPEND_RANGE, PLAN_PREVENTIVO_SHEET, rowValues)
+  }
+
+  async function updatePlanPreventivoByTipo(tipoUnidad, rowValues) {
+    return updateRowById(
+      PLAN_PREVENTIVO_SHEET,
+      PLAN_PREVENTIVO_COLUMNS,
+      String(tipoUnidad || '').trim().toLowerCase(),
+      rowValues,
+    )
+  }
+
+  async function listServiciosProgramados() {
+    const rows = await sheetsGetTab(SERVICIO_PROGRAMADO_READ_RANGE, SERVICIO_PROGRAMADO_SHEET)
+    return rows.map(rowToServicioProgramado).filter(Boolean)
+  }
+
+  async function appendServicioProgramado(rowValues) {
+    return appendTab(SERVICIO_PROGRAMADO_APPEND_RANGE, SERVICIO_PROGRAMADO_SHEET, rowValues)
+  }
+
+  async function updateServicioProgramadoById(id, rowValues) {
+    return updateRowById(SERVICIO_PROGRAMADO_SHEET, SERVICIO_PROGRAMADO_COLUMNS, id, rowValues)
+  }
+
+  async function listAvisosLog() {
+    const rows = await sheetsGetTab(AVISOS_LOG_READ_RANGE, AVISOS_LOG_SHEET)
+    return rows.map(rowToAvisoLog).filter(Boolean)
+  }
+
+  async function appendAvisoLog(rowValues) {
+    return appendTab(AVISOS_LOG_APPEND_RANGE, AVISOS_LOG_SHEET, rowValues)
+  }
+
+  async function listAvisosSuscripciones() {
+    const rows = await sheetsGetTab(AVISOS_SUSCRIPCIONES_READ_RANGE, AVISOS_SUSCRIPCIONES_SHEET)
+    return rows.map(rowToAvisoSuscripcion).filter(Boolean)
+  }
+
+  async function appendAvisoSuscripcion(rowValues) {
+    return appendTab(AVISOS_SUSCRIPCIONES_APPEND_RANGE, AVISOS_SUSCRIPCIONES_SHEET, rowValues)
+  }
+
+  async function updateAvisoSuscripcionById(id, rowValues) {
+    return updateRowById(AVISOS_SUSCRIPCIONES_SHEET, AVISOS_SUSCRIPCIONES_COLUMNS, id, rowValues)
+  }
+
   return {
     spreadsheetId,
     getAccessToken,
@@ -1106,6 +1315,17 @@ export function createSheetsRepo(opts = {}) {
     updateConteoById,
     listDefectos,
     appendDefecto,
+    listPlanesPreventivo,
+    appendPlanPreventivo,
+    updatePlanPreventivoByTipo,
+    listServiciosProgramados,
+    appendServicioProgramado,
+    updateServicioProgramadoById,
+    listAvisosLog,
+    appendAvisoLog,
+    listAvisosSuscripciones,
+    appendAvisoSuscripcion,
+    updateAvisoSuscripcionById,
   }
 }
 

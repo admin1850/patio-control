@@ -108,6 +108,44 @@
   status = 200
 
 [[redirects]]
+  from = "/api/preventivo/proximos"
+  to = "/.netlify/functions/preventivo-proximos"
+  status = 200
+
+[[redirects]]
+  from = "/api/preventivo/ot"
+  to = "/.netlify/functions/preventivo-ot"
+  status = 200
+
+[[redirects]]
+  from = "/api/preventivo/planes"
+  to = "/.netlify/functions/preventivo-planes"
+  status = 200
+
+[[redirects]]
+  from = "/api/kpis"
+  to = "/.netlify/functions/kpis"
+  status = 200
+
+[[redirects]]
+  from = "/api/avisos/resumen-diario"
+  to = "/.netlify/functions/avisos-resumen"
+  status = 200
+
+[[redirects]]
+  from = "/api/avisos/revisar-etr"
+  to = "/.netlify/functions/avisos-revisar"
+  status = 200
+
+[[redirects]]
+  from = "/api/avisos/suscripciones"
+  to = "/.netlify/functions/avisos-suscripciones"
+  status = 200
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
+
+[functions."avisos-diario"]
+  schedule = "0 13 * * *"

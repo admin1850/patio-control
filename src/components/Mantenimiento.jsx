@@ -5,6 +5,7 @@ import {
   fetchTableroOpcional,
   isGateUnavailable,
 } from '../lib/serverApi.js'
+import PreventivoSection from './Preventivo.jsx'
 
 const YARDAS = [
   { id: 'chihuahua', nombre: 'Chihuahua' },
@@ -421,7 +422,7 @@ export default function Mantenimiento({ user = null, draft = null }) {
     <div className="page">
       <div className="form-head">
         <h1>Mantenimiento</h1>
-        <p>Órdenes de trabajo por yarda. Verde: en tiempo. Amarillo: el ETR vence en 24 horas o menos. Rojo: ETR vencido.</p>
+        <p>Órdenes de trabajo por yarda. Verde: en tiempo. Amarillo: el ETR vence en 24 horas o menos. Rojo: ETR vencido. Abajo, el preventivo por km, días u horómetro.</p>
       </div>
       {payload === null && (
         <p className="banner warn">Sin validación de servidor. El tablero no está disponible; el patio sigue operando.</p>
@@ -440,6 +441,7 @@ export default function Mantenimiento({ user = null, draft = null }) {
           ))}
         </div>
       </fieldset>
+      <PreventivoSection yarda={yardaFiltro} puedeAbrir={puedeAbrir} />
       {payload?.tablero && (
         <section className="panel ot-board-panel">
           <div className="panel-head">
