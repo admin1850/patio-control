@@ -96,11 +96,30 @@ npm run migrate:fase0 -- --dry-run      # ver cambios
 npm run migrate:fase0                   # aplicar (dry-run automático sin credenciales)
 npm run migrate:fase0 -- --hash-claves  # además llena ClaveHash desde Clave
 npm run test:fase0                      # auth + movimientos + Drive privado + outbox
+npm run migrate:fase1 -- --dry-run      # pestañas OT reales + EstadoUnidad
+npm run migrate:fase1
+npm run test:fase1                      # OT, ETR, semáforo, bloqueo de salida
+npm test                                # fase 0 + fase 1
 ```
 
 Agrega `Movimientos!AE:AI` (`motivoParo, paradoDesde, zonaSlot, usuarioEmail, horaServidor`),
-`Autorizados!S` (`ClaveHash`) y las pestañas `Auditoria`, `OrdenesTrabajo`, `OT_Eventos` (solo encabezados).
+`Autorizados!S` (`ClaveHash`) y las pestañas `Auditoria`, `OrdenesTrabajo`, `OT_Eventos` (encabezados provisionales).
 El script imprime cómo revertir.
+
+## Fase 1 — órdenes de trabajo, ETR y bloqueo de salida
+
+| Endpoint | Uso |
+|----------|-----|
+| `GET/POST /api/ot` | Lista y abre OT (ETR obligatorio; si ya hay una abierta de la unidad, se enlaza) |
+| `PATCH /api/ot/:id` | Estatus, mover ETR (`motivo` obligatorio) o `{ cerrar: true }` |
+| `GET /api/ot/tablero?yarda=` | Tablero En mantenimiento con semáforo |
+| `POST /api/gate/validar-salida` | `PERMITIDO`, `BLOQUEADO` o `REQUIERE_AUTORIZACION` |
+
+Estatus operativo de la unidad: `DISPONIBLE`, `EN_MANTENIMIENTO`, `DANADO_NO_OPERABLE`, `BAJA`. Solo cambia con evento (abrir/cerrar OT, daño, baja). La salida se bloquea si la unidad o la caja/dolly relacionada está en mantenimiento, dañada o de baja, salvo `TRASLADO_TALLER_EXTERNO` o autorización escrita de encargado/admin (queda en `OT_Eventos`).
+
+`npm run migrate:fase1` crea `OrdenesTrabajo`, `OT_Eventos` y `EstadoUnidad` si no existen (solo encabezados). Si Fase 0 dejó encabezados provisionales y no hay filas, reescribe la fila 1. No limpia la hoja. Sin credenciales imprime el plan y cómo revertir.
+
+En la tablet: pestaña **Taller**. Si el API responde 503, la caseta avisa «Sin validación de servidor» y deja registrar la salida.
 
 ```bash
 npm install

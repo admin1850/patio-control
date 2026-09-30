@@ -30,7 +30,7 @@ function allowedOrigins() {
 export function corsHeaders(event) {
   const base = {
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, PATCH, OPTIONS',
     'Content-Type': 'application/json',
   }
   const list = allowedOrigins()

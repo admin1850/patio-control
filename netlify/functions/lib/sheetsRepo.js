@@ -71,6 +71,116 @@ export const MOVIMIENTO_COLUMNS = [
 export const MOVIMIENTOS_READ_RANGE = 'Movimientos!A2:AI'
 export const MOVIMIENTOS_APPEND_RANGE = 'Movimientos!A:AI'
 
+export const OT_SHEET = 'OrdenesTrabajo'
+export const OT_EVENTOS_SHEET = 'OT_Eventos'
+export const ESTADO_UNIDAD_SHEET = 'EstadoUnidad'
+
+/** OrdenesTrabajo A:AI. Los arreglos viven como JSON en la celda. */
+export const OT_COLUMNS = [
+  'id',
+  'folio',
+  'unidadId',
+  'unidadesRelacionadasJson',
+  'yarda',
+  'tipo',
+  'motivo',
+  'prioridad',
+  'tallerTipo',
+  'proveedorId',
+  'ubicacionTaller',
+  'responsableEmail',
+  'reportadoPor',
+  'fechaEntradaTaller',
+  'etr',
+  'fechaLista',
+  'fechaLiberada',
+  'estatus',
+  'kmEntrada',
+  'kmSalida',
+  'horometroEntrada',
+  'horometroSalida',
+  'costoEstimado',
+  'costoRefacciones',
+  'costoManoObra',
+  'costoExterno',
+  'factura',
+  'refaccionesJson',
+  'fotosAntesJson',
+  'fotosDespuesJson',
+  'notas',
+  'movimientoOrigenId',
+  'etrOriginal',
+  'etrMovimientosCount',
+  'activo',
+]
+
+export const OT_EVENTO_COLUMNS = [
+  'id',
+  'otId',
+  'tipoEvento',
+  'valorAnterior',
+  'valorNuevo',
+  'motivo',
+  'usuarioEmail',
+  'horaServidor',
+]
+
+export const ESTADO_UNIDAD_COLUMNS = [
+  'unidadId',
+  'tipo',
+  'yarda',
+  'zona',
+  'slot',
+  'ubicacion',
+  'estatusOperativo',
+  'estatusCarga',
+  'desde',
+  'otAbiertaId',
+  'actualizadoEn',
+]
+
+/** 0 → A, 25 → Z, 26 → AA */
+export function columnLetter(index) {
+  let n = index + 1
+  let s = ''
+  while (n > 0) {
+    const r = (n - 1) % 26
+    s = String.fromCharCode(65 + r) + s
+    n = Math.floor((n - 1) / 26)
+  }
+  return s
+}
+
+export const OT_READ_RANGE = `${OT_SHEET}!A2:${columnLetter(OT_COLUMNS.length - 1)}`
+export const OT_APPEND_RANGE = `${OT_SHEET}!A:${columnLetter(OT_COLUMNS.length - 1)}`
+export const OT_EVENTOS_READ_RANGE = `${OT_EVENTOS_SHEET}!A2:${columnLetter(OT_EVENTO_COLUMNS.length - 1)}`
+export const OT_EVENTOS_APPEND_RANGE = `${OT_EVENTOS_SHEET}!A:${columnLetter(OT_EVENTO_COLUMNS.length - 1)}`
+export const ESTADO_UNIDAD_READ_RANGE = `${ESTADO_UNIDAD_SHEET}!A2:${columnLetter(ESTADO_UNIDAD_COLUMNS.length - 1)}`
+export const ESTADO_UNIDAD_APPEND_RANGE = `${ESTADO_UNIDAD_SHEET}!A:${columnLetter(ESTADO_UNIDAD_COLUMNS.length - 1)}`
+
+/**
+ * Índice dentro de `A:A` (la fila 1 es el encabezado, índice 0, y no cuenta).
+ * La fila de Sheets es `índice + 1`.
+ * @param {unknown[][] | null | undefined} columnAValues
+ * @param {string} id
+ */
+export function findDataRowIndex(columnAValues, id) {
+  const want = String(id ?? '').trim()
+  if (!want) return -1
+  const rows = columnAValues ?? []
+  for (let i = 1; i < rows.length; i++) {
+    const cell = Array.isArray(rows[i]) ? rows[i][0] : rows[i]
+    if (String(cell ?? '').trim() === want) return i
+  }
+  return -1
+}
+
+/** Rango de una sola fila. Nunca abarca la hoja completa. */
+export function singleRowRange(sheetTitle, rowNumber1Based, columnCount) {
+  const end = columnLetter(Math.max(1, columnCount) - 1)
+  return `${sheetTitle}!A${rowNumber1Based}:${end}${rowNumber1Based}`
+}
+
 /** Cierran la entrada abierta de un equipo (ciclo, parado o baja). */
 export const TIPOS_QUE_CIERRAN_ENTRADA = Object.freeze(['salida', 'parado', 'baja'])
 
@@ -132,6 +242,191 @@ function parseJsonCell(raw) {
     return JSON.parse(String(raw))
   } catch {
     return undefined
+  }
+}
+
+function jsonArrayCell(value) {
+  if (value == null || value === '') return ''
+  if (typeof value === 'string') return value
+  if (Array.isArray(value)) return value.length ? JSON.stringify(value) : ''
+  return JSON.stringify(value)
+}
+
+function readJsonArray(raw) {
+  if (raw == null || raw === '') return []
+  const parsed = parseJsonCell(raw)
+  return Array.isArray(parsed) ? parsed : []
+}
+
+function readActivo(raw) {
+  const t = String(raw ?? '').trim().toUpperCase()
+  if (['NO', 'N', '0', 'FALSE'].includes(t)) return 'NO'
+  return 'SI'
+}
+
+function readCount(raw) {
+  const n = numOrNull(raw)
+  return n == null ? 0 : n
+}
+
+function cellAt(row, columns, name) {
+  return row?.[columns.indexOf(name)]
+}
+
+/**
+ * OT → fila A:AI. Append o update de esa fila; no limpia la pestaña.
+ * @param {Record<string, any>} ot
+ */
+export function otToRow(ot) {
+  const o = ot && typeof ot === 'object' ? ot : {}
+  const row = Array(OT_COLUMNS.length).fill('')
+  const set = (name, value) => {
+    row[OT_COLUMNS.indexOf(name)] = value
+  }
+  set('id', textCell(o.id))
+  set('folio', textCell(o.folio))
+  set('unidadId', textCell(o.unidadId))
+  set('unidadesRelacionadasJson', jsonArrayCell(o.unidadesRelacionadasJson ?? o.unidadesRelacionadas))
+  set('yarda', textCell(o.yarda ?? o.yardaId))
+  set('tipo', textCell(o.tipo))
+  set('motivo', textCell(o.motivo))
+  set('prioridad', textCell(o.prioridad || 'MEDIA'))
+  set('tallerTipo', textCell(o.tallerTipo || 'INTERNO'))
+  set('proveedorId', textCell(o.proveedorId))
+  set('ubicacionTaller', textCell(o.ubicacionTaller))
+  set('responsableEmail', textCell(o.responsableEmail))
+  set('reportadoPor', textCell(o.reportadoPor))
+  set('fechaEntradaTaller', textCell(o.fechaEntradaTaller))
+  set('etr', textCell(o.etr))
+  set('fechaLista', textCell(o.fechaLista))
+  set('fechaLiberada', textCell(o.fechaLiberada))
+  set('estatus', textCell(o.estatus))
+  set('kmEntrada', numCell(o.kmEntrada))
+  set('kmSalida', numCell(o.kmSalida))
+  set('horometroEntrada', numCell(o.horometroEntrada))
+  set('horometroSalida', numCell(o.horometroSalida))
+  set('costoEstimado', numCell(o.costoEstimado))
+  set('costoRefacciones', numCell(o.costoRefacciones))
+  set('costoManoObra', numCell(o.costoManoObra))
+  set('costoExterno', numCell(o.costoExterno))
+  set('factura', textCell(o.factura))
+  set('refaccionesJson', jsonArrayCell(o.refaccionesJson ?? o.refacciones))
+  set('fotosAntesJson', jsonArrayCell(o.fotosAntesJson ?? o.fotosAntes))
+  set('fotosDespuesJson', jsonArrayCell(o.fotosDespuesJson ?? o.fotosDespues))
+  set('notas', textCell(o.notas))
+  set('movimientoOrigenId', textCell(o.movimientoOrigenId))
+  set('etrOriginal', textCell(o.etrOriginal ?? o.etr))
+  set('etrMovimientosCount', numCell(o.etrMovimientosCount ?? 0))
+  set('activo', textCell(o.activo || 'SI'))
+  return row
+}
+
+/** @param {unknown[] | null | undefined} e */
+export function rowToOt(e) {
+  if (!e?.[0]) return null
+  const at = (name) => cellAt(e, OT_COLUMNS, name)
+  return {
+    id: String(at('id')),
+    folio: String(at('folio') ?? ''),
+    unidadId: String(at('unidadId') ?? ''),
+    unidadesRelacionadasJson: readJsonArray(at('unidadesRelacionadasJson')),
+    yarda: String(at('yarda') ?? ''),
+    tipo: String(at('tipo') ?? ''),
+    motivo: String(at('motivo') ?? ''),
+    prioridad: String(at('prioridad') ?? '') || 'MEDIA',
+    tallerTipo: String(at('tallerTipo') ?? '') || 'INTERNO',
+    proveedorId: String(at('proveedorId') ?? ''),
+    ubicacionTaller: String(at('ubicacionTaller') ?? ''),
+    responsableEmail: String(at('responsableEmail') ?? ''),
+    reportadoPor: String(at('reportadoPor') ?? ''),
+    fechaEntradaTaller: String(at('fechaEntradaTaller') ?? ''),
+    etr: String(at('etr') ?? ''),
+    fechaLista: String(at('fechaLista') ?? ''),
+    fechaLiberada: String(at('fechaLiberada') ?? ''),
+    estatus: String(at('estatus') ?? ''),
+    kmEntrada: numOrNull(at('kmEntrada')),
+    kmSalida: numOrNull(at('kmSalida')),
+    horometroEntrada: numOrNull(at('horometroEntrada')),
+    horometroSalida: numOrNull(at('horometroSalida')),
+    costoEstimado: numOrNull(at('costoEstimado')),
+    costoRefacciones: numOrNull(at('costoRefacciones')),
+    costoManoObra: numOrNull(at('costoManoObra')),
+    costoExterno: numOrNull(at('costoExterno')),
+    factura: String(at('factura') ?? ''),
+    refaccionesJson: readJsonArray(at('refaccionesJson')),
+    fotosAntesJson: readJsonArray(at('fotosAntesJson')),
+    fotosDespuesJson: readJsonArray(at('fotosDespuesJson')),
+    notas: String(at('notas') ?? ''),
+    movimientoOrigenId: String(at('movimientoOrigenId') ?? ''),
+    etrOriginal: String(at('etrOriginal') ?? ''),
+    etrMovimientosCount: readCount(at('etrMovimientosCount')),
+    activo: readActivo(at('activo')),
+  }
+}
+
+/** @param {Record<string, any>} ev */
+export function otEventoToRow(ev) {
+  const o = ev && typeof ev === 'object' ? ev : {}
+  return [
+    textCell(o.id),
+    textCell(o.otId),
+    textCell(o.tipoEvento),
+    textCell(o.valorAnterior),
+    textCell(o.valorNuevo),
+    textCell(o.motivo),
+    textCell(o.usuarioEmail),
+    textCell(o.horaServidor),
+  ]
+}
+
+/** @param {unknown[] | null | undefined} e */
+export function rowToOtEvento(e) {
+  if (!e?.[0]) return null
+  return {
+    id: String(e[0]),
+    otId: String(e[1] ?? ''),
+    tipoEvento: String(e[2] ?? ''),
+    valorAnterior: String(e[3] ?? ''),
+    valorNuevo: String(e[4] ?? ''),
+    motivo: String(e[5] ?? ''),
+    usuarioEmail: String(e[6] ?? ''),
+    horaServidor: String(e[7] ?? ''),
+  }
+}
+
+/** @param {Record<string, any>} eu */
+export function estadoUnidadToRow(eu) {
+  const o = eu && typeof eu === 'object' ? eu : {}
+  return [
+    textCell(o.unidadId),
+    textCell(o.tipo),
+    textCell(o.yarda),
+    textCell(o.zona),
+    textCell(o.slot),
+    textCell(o.ubicacion),
+    textCell(o.estatusOperativo),
+    textCell(o.estatusCarga),
+    textCell(o.desde),
+    textCell(o.otAbiertaId),
+    textCell(o.actualizadoEn),
+  ]
+}
+
+/** @param {unknown[] | null | undefined} e */
+export function rowToEstadoUnidad(e) {
+  if (!e?.[0]) return null
+  return {
+    unidadId: String(e[0]),
+    tipo: String(e[1] ?? ''),
+    yarda: String(e[2] ?? ''),
+    zona: String(e[3] ?? ''),
+    slot: String(e[4] ?? ''),
+    ubicacion: String(e[5] ?? ''),
+    estatusOperativo: String(e[6] ?? ''),
+    estatusCarga: String(e[7] ?? ''),
+    desde: String(e[8] ?? ''),
+    otAbiertaId: String(e[9] ?? ''),
+    actualizadoEn: String(e[10] ?? ''),
   }
 }
 
@@ -522,6 +817,89 @@ export function createSheetsRepo(opts = {}) {
     return findOpenEntradaIn(await listMovimientos(), equipoId)
   }
 
+  function missingSheet(err, title) {
+    if (/unable to parse range|not found|Requested entity was not found/i.test(String(err?.message ?? ''))) {
+      throw repoError(`Falta la pestaña ${title}. Ejecuta npm run migrate:fase1.`, 503, 'NO_SHEET')
+    }
+    return err
+  }
+
+  async function sheetsGetTab(range, title) {
+    try {
+      return await sheetsGet(range)
+    } catch (err) {
+      throw missingSheet(err, title)
+    }
+  }
+
+  /**
+   * Actualiza UNA fila (la que tiene `id` en la columna A). No limpia ni reescribe el resto.
+   * @param {string} sheetTitle
+   * @param {string[]} columns
+   * @param {string} id
+   * @param {unknown[]} rowValues
+   */
+  async function updateRowById(sheetTitle, columns, id, rowValues) {
+    const want = String(id ?? '').trim()
+    if (!want) throw repoError('Falta el id para actualizar.', 400, 'ID')
+    if (!Array.isArray(rowValues) || rowValues.length === 0) throw repoError('Fila vacía', 400, 'ROW')
+    const padded = Array(columns.length).fill('')
+    for (let i = 0; i < columns.length; i++) padded[i] = rowValues[i] ?? ''
+    const colA = await sheetsGetTab(`${sheetTitle}!A:A`, sheetTitle)
+    const idx = findDataRowIndex(colA, want)
+    if (idx < 0) throw repoError(`No se encontró ${want} en ${sheetTitle}.`, 404, 'NOT_FOUND')
+    const range = singleRowRange(sheetTitle, idx + 1, columns.length)
+    await sheetsUpdate(range, [padded])
+    return { rowNumber: idx + 1, range }
+  }
+
+  async function appendTab(range, title, rowValues) {
+    if (!Array.isArray(rowValues) || rowValues.length === 0) throw repoError('Fila vacía', 400, 'ROW')
+    try {
+      return await sheetsAppend(range, [rowValues])
+    } catch (err) {
+      if (/exceeds grid limits|grid limits/i.test(String(err?.message ?? ''))) {
+        throw repoError(`La hoja ${title} no tiene las columnas de Fase 1. Ejecuta npm run migrate:fase1.`, 503, 'GRID')
+      }
+      throw missingSheet(err, title)
+    }
+  }
+
+  async function listOrdenesTrabajo() {
+    const rows = await sheetsGetTab(OT_READ_RANGE, OT_SHEET)
+    return rows.map(rowToOt).filter(Boolean)
+  }
+
+  async function appendOrdenTrabajo(rowValues) {
+    return appendTab(OT_APPEND_RANGE, OT_SHEET, rowValues)
+  }
+
+  async function updateOrdenTrabajoById(id, rowValues) {
+    return updateRowById(OT_SHEET, OT_COLUMNS, id, rowValues)
+  }
+
+  async function listOtEventos() {
+    const rows = await sheetsGetTab(OT_EVENTOS_READ_RANGE, OT_EVENTOS_SHEET)
+    return rows.map(rowToOtEvento).filter(Boolean)
+  }
+
+  async function appendOtEvento(rowValues) {
+    return appendTab(OT_EVENTOS_APPEND_RANGE, OT_EVENTOS_SHEET, rowValues)
+  }
+
+  async function listEstadoUnidad() {
+    const rows = await sheetsGetTab(ESTADO_UNIDAD_READ_RANGE, ESTADO_UNIDAD_SHEET)
+    return rows.map(rowToEstadoUnidad).filter(Boolean)
+  }
+
+  async function appendEstadoUnidad(rowValues) {
+    return appendTab(ESTADO_UNIDAD_APPEND_RANGE, ESTADO_UNIDAD_SHEET, rowValues)
+  }
+
+  async function updateEstadoUnidadById(unidadId, rowValues) {
+    return updateRowById(ESTADO_UNIDAD_SHEET, ESTADO_UNIDAD_COLUMNS, unidadId, rowValues)
+  }
+
   return {
     spreadsheetId,
     getAccessToken,
@@ -537,6 +915,14 @@ export function createSheetsRepo(opts = {}) {
     findMovimientoById,
     appendMovimiento,
     findOpenEntrada,
+    listOrdenesTrabajo,
+    appendOrdenTrabajo,
+    updateOrdenTrabajoById,
+    listOtEventos,
+    appendOtEvento,
+    listEstadoUnidad,
+    appendEstadoUnidad,
+    updateEstadoUnidadById,
   }
 }
 
