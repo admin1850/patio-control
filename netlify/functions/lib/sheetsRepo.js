@@ -137,7 +137,24 @@ export const ESTADO_UNIDAD_COLUMNS = [
   'desde',
   'otAbiertaId',
   'actualizadoEn',
+  'clienteCarga',
+  'folioCarga',
+  'enganchadaA',
 ]
+
+/** Encabezados de EstadoUnidad antes de Fase 2 (A:K). La migración solo agrega L:N. */
+export const ESTADO_UNIDAD_FASE1_COLUMNS = ESTADO_UNIDAD_COLUMNS.slice(0, 11)
+
+export const ZONAS_SLOTS_SHEET = 'ZonasSlots'
+export const ZONAS_SLOTS_COLUMNS = ['id', 'yardaId', 'zona', 'slot', 'tipo', 'capacidad', 'activo']
+
+export const CONTEOS_SHEET = 'ConteosFisicos'
+export const CONTEOS_COLUMNS = ['id', 'yardaId', 'zona', 'iniciadoEn', 'cerradoEn', 'usuarioEmail', 'resumenJson', 'activo']
+
+/** Ubicación de la unidad (columna `ubicacion` cuando el valor es de Fase 2). */
+export const UBICACIONES_UNIDAD = ['EN_PATIO', 'EN_RUTA', 'EN_TALLER_EXTERNO', 'EN_CLIENTE']
+export const ESTATUS_CARGA = ['VACIA', 'CARGADA', 'EN_CARGA', 'NA']
+export const TIPOS_SLOT = ['LINEA', 'ANDEN', 'TALLER', 'LAVADO', 'CUARENTENA', 'OTRO']
 
 /** 0 → A, 25 → Z, 26 → AA */
 export function columnLetter(index) {
@@ -157,6 +174,10 @@ export const OT_EVENTOS_READ_RANGE = `${OT_EVENTOS_SHEET}!A2:${columnLetter(OT_E
 export const OT_EVENTOS_APPEND_RANGE = `${OT_EVENTOS_SHEET}!A:${columnLetter(OT_EVENTO_COLUMNS.length - 1)}`
 export const ESTADO_UNIDAD_READ_RANGE = `${ESTADO_UNIDAD_SHEET}!A2:${columnLetter(ESTADO_UNIDAD_COLUMNS.length - 1)}`
 export const ESTADO_UNIDAD_APPEND_RANGE = `${ESTADO_UNIDAD_SHEET}!A:${columnLetter(ESTADO_UNIDAD_COLUMNS.length - 1)}`
+export const ZONAS_SLOTS_READ_RANGE = `${ZONAS_SLOTS_SHEET}!A2:${columnLetter(ZONAS_SLOTS_COLUMNS.length - 1)}`
+export const ZONAS_SLOTS_APPEND_RANGE = `${ZONAS_SLOTS_SHEET}!A:${columnLetter(ZONAS_SLOTS_COLUMNS.length - 1)}`
+export const CONTEOS_READ_RANGE = `${CONTEOS_SHEET}!A2:${columnLetter(CONTEOS_COLUMNS.length - 1)}`
+export const CONTEOS_APPEND_RANGE = `${CONTEOS_SHEET}!A:${columnLetter(CONTEOS_COLUMNS.length - 1)}`
 
 /**
  * Índice dentro de `A:A` (la fila 1 es el encabezado, índice 0, y no cuenta).
@@ -397,36 +418,107 @@ export function rowToOtEvento(e) {
 /** @param {Record<string, any>} eu */
 export function estadoUnidadToRow(eu) {
   const o = eu && typeof eu === 'object' ? eu : {}
-  return [
-    textCell(o.unidadId),
-    textCell(o.tipo),
-    textCell(o.yarda),
-    textCell(o.zona),
-    textCell(o.slot),
-    textCell(o.ubicacion),
-    textCell(o.estatusOperativo),
-    textCell(o.estatusCarga),
-    textCell(o.desde),
-    textCell(o.otAbiertaId),
-    textCell(o.actualizadoEn),
-  ]
+  const row = Array(ESTADO_UNIDAD_COLUMNS.length).fill('')
+  const set = (name, value) => {
+    row[ESTADO_UNIDAD_COLUMNS.indexOf(name)] = value
+  }
+  set('unidadId', textCell(o.unidadId))
+  set('tipo', textCell(o.tipo))
+  set('yarda', textCell(o.yarda))
+  set('zona', textCell(o.zona))
+  set('slot', textCell(o.slot))
+  set('ubicacion', textCell(o.ubicacion))
+  set('estatusOperativo', textCell(o.estatusOperativo))
+  set('estatusCarga', textCell(o.estatusCarga))
+  set('desde', textCell(o.desde))
+  set('otAbiertaId', textCell(o.otAbiertaId))
+  set('actualizadoEn', textCell(o.actualizadoEn))
+  set('clienteCarga', textCell(o.clienteCarga))
+  set('folioCarga', textCell(o.folioCarga))
+  set('enganchadaA', textCell(o.enganchadaA))
+  return row
 }
 
 /** @param {unknown[] | null | undefined} e */
 export function rowToEstadoUnidad(e) {
   if (!e?.[0]) return null
+  const at = (name) => cellAt(e, ESTADO_UNIDAD_COLUMNS, name)
   return {
-    unidadId: String(e[0]),
-    tipo: String(e[1] ?? ''),
-    yarda: String(e[2] ?? ''),
-    zona: String(e[3] ?? ''),
-    slot: String(e[4] ?? ''),
-    ubicacion: String(e[5] ?? ''),
-    estatusOperativo: String(e[6] ?? ''),
-    estatusCarga: String(e[7] ?? ''),
-    desde: String(e[8] ?? ''),
-    otAbiertaId: String(e[9] ?? ''),
-    actualizadoEn: String(e[10] ?? ''),
+    unidadId: String(at('unidadId')),
+    tipo: String(at('tipo') ?? ''),
+    yarda: String(at('yarda') ?? ''),
+    zona: String(at('zona') ?? ''),
+    slot: String(at('slot') ?? ''),
+    ubicacion: String(at('ubicacion') ?? ''),
+    estatusOperativo: String(at('estatusOperativo') ?? ''),
+    estatusCarga: String(at('estatusCarga') ?? ''),
+    desde: String(at('desde') ?? ''),
+    otAbiertaId: String(at('otAbiertaId') ?? ''),
+    actualizadoEn: String(at('actualizadoEn') ?? ''),
+    clienteCarga: String(at('clienteCarga') ?? ''),
+    folioCarga: String(at('folioCarga') ?? ''),
+    enganchadaA: String(at('enganchadaA') ?? ''),
+  }
+}
+
+/** @param {Record<string, any>} slot */
+export function zonaSlotToRow(slot) {
+  const o = slot && typeof slot === 'object' ? slot : {}
+  return [
+    textCell(o.id),
+    textCell(o.yardaId),
+    textCell(o.zona),
+    textCell(o.slot),
+    textCell(o.tipo),
+    numCell(o.capacidad),
+    textCell(o.activo || 'SI'),
+  ]
+}
+
+/** @param {unknown[] | null | undefined} e */
+export function rowToZonaSlot(e) {
+  if (!e?.[0]) return null
+  const capacidad = numOrNull(e[5])
+  return {
+    id: String(e[0]),
+    yardaId: String(e[1] ?? ''),
+    zona: String(e[2] ?? ''),
+    slot: String(e[3] ?? ''),
+    tipo: String(e[4] ?? ''),
+    capacidad: capacidad == null ? 1 : capacidad,
+    activo: readActivo(e[6]),
+  }
+}
+
+/** @param {Record<string, any>} conteo */
+export function conteoToRow(conteo) {
+  const o = conteo && typeof conteo === 'object' ? conteo : {}
+  const resumen = o.resumenJson ?? o.resumen
+  return [
+    textCell(o.id),
+    textCell(o.yardaId),
+    textCell(o.zona),
+    textCell(o.iniciadoEn),
+    textCell(o.cerradoEn),
+    textCell(o.usuarioEmail),
+    resumen == null || resumen === '' ? '' : typeof resumen === 'string' ? resumen : JSON.stringify(resumen),
+    textCell(o.activo || 'SI'),
+  ]
+}
+
+/** @param {unknown[] | null | undefined} e */
+export function rowToConteo(e) {
+  if (!e?.[0]) return null
+  const resumen = parseJsonCell(e[6])
+  return {
+    id: String(e[0]),
+    yardaId: String(e[1] ?? ''),
+    zona: String(e[2] ?? ''),
+    iniciadoEn: String(e[3] ?? ''),
+    cerradoEn: String(e[4] ?? ''),
+    usuarioEmail: String(e[5] ?? ''),
+    resumenJson: resumen && typeof resumen === 'object' ? resumen : {},
+    activo: readActivo(e[7]),
   }
 }
 
@@ -817,9 +909,16 @@ export function createSheetsRepo(opts = {}) {
     return findOpenEntradaIn(await listMovimientos(), equipoId)
   }
 
+  function migrateHint(title) {
+    if (title === ZONAS_SLOTS_SHEET || title === CONTEOS_SHEET) return 'npm run migrate:fase2'
+    if (title === ESTADO_UNIDAD_SHEET) return 'npm run migrate:fase2'
+    if (title === OT_SHEET || title === OT_EVENTOS_SHEET) return 'npm run migrate:fase1'
+    return 'npm run migrate:fase0'
+  }
+
   function missingSheet(err, title) {
     if (/unable to parse range|not found|Requested entity was not found/i.test(String(err?.message ?? ''))) {
-      throw repoError(`Falta la pestaña ${title}. Ejecuta npm run migrate:fase1.`, 503, 'NO_SHEET')
+      throw repoError(`Falta la pestaña ${title}. Ejecuta ${migrateHint(title)}.`, 503, 'NO_SHEET')
     }
     return err
   }
@@ -859,7 +958,7 @@ export function createSheetsRepo(opts = {}) {
       return await sheetsAppend(range, [rowValues])
     } catch (err) {
       if (/exceeds grid limits|grid limits/i.test(String(err?.message ?? ''))) {
-        throw repoError(`La hoja ${title} no tiene las columnas de Fase 1. Ejecuta npm run migrate:fase1.`, 503, 'GRID')
+        throw repoError(`La hoja ${title} no tiene las columnas necesarias. Ejecuta ${migrateHint(title)}.`, 503, 'GRID')
       }
       throw missingSheet(err, title)
     }
@@ -900,6 +999,32 @@ export function createSheetsRepo(opts = {}) {
     return updateRowById(ESTADO_UNIDAD_SHEET, ESTADO_UNIDAD_COLUMNS, unidadId, rowValues)
   }
 
+  async function listZonasSlots() {
+    const rows = await sheetsGetTab(ZONAS_SLOTS_READ_RANGE, ZONAS_SLOTS_SHEET)
+    return rows.map(rowToZonaSlot).filter(Boolean)
+  }
+
+  async function appendZonaSlot(rowValues) {
+    return appendTab(ZONAS_SLOTS_APPEND_RANGE, ZONAS_SLOTS_SHEET, rowValues)
+  }
+
+  async function updateZonaSlotById(id, rowValues) {
+    return updateRowById(ZONAS_SLOTS_SHEET, ZONAS_SLOTS_COLUMNS, id, rowValues)
+  }
+
+  async function listConteos() {
+    const rows = await sheetsGetTab(CONTEOS_READ_RANGE, CONTEOS_SHEET)
+    return rows.map(rowToConteo).filter(Boolean)
+  }
+
+  async function appendConteo(rowValues) {
+    return appendTab(CONTEOS_APPEND_RANGE, CONTEOS_SHEET, rowValues)
+  }
+
+  async function updateConteoById(id, rowValues) {
+    return updateRowById(CONTEOS_SHEET, CONTEOS_COLUMNS, id, rowValues)
+  }
+
   return {
     spreadsheetId,
     getAccessToken,
@@ -923,6 +1048,12 @@ export function createSheetsRepo(opts = {}) {
     listEstadoUnidad,
     appendEstadoUnidad,
     updateEstadoUnidadById,
+    listZonasSlots,
+    appendZonaSlot,
+    updateZonaSlotById,
+    listConteos,
+    appendConteo,
+    updateConteoById,
   }
 }
 

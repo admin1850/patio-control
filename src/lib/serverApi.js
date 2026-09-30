@@ -81,6 +81,58 @@ export function listMovimientosServer(limit = 500) {
   return apiFetch(`/api/movimientos${q}`, { method: 'GET' })
 }
 
+/** Inventario de la yarda (agregados, unidades y slots). */
+export function fetchInventario(yarda) {
+  const q = yarda && yarda !== 'todas' ? `?yarda=${encodeURIComponent(yarda)}` : ''
+  return apiFetch(`/api/inventario${q}`, { method: 'GET' })
+}
+
+/** Alta o actualización de un slot de yarda. */
+export function guardarZonaSlot(slot) {
+  return apiFetch('/api/zonas-slots', { method: 'POST', json: slot })
+}
+
+export function iniciarConteo(body) {
+  return apiFetch('/api/conteo/iniciar', { method: 'POST', json: body })
+}
+
+export function capturarConteo(id, body) {
+  return apiFetch(`/api/conteo/${encodeURIComponent(id)}/captura`, { method: 'POST', json: body })
+}
+
+export function cerrarConteo(id, body = {}) {
+  return apiFetch(`/api/conteo/${encodeURIComponent(id)}/cerrar`, { method: 'POST', json: body })
+}
+
+/** Escribe zona/slot/ubicación en EstadoUnidad. No lanza: devuelve un aviso en español o null. */
+export async function ubicarTrasMovimiento(mov) {
+  const tipo = String(mov?.tipo || '').trim().toLowerCase()
+  if (!['entrada', 'salida', 'parado'].includes(tipo)) return null
+  const ubicacion = mov.ubicacionInventario || (tipo === 'salida' ? (mov.trasladoTallerExterno ? 'EN_TALLER_EXTERNO' : 'EN_RUTA') : 'EN_PATIO')
+  const body = {
+    unidadId: mov.equipoId || mov.unidadId || '',
+    placa: mov.placa || '',
+    tipo: mov.equipoTipo || mov.tipoUnidad || '',
+    yarda: mov.yardaId || mov.yarda || '',
+    tipoMovimiento: tipo,
+    ubicacion,
+    movimientoId: mov.id || '',
+  }
+  if (mov.zona) body.zona = mov.zona
+  if (mov.slot) body.slot = mov.slot
+  if (tipo !== 'salida' && mov.placaCaja1) body.enganchadaA = mov.placaCaja1
+  if (mov.cliente && tipo === 'entrada') body.clienteCarga = mov.cliente
+  try {
+    await apiFetch('/api/inventario/ubicar', { method: 'POST', json: body })
+    return null
+  } catch (err) {
+    if (!(err instanceof ApiError) || [401, 404, 405, 500, 502, 503, 504].includes(err.status) || err.data?.raw) {
+      return 'Movimiento guardado. El inventario del servidor no está disponible; la zona y el slot no se actualizaron. El patio sigue operando.'
+    }
+    return `Movimiento guardado. No se actualizó la ubicación en inventario: ${err.message}`
+  }
+}
+
 /** Filas de EstadoUnidad para los chips del patio. */
 export function listEstadoUnidadesServer() {
   return apiFetch('/api/estado-unidades', { method: 'GET' })
