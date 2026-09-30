@@ -32,6 +32,8 @@ Base para que el navegador deje de hablar directo con Sheets/Drive. **Modo dual*
 | `POST /api/auth/login` `{ idToken, clave, dispositivoId }` | Google ID token → kardex Autorizados → cookie `patio_session` |
 | `GET /api/auth/me` | Usuario de la sesión (cookie o `Authorization: Bearer`) o 401 |
 | `POST /api/auth/logout` | Borra la cookie |
+| `GET /api/movimientos?limit=500` | Lista movimientos (sesión). Solo lectura, más reciente primero |
+| `POST /api/movimientos` | Alta **append-only** (sesión + permiso del `tipo`). Idempotente por `id`. Audita `crear_movimiento` |
 
 Variables de entorno en Netlify (Site settings → Environment variables):
 
@@ -53,6 +55,15 @@ antes) → `POST /api/auth/login`. Si el backend responde 503 (variables faltant
 backend sí bloquean la conexión. Al abrir la app, `GET /api/auth/me` recupera rol/permisos si hay sesión
 (sin forzar modo nube). Desconectar también llama a `/api/auth/logout`.
 
+Movimientos (`/api/movimientos`): la caseta sigue subiendo fotos a Drive desde el navegador y después
+intenta `POST` con esas URLs (`http`). Si el API responde, **no** se vuelve a agregar la fila desde el
+navegador (evita duplicados). Si el API no está (503 sin configurar, 404/405 en `vite dev` sin
+`netlify dev`, u otra caída), se conserva el append directo a Sheets. Un 400/401/403/409 no cae al camino
+legado ni entra a la cola offline: la regla del servidor se muestra en pantalla. `fechaHora` es la hora
+del dispositivo; `horaServidor` y `usuarioEmail` los escribe el servidor y el cliente no puede pisarlos.
+El servidor no limpia la hoja. La sincronización de la lista (`en`) sigue leyendo Sheets; `listMovimientosServer`
+queda listo para una fase posterior.
+
 Nota de despliegue: puedes definir `PATIO_SESSION_SECRET` (y las demás variables) en un **Deploy
 Preview** de Netlify para probar el login de servidor; con ella, OCR y Grok exigen sesión. Para
 producción todavía falta: cuenta de servicio con acceso Editor al Sheet, `npm run migrate:fase0`, y
@@ -69,7 +80,7 @@ Migración del Sheet (solo agrega columnas/pestañas; no borra datos):
 npm run migrate:fase0 -- --dry-run      # ver cambios
 npm run migrate:fase0                   # aplicar (dry-run automático sin credenciales)
 npm run migrate:fase0 -- --hash-claves  # además llena ClaveHash desde Clave
-npm run test:fase0                      # pruebas de sesión, claves, permisos y handlers
+npm run test:fase0                      # auth + API de movimientos (filas, idempotencia, permisos, km)
 ```
 
 Agrega `Movimientos!AE:AI` (`motivoParo, paradoDesde, zonaSlot, usuarioEmail, horaServidor`),
