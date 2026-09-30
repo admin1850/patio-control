@@ -46,9 +46,18 @@ Variables de entorno en Netlify (Site settings → Environment variables):
 | `PATIO_ALLOWED_ORIGIN` | recomendado | `https://patiocontrol.netlify.app` (lista por comas). Sin ella CORS responde `*` |
 | `PATIO_SESSION_TTL_SEC` | no | Duración de sesión, default `43200` (12 h) |
 
-Nota de despliegue: la app todavía no llama a `/api/auth/login` (usa el token OAuth, no un ID token),
-así que **no definas `PATIO_SESSION_SECRET` en producción** hasta conectar el login del cliente; sin la
-variable, OCR y Grok siguen abiertos como hoy y responden `X-Patio-Auth: optional`.
+Flujo de conexión (pantalla Workspace): clave del kardex → **ID token de Google** (Google Identity
+Services, `google.accounts.id.prompt`) → token OAuth de Sheets/Drive (sincronización legada, igual que
+antes) → `POST /api/auth/login`. Si el backend responde 503 (variables faltantes) o no existe
+(`npm run dev` sin `netlify dev`), la app valida el kardex en el navegador como antes. 401/403 del
+backend sí bloquean la conexión. Al abrir la app, `GET /api/auth/me` recupera rol/permisos si hay sesión
+(sin forzar modo nube). Desconectar también llama a `/api/auth/logout`.
+
+Nota de despliegue: puedes definir `PATIO_SESSION_SECRET` (y las demás variables) en un **Deploy
+Preview** de Netlify para probar el login de servidor; con ella, OCR y Grok exigen sesión. Para
+producción todavía falta: cuenta de servicio con acceso Editor al Sheet, `npm run migrate:fase0`, y
+agregar el dominio del sitio en *Authorized JavaScript origins* del Client ID. Sin `PATIO_SESSION_SECRET`,
+OCR y Grok siguen abiertos como hoy (`X-Patio-Auth: optional`) y el login cae al flujo legado.
 Límites en memoria por instancia: OCR 60/min y Grok 30/min por email (por IP sin sesión); login 20/min por IP.
 
 Claves: el login valida contra `ClaveHash` (columna S, bcrypt) si existe; si no, contra `Clave` (H) en texto

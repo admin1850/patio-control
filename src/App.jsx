@@ -11,6 +11,16 @@ import {
   readPlacaFromDataUrl,
   setPlateRecognizerToken,
 } from "./lib/placaOcr.js";
+import {
+  ApiError,
+  fetchMe,
+  getDispositivoId,
+  isBackendUnavailable,
+  jwtExpiresAtMs,
+  loginWithGoogleIdToken,
+  logout as logoutServer,
+  mapServerUserToAuthProfile,
+} from "./lib/serverApi.js";
 
 function _Component({
   slots: e,
@@ -2821,6 +2831,84 @@ function Ft(e) {
     }).catch(n);
   });
 }
+var cachedIdToken = null;
+function clearCachedIdToken() {
+  cachedIdToken = null;
+}
+function requestGoogleIdToken(clientId, hostedDomain) {
+  let id = String(clientId ?? ``).trim();
+  let hd = String(hostedDomain ?? ``).trim();
+  // Reusar un ID token vigente permite reintentar en un solo toque si el popup de Sheets se bloqueó.
+  if (cachedIdToken && cachedIdToken.clientId === id && jwtExpiresAtMs(cachedIdToken.credential) - Date.now() > 5 * 60000) {
+    return Promise.resolve(cachedIdToken.credential);
+  }
+  return new Promise((resolve, reject) => {
+    if (!id) {
+      reject(Error(`Falta el Google Client ID. Configúralo en la pantalla de Workspace.`));
+      return;
+    }
+    let settled = false;
+    let timer = null;
+    let finish = (err, credential) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      if (err) {
+        try {
+          window.google?.accounts?.id?.cancel();
+        } catch {}
+        reject(err);
+      } else {
+        cachedIdToken = {
+          clientId: id,
+          credential
+        };
+        resolve(credential);
+      }
+    };
+    let bloqueado = motivo => Error(`Google no mostró el inicio de sesión${motivo ? ` (${motivo})` : ``}. Permite ventanas emergentes y cookies de accounts.google.com para este sitio, inicia sesión en Google en este navegador y vuelve a tocar Conectar.`);
+    timer = setTimeout(() => finish(Error(`Se agotó el tiempo para iniciar sesión con Google (60 s). Vuelve a tocar Conectar.`)), 60000);
+    Pt().then(() => {
+      let gid = window.google?.accounts?.id;
+      if (!gid) {
+        finish(Error(`Google Identity no disponible`));
+        return;
+      }
+      gid.initialize({
+        client_id: id,
+        callback: res => {
+          if (res?.credential) {
+            finish(null, res.credential);
+          } else {
+            finish(Error(`Google no devolvió el token de identidad. Vuelve a tocar Conectar.`));
+          }
+        },
+        auto_select: false,
+        ux_mode: `popup`,
+        cancel_on_tap_outside: false,
+        context: `signin`,
+        itp_support: true,
+        use_fedcm_for_prompt: true,
+        ...(hd ? {
+          hd
+        } : {})
+      });
+      gid.prompt(n => {
+        try {
+          if (n?.isNotDisplayed?.()) {
+            finish(bloqueado(n.getNotDisplayedReason?.()));
+          } else if (n?.isSkippedMoment?.()) {
+            finish(bloqueado(n.getSkippedReason?.()));
+          } else if (n?.isDismissedMoment?.() && n.getDismissedReason?.() !== `credential_returned`) {
+            finish(Error(`Cerraste el inicio de sesión de Google. Vuelve a tocar Conectar y elige tu cuenta.`));
+          }
+        } catch {}
+      });
+    }).catch(err => finish(err instanceof Error ? err : Error(`No se pudo cargar Google Identity`)));
+  });
+}
 async function It(e) {
   let t = await fetch(`https://www.googleapis.com/oauth2/v3/userinfo`, {
     headers: {
@@ -3685,8 +3773,37 @@ function Sn() {
     u(true);
     f(null);
     try {
-      let profile = await It(await Ft(i));
-      let authorized = await assertUsuarioAutorizado(i, profile, clave);
+      if (!clave.trim()) {
+        throw Error(`Escribe la clave que te asignó el admin (columna Clave del kardex).`);
+      }
+      let idToken = await requestGoogleIdToken(i.clientId, i.hostedDomain);
+      let accessToken = await Ft(i);
+      let authorized;
+      try {
+        let res = await loginWithGoogleIdToken({
+          idToken,
+          clave,
+          dispositivoId: getDispositivoId()
+        });
+        authorized = mapServerUserToAuthProfile(res?.user);
+        if (!authorized) {
+          throw Error(`El servidor no devolvió el usuario. Vuelve a intentar.`);
+        }
+      } catch (err) {
+        if (!isBackendUnavailable(err)) {
+          if (err.status === 401) {
+            clearCachedIdToken();
+            throw Error(`El servidor no aceptó tu cuenta de Google (${err.message}). Revisa que el Client ID de Workspace sea el mismo que PATIO_GOOGLE_CLIENT_ID y vuelve a tocar Conectar.`);
+          }
+          if (err.status === 429) {
+            throw Error(`Demasiados intentos de conexión. Espera un minuto y vuelve a intentar.`);
+          }
+          throw Error(err.message || `Acceso denegado por el servidor.`);
+        }
+        // Backend sin configurar (503) o sin Netlify Functions (vite dev): validación legada en el navegador.
+        let profile = await It(accessToken);
+        authorized = await assertUsuarioAutorizado(i, profile, clave);
+      }
       a(authorized);
       saveCachedAuthProfile(authorized);
       if (authorized.ubicacion && authorized.ubicacion !== `todas` && _e.some(y => y.id === authorized.ubicacion)) {
@@ -3700,6 +3817,7 @@ function Sn() {
       g(rem);
     } catch (err) {
       Nt();
+      void logoutServer();
       a(null);
       saveCachedAuthProfile(null);
       r(`local`);
@@ -3711,10 +3829,38 @@ function Sn() {
   }, [e, _]);
   let b = (0, l.useCallback)(() => {
     Nt();
+    clearCachedIdToken();
+    try {
+      window.google?.accounts?.id?.disableAutoSelect();
+    } catch {}
+    void logoutServer();
     a(null);
     saveCachedAuthProfile(null);
     r(`local`);
     s(Ce());
+  }, []);
+  (0, l.useEffect)(() => {
+    let alive = true;
+    fetchMe().then(user => {
+      let mapped = mapServerUserToAuthProfile(user);
+      if (!alive || !mapped) {
+        return;
+      }
+      let cached = loadCachedAuthProfile();
+      let profile = cached?.email === mapped.email ? {
+        ...mapped,
+        nombreKardex: cached.nombreKardex || mapped.nombreKardex,
+        celular: mapped.celular || cached.celular,
+        whatsapp: mapped.whatsapp || cached.whatsapp,
+        picture: mapped.picture || cached.picture,
+        autorizadoEn: cached.autorizadoEn || mapped.autorizadoEn
+      } : mapped;
+      a(prev => prev ?? profile);
+      saveCachedAuthProfile(profile);
+    }).catch(() => {});
+    return () => {
+      alive = false;
+    };
   }, []);
   let x = (0, l.useCallback)(e => {
     Ot(e);

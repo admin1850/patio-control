@@ -27,6 +27,7 @@ import { verifyGoogleIdToken } from '../netlify/functions/lib/googleAuth.js'
 import { rateLimit, requireSession } from '../netlify/functions/lib/http.js'
 import { normalizePrivateKey } from '../netlify/functions/lib/sheetsRepo.js'
 import { rehydrateEvent, serializeEvent } from '../src/lib/outbox.js'
+import { ApiError, isBackendUnavailable, jwtExpiresAtMs, mapServerUserToAuthProfile } from '../src/lib/serverApi.js'
 
 const tests = []
 const test = (name, fn) => tests.push({ name, fn })
@@ -418,6 +419,50 @@ test('outbox: Blob ↔ ArrayBuffer', async () => {
   assert.ok(back.blobs.frontal instanceof Blob)
   assert.equal(back.blobs.frontal.type, 'image/jpeg')
   assert.deepEqual([...new Uint8Array(await back.blobs.frontal.arrayBuffer())], [1, 2, 3])
+})
+
+// ---------- serverApi (cliente) ----------
+test('mapServerUserToAuthProfile: misma forma que el perfil legado, sin clave', () => {
+  const p = mapServerUserToAuthProfile(
+    {
+      email: 'Guardia@CamirCapital.com',
+      name: 'Juan G',
+      nombreKardex: 'Juan Pérez',
+      rol: 'guardia',
+      ubicacion: 'chihuahua',
+      permisos: defaultPermisosPorRol('guardia'),
+      whatsapp: '+526141234567',
+    },
+    { autorizadoEn: '2026-09-30T00:00:00.000Z' },
+  )
+  assert.deepEqual(p, {
+    email: 'guardia@camircapital.com',
+    name: 'Juan G',
+    rol: 'guardia',
+    ubicacion: 'chihuahua',
+    celular: undefined,
+    whatsapp: '+526141234567',
+    permisos: defaultPermisosPorRol('guardia'),
+    nombreKardex: 'Juan Pérez',
+    autorizadoEn: '2026-09-30T00:00:00.000Z',
+    sesionServidor: true,
+  })
+  assert.equal(mapServerUserToAuthProfile({ email: 'a@x.com', rol: 'admin' }).nombreKardex, 'a@x.com')
+  assert.equal(mapServerUserToAuthProfile(null), null)
+})
+
+test('isBackendUnavailable: 503/404/red → legado; 401/403/429 no', () => {
+  for (const s of [404, 405, 500, 502, 503, 504]) assert.equal(isBackendUnavailable(new ApiError('x', s, {})), true, String(s))
+  for (const s of [400, 401, 403, 429]) assert.equal(isBackendUnavailable(new ApiError('x', s, {})), false, String(s))
+  assert.equal(isBackendUnavailable(new TypeError('Failed to fetch')), true)
+  assert.equal(isBackendUnavailable(new ApiError('x', 403, { raw: '<html>' })), true)
+})
+
+test('jwtExpiresAtMs: lee exp del ID token', async () => {
+  const t = await google.sign({ email: 'a@camircapital.com' }, { exp: '1h' })
+  const ms = jwtExpiresAtMs(t)
+  assert.ok(ms > Date.now() + 55 * 60_000 && ms <= Date.now() + 3600_000 + 1000)
+  assert.equal(jwtExpiresAtMs('basura'), 0)
 })
 
 // ---------- runner ----------

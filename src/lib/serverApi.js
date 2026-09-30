@@ -55,13 +55,13 @@ export function loginWithGoogleIdToken({ idToken, clave, dispositivoId }) {
   })
 }
 
-/** Usuario de la sesión actual o `null` si no hay sesión (401) o el backend no está configurado (503). */
+/** Usuario de la sesión actual o `null` si no hay sesión (401) o el backend no está disponible. */
 export async function fetchMe() {
   try {
     const data = await apiFetch('/api/auth/me', { method: 'GET' })
     return data?.user ?? null
   } catch (err) {
-    if (err instanceof ApiError && (err.status === 401 || err.status === 503)) return null
+    if ((err instanceof ApiError && err.status === 401) || isBackendUnavailable(err)) return null
     throw err
   }
 }
@@ -71,6 +71,53 @@ export async function logout() {
     await apiFetch('/api/auth/logout', { method: 'POST' })
   } catch {
     // La cookie expira sola; no bloquear el cierre local.
+  }
+}
+
+/**
+ * ¿El error indica que el backend no está disponible/configurado (y conviene usar el flujo legado)?
+ * 503 = env faltante; 404/405 = sin Netlify Functions (p. ej. `vite dev`); 5xx/red = caído.
+ * 400/401/403/429 son respuestas reales del backend y NO deben caer al legado.
+ */
+export function isBackendUnavailable(err) {
+  if (!(err instanceof ApiError)) return true
+  return [404, 405, 500, 502, 503, 504].includes(err.status) || Boolean(err.data?.raw)
+}
+
+/**
+ * Usuario de /api/auth/login|me → perfil de auth que usa App.jsx
+ * (misma forma que `assertUsuarioAutorizado`).
+ */
+export function mapServerUserToAuthProfile(user, { autorizadoEn = new Date().toISOString() } = {}) {
+  if (!user?.email) return null
+  const email = String(user.email).trim().toLowerCase()
+  const name = user.name || user.nombreKardex || email
+  return {
+    email,
+    name,
+    ...(user.picture ? { picture: user.picture } : {}),
+    rol: user.rol || 'guardia',
+    ubicacion: user.ubicacion || 'todas',
+    celular: user.celular || undefined,
+    whatsapp: user.whatsapp || undefined,
+    permisos: user.permisos,
+    nombreKardex: user.nombreKardex || name,
+    autorizadoEn,
+    sesionServidor: true,
+  }
+}
+
+/** `exp` (ms) de un JWT sin verificar firma — solo para decidir si reusar un ID token en el cliente. */
+export function jwtExpiresAtMs(token) {
+  try {
+    const part = String(token).split('.')[1]
+    if (!part) return 0
+    const b64 = part.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4)
+    const payload = JSON.parse(atob(padded))
+    return typeof payload.exp === 'number' ? payload.exp * 1000 : 0
+  } catch {
+    return 0
   }
 }
 
