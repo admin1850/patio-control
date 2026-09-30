@@ -4,12 +4,20 @@
  */
 
 import { json, parseJsonBody, preflight, requireSession } from './lib/http.js'
+import { intentarAviso } from './lib/avisosService.js'
 import { createOtService } from './lib/otService.js'
+import { createPreventivoService } from './lib/preventivoService.js'
 import { getSheetsRepo } from './lib/sheetsRepo.js'
 
 function serviceFrom(deps) {
   if (deps?.service) return deps.service
   return createOtService(deps?.repo ?? getSheetsRepo())
+}
+
+function repoParaHooks(deps) {
+  if (deps?.repo) return deps.repo
+  if (deps?.service) return null
+  return getSheetsRepo()
 }
 
 export function extractOtId(event) {
@@ -64,6 +72,24 @@ export async function handler(event, deps) {
       result = await svc.updateEstatus(auth.session, id, { estatus: body.estatus, motivo: body.motivo })
     }
     if (!result) return json(event, 400, { error: 'Indica estatus, etr o cierre.' }, auth.headers)
+    const repo = repoParaHooks(deps)
+    if (repo && result.ot && !result.unchanged) {
+      if (result.ot.estatus === 'LISTA') {
+        await intentarAviso(repo, (avisos) => avisos.enqueue('UNIDAD_LISTA', {
+          yarda: result.ot.yarda,
+          unidadId: result.ot.unidadId,
+          mensaje: `Unidad lista · ${result.ot.folio || result.ot.id} · ${result.ot.unidadId}`,
+          dedupeKey: `UNIDAD_LISTA|${result.ot.id}`,
+        }))
+      }
+      if ((result.ot.estatus === 'CERRADA' || result.ot.estatus === 'CANCELADA') && typeof repo.listServiciosProgramados === 'function') {
+        try {
+          await createPreventivoService(repo).sincronizarCierreOt(result.ot)
+        } catch (err) {
+          if (Number(err?.status) !== 503) console.warn('[preventivo]', err?.message || err)
+        }
+      }
+    }
     return json(event, 200, { orden: result.ot, estado: result.estado || null, unchanged: Boolean(result.unchanged) }, { ...auth.headers, 'Cache-Control': 'no-store' })
   } catch (err) {
     const status = Number(err?.status) || 500

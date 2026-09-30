@@ -12,11 +12,13 @@
     "test:fase1": "node scripts/test-fase1-ot.mjs",
     "test:fase2": "node scripts/test-fase2-inventario.mjs",
     "test:fase3": "node scripts/test-fase3-gate.mjs",
-    "test": "npm run test:fase0 && npm run test:fase1 && npm run test:fase2 && npm run test:fase3",
+    "test:fase4": "node scripts/test-fase4.mjs",
+    "test": "npm run test:fase0 && npm run test:fase1 && npm run test:fase2 && npm run test:fase3 && npm run test:fase4",
     "migrate:fase0": "node scripts/migrate-fase0-sheet.mjs",
     "migrate:fase1": "node scripts/migrate-fase1-sheet.mjs",
     "migrate:fase2": "node scripts/migrate-fase2-sheet.mjs",
-    "migrate:fase3": "node scripts/migrate-fase3-sheet.mjs"
+    "migrate:fase3": "node scripts/migrate-fase3-sheet.mjs",
+    "migrate:fase4": "node scripts/migrate-fase4-sheet.mjs"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
