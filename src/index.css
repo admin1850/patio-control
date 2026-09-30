@@ -353,6 +353,9 @@ html.kiosk .btn-back-fixed {
   font-size: 2.2rem;
   line-height: 1;
 }
+.llegadas-panel {
+  margin: 16px 0;
+}
 .panel,
 .form-panel {
   background: var(--surface);

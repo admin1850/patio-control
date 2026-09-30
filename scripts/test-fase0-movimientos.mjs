@@ -157,10 +157,11 @@ function httpEvent(method, { cookie = '', body, query } = {}) {
   }
 }
 
-test('columnas A:AI y round-trip de movimiento', () => {
-  assert.equal(MOVIMIENTO_COLUMNS.length, 35)
+test('columnas A:AJ y round-trip de movimiento', () => {
+  assert.equal(MOVIMIENTO_COLUMNS.length, 36)
   assert.equal(MOVIMIENTO_COLUMNS.indexOf('motivoParo'), 30)
-  assert.deepEqual(MOVIMIENTO_COLUMNS.slice(30), ['motivoParo', 'paradoDesde', 'zonaSlot', 'usuarioEmail', 'horaServidor'])
+  assert.equal(MOVIMIENTO_COLUMNS.indexOf('viajeId'), 35)
+  assert.deepEqual(MOVIMIENTO_COLUMNS.slice(30), ['motivoParo', 'paradoDesde', 'zonaSlot', 'usuarioEmail', 'horaServidor', 'viajeId'])
   assert.equal(MOVIMIENTO_COLUMNS.indexOf('whatsapp'), 29)
   assert.equal(MOVIMIENTO_COLUMNS.indexOf('geoLat'), 22)
   assert.equal(MOVIMIENTO_COLUMNS.indexOf('fotosEvidenciaJson'), 23)
@@ -170,7 +171,8 @@ test('columnas A:AI y round-trip de movimiento', () => {
   assert.equal(rowToMovimiento(['solo-id']), null)
 
   const row = movimientoToRow(baseMov())
-  assert.equal(row.length, 35)
+  assert.equal(row.length, 36)
+  assert.equal(row[35], '')
   assert.equal(row[MOVIMIENTO_COLUMNS.indexOf('id')], 'mov-1')
   assert.equal(row[30], 'otro|falta pieza')
   assert.equal(row[34], '1999-01-01T00:00:00.000Z')
@@ -518,7 +520,7 @@ test('sheetsRepo: append RAW de Movimientos y nunca clear; grid → 503', async 
   assert.ok(append, 'debe haber append')
   assert.equal(append.method, 'POST')
   assert.match(append.url, /valueInputOption=RAW/)
-  assert.match(decodeURIComponent(append.url), /Movimientos!A:AI:append/)
+  assert.match(decodeURIComponent(append.url), /Movimientos!A:AJ:append/)
   assert.equal(urls.some((u) => u.url.includes(':clear') || u.method === 'DELETE'), false)
 
   const repoGrid = createSheetsRepo({

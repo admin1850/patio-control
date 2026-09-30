@@ -2,6 +2,7 @@
  * Helpers HTTP compartidos por las Netlify Functions.
  */
 
+import { timingSafeEqual } from 'node:crypto'
 import { SESSION_COOKIE, parseCookies, verifySession } from './session.js'
 
 function header(event, name) {
@@ -29,7 +30,7 @@ function allowedOrigins() {
  */
 export function corsHeaders(event) {
   const base = {
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Patio-Key',
     'Access-Control-Allow-Methods': 'GET, POST, PATCH, OPTIONS',
     'Content-Type': 'application/json',
   }
@@ -108,6 +109,86 @@ export function requireSession(event, { optionalWithoutSecret = true } = {}) {
     }
   }
   return { session, authMode: 'required', error: null, headers }
+}
+
+function secretEquals(given, expected) {
+  const left = Buffer.from(String(given))
+  const right = Buffer.from(String(expected))
+  if (left.length !== right.length) {
+    timingSafeEqual(left, left)
+    return false
+  }
+  return timingSafeEqual(left, right)
+}
+
+/** Valor del header `X-Patio-Key` (App Chofer, Frotcom, ERP). */
+export function readIntegrationKey(event) {
+  return String(header(event, 'x-patio-key') ?? '').trim()
+}
+
+export function integrationKeyOk(event, env = process.env) {
+  const expected = String(env.PATIO_INTEGRATION_KEY ?? '').trim()
+  const given = readIntegrationKey(event)
+  if (!expected || !given) return false
+  return secretEquals(given, expected)
+}
+
+function integrationSession() {
+  return {
+    email: 'integracion@patio.local',
+    rol: 'integracion',
+    name: 'Integración',
+    permisos: { entrada: true, salida: true, parado: true, baja: true, historial: true, kpis: true, equipos: true },
+    via: 'integration-key',
+  }
+}
+
+/**
+ * Sesión de patio o header `X-Patio-Key` igual a `PATIO_INTEGRATION_KEY`.
+ * Sin secreto de sesión y sin llave: modo opcional (la app sigue sin credenciales externas).
+ * @param {object} event
+ * @param {{ optionalWithoutSecret?: boolean }} [opts]
+ */
+export function requireSessionOrIntegration(event, { optionalWithoutSecret = true } = {}) {
+  if (integrationKeyOk(event)) {
+    return {
+      session: integrationSession(),
+      authMode: 'integration',
+      error: null,
+      headers: { 'X-Patio-Auth': 'integration-key' },
+    }
+  }
+  const secret = getSessionSecret()
+  const keyConfigured = Boolean(String(process.env.PATIO_INTEGRATION_KEY ?? '').trim())
+  const sessionAuth = secret ? requireSession(event, { optionalWithoutSecret: false }) : null
+  if (sessionAuth && !sessionAuth.error) return sessionAuth
+  if (!secret && !keyConfigured) {
+    const headers = { 'X-Patio-Auth': 'optional' }
+    if (optionalWithoutSecret) return { session: null, authMode: 'optional', error: null, headers }
+    return {
+      session: null,
+      authMode: 'optional',
+      headers,
+      error: json(event, 503, { error: 'Integraciones sin configurar (PATIO_SESSION_SECRET o PATIO_INTEGRATION_KEY).' }, headers),
+    }
+  }
+  if (readIntegrationKey(event)) {
+    const headers = { 'X-Patio-Auth': 'integration-key' }
+    return {
+      session: null,
+      authMode: 'integration',
+      headers,
+      error: json(event, 401, { error: 'Llave de integración inválida. Usa el header X-Patio-Key.' }, headers),
+    }
+  }
+  if (sessionAuth?.error) return sessionAuth
+  const headers = { 'X-Patio-Auth': 'integration-key' }
+  return {
+    session: null,
+    authMode: 'integration',
+    headers,
+    error: json(event, 401, { error: 'Se requiere sesión de patio o el header X-Patio-Key.' }, headers),
+  }
 }
 
 const buckets = new Map()
