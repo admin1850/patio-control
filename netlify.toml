@@ -78,6 +78,36 @@
   status = 200
 
 [[redirects]]
+  from = "/api/inventario/ubicar"
+  to = "/.netlify/functions/inventario-ubicar"
+  status = 200
+
+[[redirects]]
+  from = "/api/inventario"
+  to = "/.netlify/functions/inventario"
+  status = 200
+
+[[redirects]]
+  from = "/api/zonas-slots"
+  to = "/.netlify/functions/zonas-slots"
+  status = 200
+
+[[redirects]]
+  from = "/api/conteo/iniciar"
+  to = "/.netlify/functions/conteo"
+  status = 200
+
+[[redirects]]
+  from = "/api/conteo/:id/captura"
+  to = "/.netlify/functions/conteo/:id/captura"
+  status = 200
+
+[[redirects]]
+  from = "/api/conteo/:id/cerrar"
+  to = "/.netlify/functions/conteo/:id/cerrar"
+  status = 200
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

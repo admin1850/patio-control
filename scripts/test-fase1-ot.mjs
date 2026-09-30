@@ -190,10 +190,11 @@ test('columnas Fase 1 y round-trip de OT, evento y estado', () => {
   assert.equal(OT_COLUMNS.length, 35)
   assert.equal(columnLetter(OT_COLUMNS.length - 1), 'AI')
   assert.equal(columnLetter(OT_EVENTO_COLUMNS.length - 1), 'H')
-  assert.equal(columnLetter(ESTADO_UNIDAD_COLUMNS.length - 1), 'K')
+  assert.equal(columnLetter(ESTADO_UNIDAD_COLUMNS.length - 1), 'N')
   assert.deepEqual(OT_EVENTO_COLUMNS, ['id', 'otId', 'tipoEvento', 'valorAnterior', 'valorNuevo', 'motivo', 'usuarioEmail', 'horaServidor'])
   assert.deepEqual(ESTADO_UNIDAD_COLUMNS, [
     'unidadId', 'tipo', 'yarda', 'zona', 'slot', 'ubicacion', 'estatusOperativo', 'estatusCarga', 'desde', 'otAbiertaId', 'actualizadoEn',
+    'clienteCarga', 'folioCarga', 'enganchadaA',
   ])
   assert.equal(OT_COLUMNS[0], 'id')
   assert.equal(OT_COLUMNS[14], 'etr')

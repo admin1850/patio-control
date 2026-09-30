@@ -114,7 +114,7 @@ export function indexEstadosUnidad(estados) {
  * Dashboard y mantenimiento también: el patio se puede consultar sin permiso de alta.
  */
 export function puedeVerPagina(user, key) {
-  if (key === 'dashboard' || key === 'mantenimiento' || key === 'workspace') return true
+  if (key === 'dashboard' || key === 'mantenimiento' || key === 'inventario' || key === 'workspace') return true
   if (!user?.permisos) return true
   return !!user.permisos[key]
 }

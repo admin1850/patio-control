@@ -1365,3 +1365,76 @@ html.kiosk .grok-dudas {
 .grok-dudas-answer {
   margin: 0;
 }
+.inv-counts {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.inv-counts li {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+.inv-sub {
+  font-family: var(--font-display);
+  margin: 16px 0 8px;
+  font-size: 1.15rem;
+}
+.inv-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.slot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+.slot-cell {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f7f9fb;
+  padding: 12px;
+  min-height: 96px;
+}
+.slot-cell.ocupado {
+  background: #fff;
+  border-color: var(--navy);
+}
+.slot-code {
+  margin: 0;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.slot-unit {
+  margin: 6px 0 0;
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+}
+.inv-slot-form {
+  margin-top: 16px;
+  padding: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.conteo-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 0.6fr) 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+.conteo-resultado h3 {
+  font-family: var(--font-display);
+  margin: 14px 0 6px;
+}
+@media (width < 720px) {
+  .conteo-row {
+    grid-template-columns: 1fr;
+  }
+}

@@ -6,7 +6,7 @@
 
 import { v4 as uuidv4 } from 'uuid'
 import { normalizeRol } from './permisos.js'
-import { estadoUnidadToRow, otEventoToRow, otToRow, rowToEstadoUnidad, rowToOt } from './sheetsRepo.js'
+import { UBICACIONES_UNIDAD, estadoUnidadToRow, otEventoToRow, otToRow, rowToEstadoUnidad, rowToOt } from './sheetsRepo.js'
 
 export const TIPOS_OT = Object.freeze([
   'CORRECTIVO',
@@ -142,6 +142,17 @@ export function puedeMarcarBaja(session) {
   const rol = normalizeRol(session?.rol)
   if (rol === 'admin' || rol === 'encargado_yarda') return true
   return Boolean(session?.permisos?.baja)
+}
+
+/** No pisa EN_PATIO / EN_RUTA / … con el texto libre de zonaSlot. */
+function conservarUbicacion(incoming, previo) {
+  const next = String(incoming || '').trim()
+  const prev = String(previo || '').trim()
+  const nextEnum = UBICACIONES_UNIDAD.includes(next.toUpperCase()) ? next.toUpperCase() : ''
+  if (nextEnum) return nextEnum
+  const prevEnum = UBICACIONES_UNIDAD.includes(prev.toUpperCase()) ? prev.toUpperCase() : ''
+  if (next && prevEnum) return prevEnum
+  return next || prev
 }
 
 function emailOf(session) {
@@ -328,12 +339,15 @@ export function createOtService(repo, options = {}) {
       yarda: meta.yarda || previo?.yarda || '',
       zona: meta.zona || previo?.zona || '',
       slot: meta.slot || previo?.slot || '',
-      ubicacion: meta.ubicacion || previo?.ubicacion || '',
+      ubicacion: conservarUbicacion(meta.ubicacion, previo?.ubicacion),
       estatusOperativo: nuevo,
       estatusCarga: meta.estatusCarga || previo?.estatusCarga || '',
       desde,
       otAbiertaId: otId == null ? previo?.otAbiertaId || '' : otId,
       actualizadoEn: ahora,
+      clienteCarga: meta.clienteCarga || previo?.clienteCarga || '',
+      folioCarga: meta.folioCarga || previo?.folioCarga || '',
+      enganchadaA: meta.enganchadaA || previo?.enganchadaA || '',
     }
     const guardado = await guardarEstado(estado)
     if (anterior !== nuevo) {

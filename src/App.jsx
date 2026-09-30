@@ -27,6 +27,7 @@ import {
   mapServerUserToAuthProfile,
   sessionLikelyAvailable,
   tryCreateMovimientoViaServer,
+  ubicarTrasMovimiento,
   uploadMediaServer,
   validarSalidaAntesDeGuardar,
 } from "./lib/serverApi.js";
@@ -43,6 +44,8 @@ import {
   puedeVerPagina,
 } from "./lib/patioSync.js";
 import Mantenimiento, { EstatusOperativoChip, MantenimientoBoard, puedeAutorizarSalidaCliente } from "./components/Mantenimiento.jsx";
+import Inventario from "./components/Inventario.jsx";
+import { useZonaSlotFields } from "./components/ZonaSlotFields.jsx";
 import { countPending, enqueueMovimiento, flushOutbox } from "./lib/outbox.js";
 
 function _Component({
@@ -831,6 +834,10 @@ var Re = [{
   id: `mantenimiento`,
   label: `Mantenimiento`,
   short: `Taller`
+}, {
+  id: `inventario`,
+  label: `Inventario`,
+  short: `Inv`
 }, {
   id: `historial`,
   label: `Historial`,
@@ -1704,6 +1711,7 @@ function _Component4({
   let [gt, F] = (0, l.useState)(null);
   let [_t, vt] = (0, l.useState)(null);
   let [yt, bt] = (0, l.useState)(false);
+  let zonaSlotCap = useZonaSlotFields();
   let xt = h || y;
   let St = p && xt;
   let Ct = h && x === `full`;
@@ -2064,11 +2072,14 @@ function _Component4({
       cumplimiento: ut,
       llevaRefrigerada: C || undefined,
       refrigerada: C ? te : undefined,
+      zona: zonaSlotCap.zona.trim() || undefined,
+      slot: zonaSlotCap.slot.trim() || undefined,
       creadoEn: new Date().toISOString()
     };
     try {
-      await o(ie);
+      let avisoInventario = await o(ie);
       vt(e === `entrada` ? `Entrada registrada: ${E.placa}` : `Salida registrada: ${E.placa}`);
+      if (avisoInventario) F(avisoInventario);
       re(``);
       k(true);
       le(``);
@@ -2428,7 +2439,7 @@ function _Component4({
           });
         }} /></Component412><Component414 className={`fieldset`}><Component413>{`Cumplimiento México (gate)`}</Component413><Ge value={ut} onChange={pt} /></Component414><Component417 className={`fieldset`}><Component415>{`Firma digital`}</Component415><_Component3 value={rt} onChange={st} signerName={ct} onSignerNameChange={lt} /><Component416 className={`hint`}>{`Al guardar se captura GPS del dispositivo (si el cel lo permite).`}</Component416></Component417><Component420 className={`fieldset`}><Component418>{`Observaciones`}</Component418><Component419 className={`input textarea`} rows={3} value={Xe} onChange={e => Qe(e.target.value)} placeholder={`Daños, incidencias, NOM-068 / pesos…`} /><div className={`hero-actions`} style={{
           marginTop: 10
-        }}><button type={`button`} className={`btn soft`} disabled={grokObsBusy} onClick={() => void redactarConGrok()}>{grokObsBusy ? `Redactando…` : `Redactar con Grok`}</button><span className={`hint`}>{`Solo sugiere texto. Tú revisas y guardas.`}</span></div></Component420>{gt && <Component421 className={`banner error`}>{gt}</Component421>}{_t && <Component422 className={`banner success`}>{_t}</Component422>}<Component423 type={`submit`} className={`btn primary wide`} disabled={yt}>{yt ? `Guardando…` : e === `entrada` ? `Guardar entrada` : `Guardar salida`}</Component423></Component424>;
+        }}><button type={`button`} className={`btn soft`} disabled={grokObsBusy} onClick={() => void redactarConGrok()}>{grokObsBusy ? `Redactando…` : `Redactar con Grok`}</button><span className={`hint`}>{`Solo sugiere texto. Tú revisas y guardas.`}</span></div></Component420>{gt && <Component421 className={`banner error`}>{gt}</Component421>}{_t && <Component422 className={`banner success`}>{_t}</Component422>}{zonaSlotCap.node}<Component423 type={`submit`} className={`btn primary wide`} disabled={yt}>{yt ? `Guardando…` : e === `entrada` ? `Guardar entrada` : `Guardar salida`}</Component423></Component424>;
 }
 var F = [{
   id: `espera-carga`,
@@ -2560,6 +2571,7 @@ function _Component5({
   let [M, we] = (0, l.useState)(false);
   let [N, Te] = (0, l.useState)(false);
   let [otPrompt, setOtPrompt] = (0, l.useState)(null);
+  let zonaSlotCap = useZonaSlotFields();
   let Ee = d ? `camion` : h && !p && !_ ? `dolly` : p || _ ? `caja` : `camion`;
   let ke = (0, l.useMemo)(() => y.trim() ? De({
     equipos: e
@@ -2648,7 +2660,9 @@ function _Component5({
         motivoParo: C,
         motivoParoOtro: C === `otro` && te.trim() || undefined,
         paradoDesde: s,
-        zonaSlot: ue.trim() || undefined,
+        zonaSlot: [zonaSlotCap.zona, zonaSlotCap.slot].filter(Boolean).join(` `) || ue.trim() || undefined,
+        zona: zonaSlotCap.zona.trim() || undefined,
+        slot: zonaSlotCap.slot.trim() || undefined,
         llevaRefrigerada: _ || undefined,
         kilometros: null,
         dieselPorcentaje: null,
@@ -2659,7 +2673,8 @@ function _Component5({
       };
       A(o);
       se(c);
-      await i(l);
+      let avisoInventario = await i(l);
+      if (avisoInventario) xe(avisoInventario);
       let u = _t(C, te);
       let yardaNombre = _e.find(e => e.id === o)?.nombre ?? o;
       let pideOt = C === `taller` || C === `thermo`;
@@ -2790,7 +2805,7 @@ function _Component5({
         marginTop: 12
       }}><Component476>{`Describe el motivo *`}</Component476><Component477 className={`input`} value={te} onChange={e => T(e.target.value)} placeholder={`Motivo`} required={true} /></Component478>}</Component479><Component501 className={`fieldset`}><Component480>{`Detalle`}</Component480><Component497 className={`grid-2`}><Component483 className={`field`}><Component481>{`Desde cuándo está ahí *`}</Component481><Component482 className={`input`} type={`date`} value={O} onChange={e => re(e.target.value)} required={true} /></Component483><Component487 className={`field`}><Component484 className={`label`}>{`Condición *`}</Component484><Component486 className={`seg wrap`} style={{
             marginTop: 6
-          }}>{[`buena`, `regular`, `mala`].map(e => <Component485 type={`button`} className={ae === e ? `seg-btn ${e === `buena` ? `on-ok` : e === `regular` ? `on-warn` : `on-bad`}` : `seg-btn`} onClick={() => k(e)} key={e}>{e === `buena` ? `Buena` : e === `regular` ? `Regular` : `Mala`}</Component485>)}</Component486></Component487><Component490 className={`field`}><Component488>{`Quién inventaría (caseta) *`}</Component488><Component489 className={`input`} value={ce} onChange={e => le(e.target.value)} placeholder={`Nombre`} required={true} /></Component490><Component493 className={`field`}><Component491>{`Zona o slot`}</Component491><Component492 className={`input`} value={ue} onChange={e => de(e.target.value)} placeholder={`Andén 2, fondo norte…`} /></Component493><Component496 className={`field`}><Component494>{`Sello actual`}</Component494><Component495 className={`input`} value={fe} onChange={e => pe(e.target.value.toUpperCase())} placeholder={`Opcional`} /></Component496></Component497><Component500 className={`field`} style={{
+          }}>{[`buena`, `regular`, `mala`].map(e => <Component485 type={`button`} className={ae === e ? `seg-btn ${e === `buena` ? `on-ok` : e === `regular` ? `on-warn` : `on-bad`}` : `seg-btn`} onClick={() => k(e)} key={e}>{e === `buena` ? `Buena` : e === `regular` ? `Regular` : `Mala`}</Component485>)}</Component486></Component487><Component490 className={`field`}><Component488>{`Quién inventaría (caseta) *`}</Component488><Component489 className={`input`} value={ce} onChange={e => le(e.target.value)} placeholder={`Nombre`} required={true} /></Component490>{zonaSlotCap.node}<Component493 className={`field`}><Component491>{`Zona o slot`}</Component491><Component492 className={`input`} value={ue} onChange={e => de(e.target.value)} placeholder={`Andén 2, fondo norte…`} /></Component493><Component496 className={`field`}><Component494>{`Sello actual`}</Component494><Component495 className={`input`} value={fe} onChange={e => pe(e.target.value.toUpperCase())} placeholder={`Opcional`} /></Component496></Component497><Component500 className={`field`} style={{
         marginTop: 12
       }}><Component498>{`Observación`}</Component498><Component499 className={`input textarea`} rows={2} value={me} onChange={e => he(e.target.value)} placeholder={`Opcional`} /></Component500></Component501><Component503 className={`fieldset`}><Component502>{`Fotos (7)`}</Component502><_Component slots={vt} captured={ve} onChange={ye} onPlateOcr={(slotId, placa) => {
           applyPlacaOcrToForm(slotId, placa, {
@@ -3825,6 +3840,12 @@ async function flushServerOutbox(cfg, onSaved) {
       throw Error(`El servidor no confirmó el movimiento.`);
     }
     onSaved?.(data.movimiento);
+    await ubicarTrasMovimiento({
+      ...mov,
+      id: data.movimiento.id || mov.id,
+      equipoId: data.movimiento.equipoId || mov.equipoId,
+      placa: data.movimiento.placa || mov.placa
+    });
     return data.movimiento;
   });
 }
@@ -4238,6 +4259,7 @@ function Sn() {
         ...state,
         movimientos: state.movimientos.map(m => m.id === saved.id ? saved : m)
       }));
+      let avisoInventario = null;
       let rId = t.refrigerada?.refrigeracionId;
       let hor = t.refrigerada?.horometroThermo;
       if (n === `workspace` && rId && hor != null) {
@@ -4256,6 +4278,15 @@ function Sn() {
           }
         }
       }
+      if (writeMode === `server`) {
+        avisoInventario = await ubicarTrasMovimiento({
+          ...t,
+          id: saved?.id || t.id,
+          equipoId: saved?.equipoId || t.equipoId,
+          placa: saved?.placa || t.placa
+        });
+      }
+      return avisoInventario;
     } catch (err) {
       let message = err instanceof Error ? err.message : `Error al registrar movimiento`;
       // 400/401/403/409 ya los decidió el servidor: no encolar (un reintento no debe saltarse la regla por Sheets).
@@ -5421,6 +5452,7 @@ var Hn = {
   entrada: `Entrada`,
   salida: `Salida`,
   mantenimiento: `Mantenimiento`,
+  inventario: `Inventario`,
   parado: `Equipo parado`,
   baja: `Baja`,
   historial: `Historial`,
@@ -5487,6 +5519,7 @@ function SalidaCortaForm({
   let [overrideMotivo, setOverrideMotivo] = (0, l.useState)(``);
   let [trasladoExterno, setTrasladoExterno] = (0, l.useState)(false);
   let [pideAutorizacion, setPideAutorizacion] = (0, l.useState)(false);
+  let zonaSlotCap = useZonaSlotFields();
   let enPatio = (0, l.useMemo)(() => equipos.map(eq => {
     let mov = findMovAbierto(movimientos, eq.id);
     if (!mov || mov.tipo !== `entrada`) {
@@ -5615,7 +5648,7 @@ function SalidaCortaForm({
       }));
       let entrada = sel.entrada;
       let equipo = sel.equipo;
-      await onSubmit({
+      let avisoInventario = await onSubmit({
         id: ee(),
         tipo: `salida`,
         yardaId,
@@ -5655,12 +5688,15 @@ function SalidaCortaForm({
         },
         overrideMotivo: overrideMotivo.trim() || undefined,
         trasladoTallerExterno: trasladoExterno || undefined,
+        zona: zonaSlotCap.zona.trim() || undefined,
+        slot: zonaSlotCap.slot.trim() || undefined,
         llevaRefrigerada: entrada.llevaRefrigerada,
         refrigerada: entrada.refrigerada,
         creadoEn: new Date().toISOString()
       });
       A(yardaId);
       se(empresaId);
+      if (avisoInventario) setError(avisoInventario);
       setOkMsg(`Salida registrada: ${equipo.placa} · ciclo cerrado`);
       setTimeout(() => onDone(), 1200);
     } catch (err) {
@@ -5688,7 +5724,7 @@ function SalidaCortaForm({
         marginTop: 10
       }}>{`Merma de diésel: ${dieselDelta.toFixed(0)}% vs entrada (${sel.entrada.dieselPorcentaje}% → ${dieselPct}%).`}</p>}</fieldset>}<fieldset className={`fieldset`}><legend>{`Condición al salir`}</legend><div className={`seg big`}>{[`buena`, `regular`, `mala`].map(c => <button type={`button`} className={condicion === c ? `seg-btn ${c === `buena` ? `on-ok` : c === `regular` ? `on-warn` : `on-bad`}` : `seg-btn`} onClick={() => setCondicion(c)} key={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</button>)}</div></fieldset><fieldset className={`fieldset`}><legend>{`Fotos de salida`}</legend><_Component slots={SALIDA_CORTA_SLOTS} captured={fotos} onChange={setFotos} /></fieldset><fieldset className={`fieldset`}><legend>{`Firma digital`}</legend><_Component3 value={firma} onChange={setFirma} signerName={firmaNombre} onSignerNameChange={setFirmaNombre} /><p className={`hint`}>{`Al guardar se captura GPS (si el cel lo permite).`}</p></fieldset><fieldset className={`fieldset`}><legend>{`Observaciones`}</legend><textarea className={`input textarea`} rows={2} value={obs} onChange={e => setObs(e.target.value)} placeholder={`Daños nuevos, discrepancia de sello, incidencias…`} /></fieldset>{gateMsg && <p className={`banner ${gateLevel === `error` ? `error` : `warn`}`}>{gateMsg}</p>}{gateLevel === `error` && <fieldset className={`fieldset`}><legend>{`Excepción de salida`}</legend><label className={`check-inline`}><input type={`checkbox`} checked={trasladoExterno} onChange={e => setTrasladoExterno(e.target.checked)} />{`Traslado a taller externo`}</label>{(pideAutorizacion || puedeAutorizarSalidaCliente(user)) && <label className={`field`} style={{
         marginTop: 10
-      }}><span>{`Motivo de autorización (encargado o admin) *`}</span><textarea className={`input textarea`} rows={2} value={overrideMotivo} onChange={e => setOverrideMotivo(e.target.value)} placeholder={`Escríbelo. Queda en la bitácora de la OT.`} /></label>}</fieldset>}{error && <p className={`banner error`}>{error}</p>}{okMsg && <p className={`banner success`}>{okMsg}</p>}<button type={`submit`} className={`btn primary wide`} disabled={busy}>{busy ? `Guardando…` : `Guardar salida y cerrar ciclo`}</button></form>;
+      }}><span>{`Motivo de autorización (encargado o admin) *`}</span><textarea className={`input textarea`} rows={2} value={overrideMotivo} onChange={e => setOverrideMotivo(e.target.value)} placeholder={`Escríbelo. Queda en la bitácora de la OT.`} /></label>}</fieldset>}{zonaSlotCap.node}{error && <p className={`banner error`}>{error}</p>}{okMsg && <p className={`banner success`}>{okMsg}</p>}<button type={`submit`} className={`btn primary wide`} disabled={busy}>{busy ? `Guardando…` : `Guardar salida y cerrar ciclo`}</button></form>;
 }
 function Un() {
   let [e, t] = (0, l.useState)(`dashboard`);
@@ -5752,7 +5788,7 @@ function Un() {
       await guardSubmit(`entrada`, e);
     }} onDone={() => u(`dashboard`)} key={`entrada-${i}`} />}{e === `salida` && puedeMovimiento(c.user, `salida`) && <SalidaCortaForm initialPlaca={o} equipos={c.state.equipos} movimientos={c.state.movimientos} user={c.user} onSubmit={async e => {
       await guardSubmit(`salida`, e);
-    }} onDone={() => u(`dashboard`)} key={`salida-${i}`} />}{e === `mantenimiento` && <Mantenimiento user={c.user} draft={otDraft} key={`mant-${i}`} />}{e === `parado` && puedeMovimiento(c.user, `parado`) && <_Component5 initialPlaca={o} equipos={c.state.equipos} movimientos={c.state.movimientos} onSaveEquipo={e => void c.guardarEquipo(e)} onPromptOt={draft => {
+    }} onDone={() => u(`dashboard`)} key={`salida-${i}`} />}{e === `mantenimiento` && <Mantenimiento user={c.user} draft={otDraft} key={`mant-${i}`} />}{e === `inventario` && <Inventario user={c.user} key={`inv-${i}`} />}{e === `parado` && puedeMovimiento(c.user, `parado`) && <_Component5 initialPlaca={o} equipos={c.state.equipos} movimientos={c.state.movimientos} onSaveEquipo={e => void c.guardarEquipo(e)} onPromptOt={draft => {
       setOtDraft(draft);
       u(`mantenimiento`);
     }} onSubmit={async e => {
