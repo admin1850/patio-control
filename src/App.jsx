@@ -14,12 +14,14 @@ import {
 import {
   ApiError,
   createMovimientoServer,
+  fetchEstadoUnidadesOpcional,
   fetchMe,
   fetchTableroOpcional,
   getDispositivoId,
   isBackendUnavailable,
-  isNetworkFailure,
   jwtExpiresAtMs,
+  listEstadoUnidadesServer,
+  listMovimientosServer,
   loginWithGoogleIdToken,
   logout as logoutServer,
   mapServerUserToAuthProfile,
@@ -28,6 +30,18 @@ import {
   uploadMediaServer,
   validarSalidaAntesDeGuardar,
 } from "./lib/serverApi.js";
+import {
+  LOCAL_READONLY_BANNER,
+  activeServerUser,
+  assertWritable,
+  hasServerSession,
+  indexEstadosUnidad,
+  isLocalReadOnly,
+  loadMovimientosRefresh,
+  localReadOnlyError,
+  movimientoWriteMode,
+  puedeVerPagina,
+} from "./lib/patioSync.js";
 import Mantenimiento, { EstatusOperativoChip, MantenimientoBoard, puedeAutorizarSalidaCliente } from "./components/Mantenimiento.jsx";
 import { countPending, enqueueMovimiento, flushOutbox } from "./lib/outbox.js";
 
@@ -1980,7 +1994,7 @@ function _Component4({
           tipo: I,
           numeroEconomico: me.trim() || E.numeroEconomico
         };
-        a(E);
+        void Promise.resolve(a(E)).catch(() => {});
       }
     } else {
       E = {
@@ -1990,7 +2004,7 @@ function _Component4({
         numeroEconomico: me.trim() || O.trim().toUpperCase(),
         creadoEn: new Date().toISOString()
       };
-      a(E);
+      void Promise.resolve(a(E)).catch(() => {});
     }
     let D = Tt.filter(e => tt[e.id]).map(e => ({
       slotId: e.id,
@@ -2596,7 +2610,7 @@ function _Component5({
             tipo: Ee,
             numeroEconomico: x.trim() || t.numeroEconomico
           };
-          r(t);
+          void Promise.resolve(r(t)).catch(() => {});
         }
       } else {
         t = {
@@ -2606,7 +2620,7 @@ function _Component5({
           numeroEconomico: x.trim() || normalizePlacaMX(y),
           creadoEn: new Date().toISOString()
         };
-        r(t);
+        void Promise.resolve(r(t)).catch(() => {});
       }
       let n = vt.filter(e => ve[e.id]).map(e => ({
         slotId: e.id,
@@ -3108,13 +3122,7 @@ function parsePermisosFromRow(e, rol) {
   };
 }
 function puedeMovimiento(user, key) {
-  if (!user?.permisos) {
-    return true;
-  }
-  if (key === `dashboard` || key === `mantenimiento`) {
-    return true;
-  }
-  return !!user.permisos[key];
+  return puedeVerPagina(user, key);
 }
 function parseAutorizadoRow(e) {
   if (!e?.[0]) {
@@ -3770,25 +3778,29 @@ async function subirFotosMovimiento(e, t) {
     firmaUrl: r
   };
 }
-async function bn(e, t) {
+async function bn(e, t, opts = {}) {
   let prepared = await subirFotosMovimiento(e, t);
-  if (sessionLikelyAvailable()) {
+  // Con sesión de servidor no se hace append a Sheets desde el navegador.
+  let sesionServidor = opts.sesionServidor != null ? Boolean(opts.sesionServidor) : sessionLikelyAvailable();
+  if (sesionServidor) {
     try {
       let data = await createMovimientoServer(prepared);
       if (data?.movimiento?.id) {
         return data.movimiento;
       }
-    } catch (err) {
+      let err = Error(`El servidor no confirmó el movimiento.`);
       err.preparedMovimiento = prepared;
-      if (!isBackendUnavailable(err) || isNetworkFailure(err)) {
-        throw err;
+      throw err;
+    } catch (err) {
+      if (err && typeof err === `object` && !err.preparedMovimiento) {
+        err.preparedMovimiento = prepared;
       }
+      throw err;
     }
-  } else {
-    let viaServer = await tryCreateMovimientoViaServer(prepared);
-    if (viaServer) {
-      return viaServer;
-    }
+  }
+  let viaServer = await tryCreateMovimientoViaServer(prepared);
+  if (viaServer) {
+    return viaServer;
   }
   try {
     await an(e, prepared);
@@ -3837,8 +3849,12 @@ async function xn(e, t) {
 function Sn() {
   let [e, t] = (0, l.useState)(() => Dt());
   let [n, r] = (0, l.useState)(() => jt() && Dt().clientId ? `workspace` : `local`);
-  let [i, a] = (0, l.useState)(null);
+  let [i, a] = (0, l.useState)(() => {
+    let cached = loadCachedAuthProfile();
+    return cached?.sesionServidor ? cached : null;
+  });
   let [o, s] = (0, l.useState)(() => Ce());
+  let [estadosUnidad, setEstadosUnidad] = (0, l.useState)(null);
   let [c, u] = (0, l.useState)(false);
   let [d, f] = (0, l.useState)(null);
   let [p, m] = (0, l.useState)(() => navigator.onLine);
@@ -3867,26 +3883,63 @@ function Sn() {
       window.removeEventListener(`offline`, t);
     };
   }, []);
-  let _ = (0, l.useCallback)(async (t = e) => {
+  let _ = (0, l.useCallback)(async (cfg = e, opts = {}) => {
+    let activeUser = activeServerUser(opts?.user || i, loadCachedAuthProfile());
     u(true);
     f(null);
     try {
-      let [e, n, i] = await Promise.all([$t(t), ln(t), en(t)]);
-      s({
-        equipos: e,
-        refrigeraciones: n,
-        movimientos: i
-      });
-      r(`workspace`);
-    } catch (e) {
-      f(e instanceof Error ? e.message : `Error al sincronizar`);
-      throw e;
+      if (hasServerSession(activeUser)) {
+        let loaded = await loadMovimientosRefresh({
+          user: activeUser,
+          listServer: async () => {
+            let data = await listMovimientosServer(2000);
+            return data?.movimientos;
+          },
+          // Si el API no está, Sheets sigue siendo el respaldo de la lista.
+          listSheets: () => en(cfg)
+        });
+        let equipos = null;
+        let refrigeraciones = null;
+        try {
+          // Equipos y refrigeración siguen en Sheets (token del navegador).
+          let pair = await Promise.all([$t(cfg), ln(cfg)]);
+          equipos = pair[0];
+          refrigeraciones = pair[1];
+        } catch {
+          // Sin token OAuth se conserva la caché local. Los movimientos ya vienen del API.
+        }
+        s(prev => ({
+          equipos: equipos ?? prev.equipos,
+          refrigeraciones: refrigeraciones ?? prev.refrigeraciones,
+          movimientos: Array.isArray(loaded.movimientos) ? loaded.movimientos.map(Se) : prev.movimientos
+        }));
+        try {
+          let data = await listEstadoUnidadesServer();
+          if (Array.isArray(data?.estados)) {
+            setEstadosUnidad(data.estados);
+          }
+        } catch {
+          // Los chips también pueden leer el tablero de OT.
+        }
+      } else {
+        let [equipos, refrigeraciones, movimientos] = await Promise.all([$t(cfg), ln(cfg), en(cfg)]);
+        s({
+          equipos,
+          refrigeraciones,
+          movimientos
+        });
+        r(`workspace`);
+      }
+    } catch (err) {
+      f(err instanceof Error ? err.message : `Error al sincronizar`);
+      throw err;
     } finally {
       u(false);
     }
-  }, [e]);
+  }, [e, i]);
   let v = (0, l.useCallback)(async () => {
-    if (!(n === `workspace` && navigator.onLine && e.clientId)) {
+    let serverSession = hasServerSession(activeServerUser(i, loadCachedAuthProfile()));
+    if (!(navigator.onLine && (serverSession || n === `workspace` && e.clientId))) {
       return;
     }
     let idb = 0;
@@ -3921,12 +3974,12 @@ function Sn() {
     } finally {
       u(false);
     }
-  }, [n, e, refreshOb]);
+  }, [n, e, i, refreshOb]);
   (0, l.useEffect)(() => {
-    if (p && n === `workspace`) {
+    if (p && (n === `workspace` || hasServerSession(i) || sessionLikelyAvailable())) {
       v();
     }
-  }, [p, n, v]);
+  }, [p, n, i, v]);
   let y = (0, l.useCallback)(async (n, opts = {}) => {
     let i = n ?? e;
     let clave = String(opts.clave ?? ``);
@@ -3973,7 +4026,9 @@ function Sn() {
       if (authorized.ubicacion && authorized.ubicacion !== `todas` && _e.some(y => y.id === authorized.ubicacion)) {
         A(authorized.ubicacion);
       }
-      await _(i);
+      await _(i, {
+        user: authorized
+      });
       r(`workspace`);
       let {
         remaining: rem
@@ -4026,8 +4081,33 @@ function Sn() {
         picture: mapped.picture || cached.picture,
         autorizadoEn: cached.autorizadoEn || mapped.autorizadoEn
       } : mapped;
-      a(prev => prev ?? profile);
+      a(prev => {
+        if (prev?.email && profile.email && prev.email !== profile.email) {
+          return prev;
+        }
+        return {
+          ...prev,
+          ...profile
+        };
+      });
       saveCachedAuthProfile(profile);
+      if (hasServerSession(profile)) {
+        listMovimientosServer(2000).then(data => {
+          if (!alive || !Array.isArray(data?.movimientos)) {
+            return;
+          }
+          s(prev => ({
+            ...prev,
+            movimientos: data.movimientos.map(Se)
+          }));
+        }).catch(() => {});
+        listEstadoUnidadesServer().then(data => {
+          if (!alive || !Array.isArray(data?.estados)) {
+            return;
+          }
+          setEstadosUnidad(data.estados);
+        }).catch(() => {});
+      }
     }).catch(() => {});
     return () => {
       alive = false;
@@ -4038,6 +4118,15 @@ function Sn() {
     t(e);
   }, []);
   let S = (0, l.useCallback)(async t => {
+    try {
+      assertWritable({
+        mode: n,
+        user: activeServerUser(i, loadCachedAuthProfile())
+      });
+    } catch (err) {
+      f(err instanceof Error ? err.message : LOCAL_READONLY_BANNER);
+      throw err;
+    }
     s(e => we(e, t));
     if (n === `workspace` && navigator.onLine) {
       u(true);
@@ -4050,8 +4139,17 @@ function Sn() {
         u(false);
       }
     }
-  }, [n, e, o.equipos]);
+  }, [n, e, o.equipos, i]);
   let C = (0, l.useCallback)(async t => {
+    try {
+      assertWritable({
+        mode: n,
+        user: activeServerUser(i, loadCachedAuthProfile())
+      });
+    } catch (err) {
+      f(err instanceof Error ? err.message : LOCAL_READONLY_BANNER);
+      throw err;
+    }
     s(e => N(e, t));
     if (n === `workspace` && navigator.onLine) {
       u(true);
@@ -4064,8 +4162,17 @@ function Sn() {
         u(false);
       }
     }
-  }, [n, e, o.refrigeraciones]);
+  }, [n, e, o.refrigeraciones, i]);
   let ee = (0, l.useCallback)(async t => {
+    try {
+      assertWritable({
+        mode: n,
+        user: activeServerUser(i, loadCachedAuthProfile())
+      });
+    } catch (err) {
+      f(err instanceof Error ? err.message : LOCAL_READONLY_BANNER);
+      throw err;
+    }
     s(e => Te(e, t));
     if (n === `workspace` && navigator.onLine) {
       u(true);
@@ -4075,12 +4182,22 @@ function Sn() {
         u(false);
       }
     }
-  }, [n, e, o.refrigeraciones]);
+  }, [n, e, o.refrigeraciones, i]);
   let w = (0, l.useCallback)(async t => {
-    if (i?.email && !t.usuarioEmail) {
+    let actor = activeServerUser(i, loadCachedAuthProfile());
+    let writeMode = movimientoWriteMode({
+      mode: n,
+      user: actor
+    });
+    if (writeMode === `deny`) {
+      let err = localReadOnlyError();
+      f(err.message);
+      throw err;
+    }
+    if ((actor?.email || i?.email) && !t.usuarioEmail) {
       t = {
         ...t,
-        usuarioEmail: i.email
+        usuarioEmail: actor?.email || i.email
       };
     }
     s(e => {
@@ -4098,73 +4215,89 @@ function Sn() {
       }
       return n;
     });
-    if (n === `workspace`) {
-      if (!navigator.onLine) {
-        if (sessionLikelyAvailable()) {
-          try {
-            await enqueueMovimiento(t, `Sin conexión`);
-            await refreshOb();
-            return;
-          } catch {
-            // IndexedDB no disponible: la cola localStorage sigue cubriendo la caseta.
-          }
+    if (!navigator.onLine) {
+      if (writeMode === `server`) {
+        try {
+          await enqueueMovimiento(t, `Sin conexión`);
+          await refreshOb();
+          return;
+        } catch {
+          // IndexedDB no disponible: la cola localStorage sigue cubriendo la caseta.
         }
-        g(_n(t, `Sin conexión`));
-        return;
       }
-      u(true);
-      f(null);
-      try {
-        let n = await bn(e, t);
-        s(e => ({
-          ...e,
-          movimientos: e.movimientos.map(e => e.id === n.id ? n : e)
-        }));
-        let r = t.refrigerada?.refrigeracionId;
-        let i = t.refrigerada?.horometroThermo;
-        if (r && i != null) {
-          let t = o.refrigeraciones.find(e => e.id === r);
-          if (t) {
+      g(_n(t, `Sin conexión`));
+      return;
+    }
+    u(true);
+    f(null);
+    try {
+      let saved = await bn(e, t, {
+        sesionServidor: writeMode === `server`
+      });
+      s(state => ({
+        ...state,
+        movimientos: state.movimientos.map(m => m.id === saved.id ? saved : m)
+      }));
+      let rId = t.refrigerada?.refrigeracionId;
+      let hor = t.refrigerada?.horometroThermo;
+      if (n === `workspace` && rId && hor != null) {
+        let refri = o.refrigeraciones.find(item => item.id === rId);
+        if (refri) {
+          try {
             await fn(e, {
-              ...t,
-              horometro: i
+              ...refri,
+              horometro: hor
             }, o.refrigeraciones);
+          } catch (err) {
+            // Con sesión de servidor el movimiento ya quedó en el API. El horómetro de Sheets no debe reencolarlo.
+            if (writeMode !== `server`) {
+              throw err;
+            }
           }
         }
-      } catch (e) {
-        let n = e instanceof Error ? e.message : `Error al registrar movimiento`;
-        // 400/401/403/409 ya los decidió el servidor: no encolar (un reintento no debe saltarse la regla por Sheets).
-        if (e instanceof ApiError && !isBackendUnavailable(e)) {
-          s(state => {
-            let next = {
-              ...state,
-              movimientos: state.movimientos.filter(m => m.id !== t.id)
-            };
-            M(next);
-            return next;
-          });
-          f(n);
-          throw e;
-        }
-        let queued = e.preparedMovimiento || t;
-        if (sessionLikelyAvailable() && isNetworkFailure(e)) {
-          try {
-            await enqueueMovimiento(queued, n);
-            await refreshOb();
-            f(`${n} · quedó en cola offline`);
-            return;
-          } catch {
-            // Si IndexedDB falla, no perder el registro: cola legada.
-          }
-        }
-        f(`${n} · quedó en cola offline`);
-        g(_n(queued, n));
-      } finally {
-        u(false);
       }
+    } catch (err) {
+      let message = err instanceof Error ? err.message : `Error al registrar movimiento`;
+      // 400/401/403/409 ya los decidió el servidor: no encolar (un reintento no debe saltarse la regla por Sheets).
+      if (err instanceof ApiError && !isBackendUnavailable(err)) {
+        s(state => {
+          let next = {
+            ...state,
+            movimientos: state.movimientos.filter(m => m.id !== t.id)
+          };
+          M(next);
+          return next;
+        });
+        f(message);
+        throw err;
+      }
+      let queued = err.preparedMovimiento || t;
+      if (writeMode === `server`) {
+        try {
+          await enqueueMovimiento(queued, message);
+          await refreshOb();
+          f(`${message} · quedó en cola offline`);
+          return;
+        } catch {
+          // Si IndexedDB falla, no perder el registro: cola legada.
+        }
+      }
+      f(`${message} · quedó en cola offline`);
+      g(_n(queued, message));
+    } finally {
+      u(false);
     }
   }, [n, e, o.refrigeraciones, i, refreshOb]);
   let te = (0, l.useCallback)(async t => {
+    try {
+      assertWritable({
+        mode: n,
+        user: activeServerUser(i, loadCachedAuthProfile())
+      });
+    } catch (err) {
+      f(err instanceof Error ? err.message : LOCAL_READONLY_BANNER);
+      throw err;
+    }
     s(e => {
       let n = {
         ...e,
@@ -4181,21 +4314,35 @@ function Sn() {
         u(false);
       }
     }
-  }, [n, e, o.equipos]);
+  }, [n, e, o.equipos, i]);
   let T = (0, l.useCallback)(() => {
-    let e = {
+    try {
+      assertWritable({
+        mode: n,
+        user: activeServerUser(i, loadCachedAuthProfile())
+      });
+    } catch (err) {
+      f(err instanceof Error ? err.message : LOCAL_READONLY_BANNER);
+      return;
+    }
+    let next = {
       equipos: [],
       refrigeraciones: [],
       movimientos: []
     };
-    M(e);
-    s(e);
-  }, []);
+    M(next);
+    s(next);
+  }, [n, i]);
   return {
     state: o,
     config: e,
     mode: n,
     user: i,
+    estadosUnidad,
+    localReadOnly: isLocalReadOnly({
+      mode: n,
+      user: activeServerUser(i, loadCachedAuthProfile())
+    }),
     syncing: c,
     syncError: d,
     online: p,
@@ -4463,7 +4610,8 @@ function An({
   mode: mode = `local`,
   onCloud: onCloud,
   onMantenimiento,
-  user: authUser = null
+  user: authUser = null,
+  estadosUnidad = null
 }) {
   let [s, c] = (0, l.useState)(`todas`);
   let [u, d] = (0, l.useState)(`todas`);
@@ -4480,20 +4628,25 @@ function An({
   let [estadoMap, setEstadoMap] = (0, l.useState)({});
   (0, l.useEffect)(() => {
     let cancel = false;
-    fetchTableroOpcional().then(data => {
-      if (cancel || !data) return;
-      let map = {};
-      for (let est of data.estados || data.tablero?.estados || []) {
-        if (!est?.unidadId) continue;
-        map[est.unidadId] = est;
-        map[String(est.unidadId).toUpperCase()] = est;
+    async function load() {
+      let list = Array.isArray(estadosUnidad) ? estadosUnidad : null;
+      if (!list) {
+        list = await fetchEstadoUnidadesOpcional();
       }
-      setEstadoMap(map);
-    }).catch(() => {});
+      if (!list) {
+        let data = await fetchTableroOpcional();
+        list = data?.estados || data?.tablero?.estados || [];
+      }
+      if (cancel) {
+        return;
+      }
+      setEstadoMap(indexEstadosUnidad(list));
+    }
+    load().catch(() => {});
     return () => {
       cancel = true;
     };
-  }, []);
+  }, [estadosUnidad]);
   function S(e) {
     c(e);
     if (e !== `todas`) {
@@ -4580,11 +4733,16 @@ function An({
   const Component579 = `ul`;
   const Component580 = `section`;
   const Component581 = `div`;
-  return <Component581 className={`page`}>{mode === `workspace` && authUser ? <div className={`banner success`} style={{
+  let soloLectura = isLocalReadOnly({
+    mode,
+    user: authUser
+  });
+  let identificado = Boolean(authUser) && (mode === `workspace` || hasServerSession(authUser));
+  return <Component581 className={`page`}>{identificado ? <div className={`banner success`} style={{
       marginBottom: 12
-    }}><strong>{authUser.nombreKardex || authUser.name}</strong>{` · `}{rolLabel(authUser.rol)}{` · `}{ubicacionLabel(authUser.ubicacion)}{authUser.whatsapp ? ` · WA ${authUser.whatsapp}` : ``}{` · `}{authUser.email}</div> : mode !== `workspace` ? <div className={`banner warn`} style={{
+    }}><strong>{authUser.nombreKardex || authUser.name}</strong>{` · `}{rolLabel(authUser.rol)}{` · `}{ubicacionLabel(authUser.ubicacion)}{authUser.whatsapp ? ` · WA ${authUser.whatsapp}` : ``}{` · `}{authUser.email}</div> : soloLectura ? <div className={`banner warn`} style={{
       marginBottom: 12
-    }}><strong>{`Modo local`}</strong>{` · Solo personal del kardex Autorizados puede conectar Cloud. `}{onCloud ? <button type={`button`} className={`text-btn`} onClick={onCloud}>{`Conectar Cloud ahora`}</button> : `Ve a Cloud y conecta Google.`}</div> : null}<Component521 className={`hero-ops`}><Component511><Component508 className={`eyebrow`}>{`Gate · 3 yardas · API / Carbal-Pia`}</Component508><Component509>{`Control de accesos/salidas en los patios de trabajo`}</Component509><Component510 className={`lede`}>{`Chihuahua, Calera y Calpulalpan · ~25 viajes/día por sentido. Fotos guiadas, sello, firma y GPS.`}</Component510></Component511><Component512 className={`hero-prompt`}>{`Selecciona el tipo de movimiento o registro que necesitas hacer:`}</Component512><Component518 className={`hero-actions`}>{puedeMovimiento(authUser, `entrada`) && <Component513 type={`button`} className={`btn ghost`} onClick={() => t()}>{`Nueva entrada`}</Component513>}{puedeMovimiento(authUser, `salida`) && <Component514 type={`button`} className={`btn ghost`} onClick={() => n()}>{`Registrar salida`}</Component514>}{puedeMovimiento(authUser, `parado`) && <Component516 type={`button`} className={`btn ghost`} onClick={() => r()}>{`Equipo parado`}<Component515 className={`btn-sub`}>{`Inventariar`}</Component515></Component516>}{o && puedeMovimiento(authUser, `kpis`) && <Component517 type={`button`} className={`btn ghost`} onClick={o}>{`Ver KPIs`}</Component517>}</Component518><Component520 className={`hero-hint`}><Component519>{`Equipo parado`}</Component519>{` = unidad que ya está en yarda sin viaje de entrada ni salida (vacío en pool, taller, retenida, drop sin ciclo…). No es un arribo: es un conteo.`}</Component520></Component521><Component526 className={`fieldset`}><Component522>{`Empresa`}</Component522><Component525 className={`seg big wrap`}><Component523 type={`button`} className={u === `todas` ? `seg-btn on-ok` : `seg-btn`} onClick={() => C(`todas`)}>{`Todas`}</Component523>{ie.map(e => <Component524 type={`button`} className={u === e.id ? `seg-btn on-ok` : `seg-btn`} onClick={() => C(e.id)} key={e.id}>{e.nombre}</Component524>)}</Component525></Component526><Component531 className={`fieldset`}><Component527>{`Yarda`}</Component527><Component530 className={`seg big wrap`}><Component528 type={`button`} className={s === `todas` ? `seg-btn on-ok` : `seg-btn`} onClick={() => S(`todas`)}>{`Todas`}</Component528>{_e.map(e => <Component529 type={`button`} className={s === e.id ? `seg-btn on-ok` : `seg-btn`} onClick={() => S(e.id)} key={e.id}>{e.nombre}</Component529>)}</Component530></Component531><Component541 className={`stats stats-patio`}><Component534 className={`stat`}><Component532 className={`stat-label`}>{`En patio`}</Component532><Component533 className={`stat-value`}>{f.length}</Component533></Component534><Component537 className={`stat`}><Component535 className={`stat-label`}>{`En ciclo`}</Component535><Component536 className={`stat-value`}>{p.length}</Component536></Component537><Component540 className={`stat`}><Component538 className={`stat-label`}>{`Parados`}</Component538><Component539 className={`stat-value`}>{m.length}</Component539></Component540></Component541><Component552 className={`stats`}><Component544 className={`stat`}><Component542 className={`stat-label`}>{`Entradas hoy`}</Component542><Component543 className={`stat-value`}>{_}</Component543></Component544><Component547 className={`stat`}><Component545 className={`stat-label`}>{`Salidas hoy`}</Component545><Component546 className={`stat-value`}>{v}</Component546></Component547><Component551 className={`stat`}><Component548 className={`stat-label`}>{`Alertas`}</Component548><Component549 className={`stat-value`}>{b.length || y}</Component549><Component550 className={`hint`}>{x}{` críticas`}</Component550></Component551></Component552>{b.length > 0 && <Component560 className={`panel alerts-panel`}><Component554 className={`panel-head`}><Component553>{`Alertas operativas`}</Component553></Component554><Component559 className={`alert-list`}>{b.slice(0, 6).map(e => <Component558 className={`alert-row ${e.level}`} key={e.id}><Component555 className={`unit-placa`}>{e.title}</Component555><Component556 className={`unit-meta`}>{e.detail}</Component556><Component557 className={`unit-time`}>{kn(e.when)}</Component557></Component558>)}</Component559></Component560>}<MantenimientoBoard onOpen={onMantenimiento} compact={true} /><Component580 className={`panel`}><Component563 className={`panel-head`}><Component561>{`Equipos en patio`}{u === `todas` ? `` : ` · ${k(u)}`}{s === `todas` ? `` : ` · ${ye(s)}`}</Component561>{puedeMovimiento(authUser, `historial`) && <Component562 type={`button`} className={`text-btn`} onClick={a}>{`Ver historial`}</Component562>}</Component563>{f.length === 0 ? <Component564 className={`empty`}>{`No hay equipos en patio en este filtro.`}</Component564> : <Component579 className={`unit-list`}>{f.map(({
+    }}><strong>{`Modo local`}</strong>{` · `}{LOCAL_READONLY_BANNER}{`. `}{onCloud ? <button type={`button`} className={`text-btn`} onClick={onCloud}>{`Conectar Cloud ahora`}</button> : `Ve a Cloud y conecta Google.`}</div> : null}<Component521 className={`hero-ops`}><Component511><Component508 className={`eyebrow`}>{`Gate · 3 yardas · API / Carbal-Pia`}</Component508><Component509>{`Control de accesos/salidas en los patios de trabajo`}</Component509><Component510 className={`lede`}>{`Chihuahua, Calera y Calpulalpan · ~25 viajes/día por sentido. Fotos guiadas, sello, firma y GPS.`}</Component510></Component511><Component512 className={`hero-prompt`}>{`Selecciona el tipo de movimiento o registro que necesitas hacer:`}</Component512><Component518 className={`hero-actions`}>{puedeMovimiento(authUser, `entrada`) && <Component513 type={`button`} className={`btn ghost`} onClick={() => t()}>{`Nueva entrada`}</Component513>}{puedeMovimiento(authUser, `salida`) && <Component514 type={`button`} className={`btn ghost`} onClick={() => n()}>{`Registrar salida`}</Component514>}{puedeMovimiento(authUser, `parado`) && <Component516 type={`button`} className={`btn ghost`} onClick={() => r()}>{`Equipo parado`}<Component515 className={`btn-sub`}>{`Inventariar`}</Component515></Component516>}{o && puedeMovimiento(authUser, `kpis`) && <Component517 type={`button`} className={`btn ghost`} onClick={o}>{`Ver KPIs`}</Component517>}</Component518><Component520 className={`hero-hint`}><Component519>{`Equipo parado`}</Component519>{` = unidad que ya está en yarda sin viaje de entrada ni salida (vacío en pool, taller, retenida, drop sin ciclo…). No es un arribo: es un conteo.`}</Component520></Component521><Component526 className={`fieldset`}><Component522>{`Empresa`}</Component522><Component525 className={`seg big wrap`}><Component523 type={`button`} className={u === `todas` ? `seg-btn on-ok` : `seg-btn`} onClick={() => C(`todas`)}>{`Todas`}</Component523>{ie.map(e => <Component524 type={`button`} className={u === e.id ? `seg-btn on-ok` : `seg-btn`} onClick={() => C(e.id)} key={e.id}>{e.nombre}</Component524>)}</Component525></Component526><Component531 className={`fieldset`}><Component527>{`Yarda`}</Component527><Component530 className={`seg big wrap`}><Component528 type={`button`} className={s === `todas` ? `seg-btn on-ok` : `seg-btn`} onClick={() => S(`todas`)}>{`Todas`}</Component528>{_e.map(e => <Component529 type={`button`} className={s === e.id ? `seg-btn on-ok` : `seg-btn`} onClick={() => S(e.id)} key={e.id}>{e.nombre}</Component529>)}</Component530></Component531><Component541 className={`stats stats-patio`}><Component534 className={`stat`}><Component532 className={`stat-label`}>{`En patio`}</Component532><Component533 className={`stat-value`}>{f.length}</Component533></Component534><Component537 className={`stat`}><Component535 className={`stat-label`}>{`En ciclo`}</Component535><Component536 className={`stat-value`}>{p.length}</Component536></Component537><Component540 className={`stat`}><Component538 className={`stat-label`}>{`Parados`}</Component538><Component539 className={`stat-value`}>{m.length}</Component539></Component540></Component541><Component552 className={`stats`}><Component544 className={`stat`}><Component542 className={`stat-label`}>{`Entradas hoy`}</Component542><Component543 className={`stat-value`}>{_}</Component543></Component544><Component547 className={`stat`}><Component545 className={`stat-label`}>{`Salidas hoy`}</Component545><Component546 className={`stat-value`}>{v}</Component546></Component547><Component551 className={`stat`}><Component548 className={`stat-label`}>{`Alertas`}</Component548><Component549 className={`stat-value`}>{b.length || y}</Component549><Component550 className={`hint`}>{x}{` críticas`}</Component550></Component551></Component552>{b.length > 0 && <Component560 className={`panel alerts-panel`}><Component554 className={`panel-head`}><Component553>{`Alertas operativas`}</Component553></Component554><Component559 className={`alert-list`}>{b.slice(0, 6).map(e => <Component558 className={`alert-row ${e.level}`} key={e.id}><Component555 className={`unit-placa`}>{e.title}</Component555><Component556 className={`unit-meta`}>{e.detail}</Component556><Component557 className={`unit-time`}>{kn(e.when)}</Component557></Component558>)}</Component559></Component560>}<MantenimientoBoard onOpen={onMantenimiento} compact={true} /><Component580 className={`panel`}><Component563 className={`panel-head`}><Component561>{`Equipos en patio`}{u === `todas` ? `` : ` · ${k(u)}`}{s === `todas` ? `` : ` · ${ye(s)}`}</Component561>{puedeMovimiento(authUser, `historial`) && <Component562 type={`button`} className={`text-btn`} onClick={a}>{`Ver historial`}</Component562>}</Component563>{f.length === 0 ? <Component564 className={`empty`}>{`No hay equipos en patio en este filtro.`}</Component564> : <Component579 className={`unit-list`}>{f.map(({
           equipo: e,
           entrada: a,
           estado: o
@@ -4607,7 +4765,8 @@ function Mn({
   onSave: t,
   onDelete: n,
   onSaveRefrigeracion: r,
-  onDeleteRefrigeracion: i
+  onDeleteRefrigeracion: i,
+  readOnly = false
 }) {
   let [a, o] = (0, l.useState)(`unidades`);
   const Component582 = `h1`;
@@ -4619,12 +4778,15 @@ function Mn({
   const Component588 = `div`;
   return <Component588 className={`page`}><Component584 className={`form-head`}><Component582>{`Equipos`}</Component582><Component583>{`Catálogo de tractos/cajas y de equipos de refrigeración (Thermo).`}</Component583></Component584><Component587 className={`seg wrap`} style={{
       marginBottom: 14
-    }}><Component585 type={`button`} className={a === `unidades` ? `seg-btn on-ok` : `seg-btn`} onClick={() => o(`unidades`)}>{`Unidades (camión / caja)`}</Component585><Component586 type={`button`} className={a === `refrigeracion` ? `seg-btn on-ok` : `seg-btn`} onClick={() => o(`refrigeracion`)}>{`Refrigeración`}</Component586></Component587>{a === `unidades` ? <Nn state={e} onSave={t} onDelete={n} /> : <Pn state={e} onSave={r} onDelete={i} />}</Component588>;
+    }}><Component585 type={`button`} className={a === `unidades` ? `seg-btn on-ok` : `seg-btn`} onClick={() => o(`unidades`)}>{`Unidades (camión / caja)`}</Component585><Component586 type={`button`} className={a === `refrigeracion` ? `seg-btn on-ok` : `seg-btn`} onClick={() => o(`refrigeracion`)}>{`Refrigeración`}</Component586></Component587>{readOnly && <p className={`banner warn`} style={{
+      marginBottom: 12
+    }}>{LOCAL_READONLY_BANNER}</p>}{a === `unidades` ? <Nn state={e} onSave={t} onDelete={n} readOnly={readOnly} /> : <Pn state={e} onSave={r} onDelete={i} readOnly={readOnly} />}</Component588>;
 }
 function Nn({
   state: e,
   onSave: t,
-  onDelete: n
+  onDelete: n,
+  readOnly = false
 }) {
   let [r, i] = (0, l.useState)(`camion`);
   let [a, o] = (0, l.useState)(``);
@@ -4636,6 +4798,9 @@ function Nn({
   let [equipoBusca, setEquipoBusca] = (0, l.useState)(``);
   function v(e) {
     e.preventDefault();
+    if (readOnly) {
+      return;
+    }
     if (a.trim()) {
       t({
         id: ee(),
@@ -4700,16 +4865,19 @@ function Nn({
   const Component623 = `ul`;
   return <l.Fragment><Component616 className={`form-panel compact`} onSubmit={v}><Component611 className={`grid-2`}><Component595 className={`field`}><Component589>{`Tipo`}</Component589><Component594 className={`input`} value={r} onChange={e => i(e.target.value)}><Component590 value={`camion`}>{`Camión`}</Component590><Component591 value={`caja`}>{`Caja / remolque`}</Component591><Component592 value={`dolly`}>{`Dolly`}</Component592><Component593 value={`otro`}>{`Otro`}</Component593></Component594></Component595><Component598 className={`field`}><Component596>{`Placa`}</Component596><Component597 className={`input`} value={a} onChange={e => o(normalizePlacaMX(e.target.value))} placeholder={`Placa sin guiones`} required={true} /><PlacaQuickOcr slotId={`placa`} label={`Tomar foto y leer placa`} onPlaca={placa => o(normalizePlacaMX(placa))} /></Component598><Component601 className={`field`}><Component599>{`No. económico`}</Component599><Component600 className={`input`} value={s} onChange={e => c(e.target.value)} /></Component601><Component604 className={`field`}><Component602>{`Marca`}</Component602><Component603 className={`input`} value={u} onChange={e => d(e.target.value)} /></Component604><Component607 className={`field`}><Component605>{`Modelo`}</Component605><Component606 className={`input`} value={f} onChange={e => p(e.target.value)} /></Component607><Component610 className={`field`}><Component608>{`Notas`}</Component608><Component609 className={`input`} value={g} onChange={e => _(e.target.value)} /></Component610></Component611><Component614 className={`field`} style={{
         marginTop: 12
-      }}><Component612>{`Nombre operador/chofer asignado a este camión o unidad:`}</Component612><Component613 className={`input`} value={m} onChange={e => h(e.target.value)} placeholder={`Ej. Luis Pérez`} /></Component614><Component615 type={`submit`} className={`btn primary`}>{`Agregar equipo`}</Component615></Component616><p className={`hint`} style={{
+      }}><Component612>{`Nombre operador/chofer asignado a este camión o unidad:`}</Component612><Component613 className={`input`} value={m} onChange={e => h(e.target.value)} placeholder={`Ej. Luis Pérez`} /></Component614><Component615 type={`submit`} className={`btn primary`} disabled={readOnly}>{`Agregar equipo`}</Component615></Component616><p className={`hint`} style={{
       margin: `12px 0 8px`
     }}>{`Catálogo vivo: al teclear o leer la placa en Entrada/Salida se autocompletan económico, chofer y último sello.`}</p><input className={`input`} value={equipoBusca} onChange={e => setEquipoBusca(e.target.value)} placeholder={`Buscar en catálogo (placa, económico, chofer)…`} style={{
       marginBottom: 10
-    }} /><Component623 className={`unit-list`}>{e.equipos.length === 0 && <Component617 className={`empty`}>{`Aún no hay equipos. Da de alta tractos, cajas y dollies aquí para que caseta solo busque la placa.`}</Component617>}{e.equipos.length > 0 && equiposFiltrados.length === 0 && <Component617 className={`empty`}>{`Sin coincidencias.`}</Component617>}{equiposFiltrados.map(e => <Component622 className={`unit-row`} key={e.id}><Component620 className={`unit-main`}><Component618 className={`unit-placa`}>{e.placa}</Component618><Component619 className={`unit-meta`}>{e.tipo}{` · `}{e.numeroEconomico}{e.marca ? ` · ${e.marca}` : ``}{e.modelo ? ` ${e.modelo}` : ``}{e.operadorAsignado ? ` · chofer ${e.operadorAsignado}` : ``}</Component619></Component620><Component621 type={`button`} className={`text-btn danger`} onClick={() => n(e.id)}>{`Eliminar`}</Component621></Component622>)}</Component623></l.Fragment>;
+    }} /><Component623 className={`unit-list`}>{e.equipos.length === 0 && <Component617 className={`empty`}>{`Aún no hay equipos. Da de alta tractos, cajas y dollies aquí para que caseta solo busque la placa.`}</Component617>}{e.equipos.length > 0 && equiposFiltrados.length === 0 && <Component617 className={`empty`}>{`Sin coincidencias.`}</Component617>}{equiposFiltrados.map(e => <Component622 className={`unit-row`} key={e.id}><Component620 className={`unit-main`}><Component618 className={`unit-placa`}>{e.placa}</Component618><Component619 className={`unit-meta`}>{e.tipo}{` · `}{e.numeroEconomico}{e.marca ? ` · ${e.marca}` : ``}{e.modelo ? ` ${e.modelo}` : ``}{e.operadorAsignado ? ` · chofer ${e.operadorAsignado}` : ``}</Component619></Component620><Component621 type={`button`} className={`text-btn danger`} disabled={readOnly} onClick={() => {
+        if (!readOnly) void Promise.resolve(n(e.id)).catch(() => {});
+      }}>{`Eliminar`}</Component621></Component622>)}</Component623></l.Fragment>;
 }
 function Pn({
   state: e,
   onSave: t,
-  onDelete: n
+  onDelete: n,
+  readOnly = false
 }) {
   let [r, i] = (0, l.useState)(``);
   let [a, o] = (0, l.useState)(``);
@@ -4741,6 +4909,9 @@ function Pn({
   }
   function S(n) {
     n.preventDefault();
+    if (readOnly) {
+      return;
+    }
     if (r.trim() && a.trim() && s.trim() && u.trim()) {
       t({
         id: v ?? ee(),
@@ -4799,7 +4970,9 @@ function Pn({
         marginTop: 0
       }}>{`Alta de cada caja / equipo de refrigeración (Thermo King u otro).`}</Component624><Component649 className={`grid-2`}><Component629 className={`field`}><Component625>{`Marca *`}</Component625><Component628 className={`input`} value={r} onChange={e => i(e.target.value)} required={true}><Component626 value={``}>{`Seleccionar…`}</Component626>{tt.map(e => <Component627 value={e} key={e}>{e}</Component627>)}</Component628></Component629><Component632 className={`field`}><Component630>{`Modelo *`}</Component630><Component631 className={`input`} value={a} onChange={e => o(e.target.value)} placeholder={`SB-210 / X-Series…`} required={true} /></Component632><Component635 className={`field`}><Component633>{`Número de activo interno *`}</Component633><Component634 className={`input`} value={s} onChange={e => c(e.target.value.toUpperCase())} placeholder={`ACT-REF-001`} required={true} /></Component635><Component638 className={`field`}><Component636>{`Económico de la caja/camión donde está montado *`}</Component636><Component637 className={`input`} value={u} onChange={e => d(e.target.value.toUpperCase())} placeholder={`R-220 / T-101`} required={true} /></Component638><Component641 className={`field`}><Component639>{`Horómetro (horas)`}</Component639><Component640 className={`input`} type={`number`} min={0} step={0.1} value={f} onChange={e => p(e.target.value)} placeholder={`12450`} /></Component641><Component645 className={`field`}><Component642>{`Estatus *`}</Component642><Component644 className={`input`} value={m} onChange={e => h(e.target.value)}>{nt.map(e => <Component643 value={e.id} key={e.id}>{e.label}</Component643>)}</Component644></Component645><Component648 className={`field full`}><Component646>{`Notas`}</Component646><Component647 className={`input`} value={g} onChange={e => _(e.target.value)} /></Component648></Component649><Component652 className={`hero-actions`} style={{
         marginTop: 12
-      }}><Component650 type={`submit`} className={`btn primary`}>{v ? `Guardar cambios` : `Agregar refrigeración`}</Component650>{v && <Component651 type={`button`} className={`btn soft`} onClick={b}>{`Cancelar`}</Component651>}</Component652></Component653><Component662 className={`unit-list`}>{e.refrigeraciones.length === 0 && <Component654 className={`empty`}>{`Aún no hay equipos de refrigeración dados de alta.`}</Component654>}{e.refrigeraciones.map(e => <Component661 className={`unit-row`} key={e.id}><Component657 className={`unit-main`}><Component655 className={`unit-placa`}>{e.marca}{` `}{e.modelo}</Component655><Component656 className={`unit-meta`}>{`Activo `}{e.numeroActivo}{` · montado en `}{e.economicoMontado}{e.horometro == null ? `` : ` · ${e.horometro.toLocaleString(`es-MX`)} h`}{` · `}{rt(e.estatus)}</Component656></Component657><Component660 className={`unit-side`}><Component658 type={`button`} className={`text-btn`} onClick={() => x(e)}>{`Editar`}</Component658><Component659 type={`button`} className={`text-btn danger`} onClick={() => n(e.id)}>{`Eliminar`}</Component659></Component660></Component661>)}</Component662></l.Fragment>;
+      }}><Component650 type={`submit`} className={`btn primary`} disabled={readOnly}>{v ? `Guardar cambios` : `Agregar refrigeración`}</Component650>{v && <Component651 type={`button`} className={`btn soft`} onClick={b}>{`Cancelar`}</Component651>}</Component652></Component653><Component662 className={`unit-list`}>{e.refrigeraciones.length === 0 && <Component654 className={`empty`}>{`Aún no hay equipos de refrigeración dados de alta.`}</Component654>}{e.refrigeraciones.map(e => <Component661 className={`unit-row`} key={e.id}><Component657 className={`unit-main`}><Component655 className={`unit-placa`}>{e.marca}{` `}{e.modelo}</Component655><Component656 className={`unit-meta`}>{`Activo `}{e.numeroActivo}{` · montado en `}{e.economicoMontado}{e.horometro == null ? `` : ` · ${e.horometro.toLocaleString(`es-MX`)} h`}{` · `}{rt(e.estatus)}</Component656></Component657><Component660 className={`unit-side`}><Component658 type={`button`} className={`text-btn`} onClick={() => x(e)}>{`Editar`}</Component658><Component659 type={`button`} className={`text-btn danger`} disabled={readOnly} onClick={() => {
+        if (!readOnly) void Promise.resolve(n(e.id)).catch(() => {});
+      }}>{`Eliminar`}</Component659></Component660></Component661>)}</Component662></l.Fragment>;
 }
 function Fn(e) {
   let t = `id.tipo.empresa.yarda.placa.placaCamionTrasera.placaCaja1.placaCaja2.economico.fechaHora.operador.chofer.whatsapp.cliente.origen.destino.km.dieselPct.dieselL.condicion.sello.selloCoincide.llevaRefrigerada.lineaTransportista.economicoCajaRefrig.setPoint.tempReal.preEnfriado.dieselThermo.horometroThermo.modoThermo.alarmaThermo.ticketLavado.folioPedido.folioMvo.termografo.cartaPorteUuid.licencia.bitacoraServicio.bitacoraDescanso.gateOk.lat.lng.observaciones`.split(`.`);
@@ -5573,7 +5746,9 @@ function Un() {
     u(page);
   }} onBack={d} modeLabel={c.mode === `workspace` && c.user?.rol ? `${rolLabel(c.user.rol)} · ${ubicacionLabel(c.user.ubicacion)}` : c.mode === `workspace` ? `Workspace` : `Local`} syncing={c.syncing} online={c.online} queueCount={c.queueCount} onFlushQueue={() => void c.flushQueue()} navItems={navItems}>{permMsg && <p className={`banner warn`} style={{
       marginBottom: 12
-    }}>{permMsg}</p>}{e === `dashboard` && <An state={c.state} mode={c.mode} user={c.user} onCloud={() => u(`workspace`)} onEntrada={e => u(`entrada`, e)} onSalida={e => u(`salida`, e)} onParado={e => u(`parado`, e)} onBaja={e => u(`baja`, e)} onHistorial={() => u(`historial`)} onKpis={() => u(`kpis`)} onMantenimiento={() => u(`mantenimiento`)} />}{e === `entrada` && puedeMovimiento(c.user, `entrada`) && <_Component4 tipo={`entrada`} initialPlaca={o} equipos={c.state.equipos} refrigeraciones={c.state.refrigeraciones} movimientos={c.state.movimientos} onSaveEquipo={e => void c.guardarEquipo(e)} onSubmit={async e => {
+    }}>{permMsg}</p>}{c.localReadOnly && e !== `dashboard` && e !== `equipos` && <p className={`banner warn`} style={{
+      marginBottom: 12
+    }}>{LOCAL_READONLY_BANNER}</p>}{e === `dashboard` && <An state={c.state} mode={c.mode} user={c.user} estadosUnidad={c.estadosUnidad} onCloud={() => u(`workspace`)} onEntrada={e => u(`entrada`, e)} onSalida={e => u(`salida`, e)} onParado={e => u(`parado`, e)} onBaja={e => u(`baja`, e)} onHistorial={() => u(`historial`)} onKpis={() => u(`kpis`)} onMantenimiento={() => u(`mantenimiento`)} />}{e === `entrada` && puedeMovimiento(c.user, `entrada`) && <_Component4 tipo={`entrada`} initialPlaca={o} equipos={c.state.equipos} refrigeraciones={c.state.refrigeraciones} movimientos={c.state.movimientos} onSaveEquipo={e => void c.guardarEquipo(e)} onSubmit={async e => {
       await guardSubmit(`entrada`, e);
     }} onDone={() => u(`dashboard`)} key={`entrada-${i}`} />}{e === `salida` && puedeMovimiento(c.user, `salida`) && <SalidaCortaForm initialPlaca={o} equipos={c.state.equipos} movimientos={c.state.movimientos} user={c.user} onSubmit={async e => {
       await guardSubmit(`salida`, e);
@@ -5584,7 +5759,7 @@ function Un() {
       await guardSubmit(`parado`, e);
     }} onDone={() => u(`dashboard`)} key={`parado-${i}`} />}{e === `baja` && puedeMovimiento(c.user, `baja`) && <Ne initialPlaca={o} equipos={c.state.equipos} movimientos={c.state.movimientos} onSubmit={async e => {
       await guardSubmit(`baja`, e);
-    }} onDone={() => u(`dashboard`)} key={`baja-${i}`} />}{e === `historial` && puedeMovimiento(c.user, `historial`) && <_Component6 state={c.state} />}{e === `kpis` && puedeMovimiento(c.user, `kpis`) && <Bn state={c.state} />}{e === `equipos` && puedeMovimiento(c.user, `equipos`) && <Mn state={c.state} onSave={e => void c.guardarEquipo(e)} onDelete={e => void c.eliminarEquipo(e)} onSaveRefrigeracion={e => void c.guardarRefrigeracion(e)} onDeleteRefrigeracion={e => void c.eliminarRefrigeracion(e)} />}{e === `workspace` && puedeMovimiento(c.user, `workspace`) && <Vn config={c.config} mode={c.mode} user={c.user} syncing={c.syncing} syncError={c.syncError} queueCount={c.queueCount} online={c.online} onSaveConfig={c.updateConfig} onConnect={c.connectWorkspace} onDisconnect={c.disconnectWorkspace} onRefresh={c.refreshFromWorkspace} onFlushQueue={c.flushQueue} onLimpiarDatos={c.limpiarDatos} />}</_Component7>;
+    }} onDone={() => u(`dashboard`)} key={`baja-${i}`} />}{e === `historial` && puedeMovimiento(c.user, `historial`) && <_Component6 state={c.state} />}{e === `kpis` && puedeMovimiento(c.user, `kpis`) && <Bn state={c.state} />}{e === `equipos` && puedeMovimiento(c.user, `equipos`) && <Mn readOnly={c.localReadOnly} state={c.state} onSave={e => void c.guardarEquipo(e)} onDelete={e => void c.eliminarEquipo(e)} onSaveRefrigeracion={e => void c.guardarRefrigeracion(e)} onDeleteRefrigeracion={e => void c.eliminarRefrigeracion(e)} />}{e === `workspace` && puedeMovimiento(c.user, `workspace`) && <Vn config={c.config} mode={c.mode} user={c.user} syncing={c.syncing} syncError={c.syncError} queueCount={c.queueCount} online={c.online} onSaveConfig={c.updateConfig} onConnect={c.connectWorkspace} onDisconnect={c.disconnectWorkspace} onRefresh={c.refreshFromWorkspace} onFlushQueue={c.flushQueue} onLimpiarDatos={c.limpiarDatos} />}</_Component7>;
 }
 
 export default function App() {

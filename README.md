@@ -32,7 +32,8 @@ Base para que el navegador deje de hablar directo con Sheets/Drive. **Modo dual*
 | `POST /api/auth/login` `{ idToken, clave, dispositivoId }` | Google ID token → kardex Autorizados → cookie `patio_session` |
 | `GET /api/auth/me` | Usuario de la sesión (cookie o `Authorization: Bearer`) o 401 |
 | `POST /api/auth/logout` | Borra la cookie |
-| `GET /api/movimientos?limit=500` | Lista movimientos (sesión). Solo lectura, más reciente primero |
+| `GET /api/movimientos?limit=500` | Lista movimientos (sesión). Solo lectura, más reciente primero. Con sesión de servidor el refresh del patio usa esta lista |
+| `GET /api/estado-unidades` | Filas de `EstadoUnidad` (sesión) para los chips del patio |
 | `POST /api/movimientos` | Alta **append-only** (sesión + permiso del `tipo`). Idempotente por `id`. Audita `crear_movimiento` |
 | `POST /api/media/upload` | Sube JPEG/PNG **privado** a Drive (sesión). 120/min por email. Devuelve `{ fileId, viewPath }` |
 | `GET /api/media?id=<fileId>` | Sirve esa evidencia con la cuenta de servicio (sesión). También `GET /api/media/<fileId>` |
@@ -63,16 +64,23 @@ Movimientos (`/api/movimientos`): con sesión de servidor la caseta intenta subi
 hoja la ruta `/api/media?id=…`. Quien abre la foto necesita sesión: `GET /api/media` la entrega con el
 token de la cuenta de servicio (`alt=media`), no con un enlace público. Si ese upload responde 503/404
 (Drive sin configurar, o `vite dev` sin funciones), se usa el upload legado del navegador a Drive.
-Después se intenta el `POST` del movimiento. Si el API responde, **no** se vuelve a agregar la fila desde el
-navegador (evita duplicados). Si el API no está (503 sin configurar, 404/405 en `vite dev` sin
-`netlify dev`, u otra caída), se conserva el append directo a Sheets. Un 400/401/403/409 no cae al camino
-legado ni entra a la cola offline: la regla del servidor se muestra en pantalla. Si el `POST` falla por
-red y había sesión de servidor, el movimiento queda en el outbox IndexedDB (`src/lib/outbox.js`) y se
-reintenta al volver en línea. Sin sesión de servidor, la cola sigue siendo `localStorage`
-(`patio-control-offline-queue`). `fechaHora` es la hora
-del dispositivo; `horaServidor` y `usuarioEmail` los escribe el servidor y el cliente no puede pisarlos.
-El servidor no limpia la hoja. La sincronización de la lista (`en`) sigue leyendo Sheets; `listMovimientosServer`
-queda listo para una fase posterior.
+Después se intenta el `POST` del movimiento. Si hay sesión de servidor, **no** se agrega la fila desde el
+navegador (ni cuando el API responde ni cuando está caído: el registro queda en cola). Si no hay sesión
+de servidor y el API no está (503 sin configurar, 404/405 en `vite dev` sin `netlify dev`, u otra caída),
+se conserva el append directo a Sheets. Un 400/401/403/409 no cae al camino legado ni entra a la cola
+offline: la regla del servidor se muestra en pantalla. Si el `POST` falla por red y había sesión de
+servidor, el movimiento queda en el outbox IndexedDB (`src/lib/outbox.js`) y se reintenta al volver en
+línea. Sin sesión de servidor, la cola sigue siendo `localStorage` (`patio-control-offline-queue`).
+`fechaHora` es la hora del dispositivo; `horaServidor` y `usuarioEmail` los escribe el servidor y el
+cliente no puede pisarlos. El servidor no limpia la hoja.
+
+Con `sesionServidor`, Actualizar datos y la recuperación de sesión leen `GET /api/movimientos` (y
+`GET /api/estado-unidades` para los chips). Equipos y refrigeración siguen en Sheets. Si ese GET no está
+(503/404), la lista de movimientos vuelve a Sheets para no trabar la caseta. Workspace **sin** sesión de
+servidor —solo OAuth de Sheets, antes de que Netlify tenga las variables— mantiene ese híbrido.
+**Modo Local sin sesión de servidor es solo lectura**: se ve el dashboard y el historial desde la caché
+de este dispositivo, pero no se registra entrada, salida, parado, baja ni se edita el catálogo. El aviso
+es «Conecta Cloud con tu cuenta autorizada para registrar». Cloud sigue en el menú para poder entrar.
 
 Fotos: comparte la carpeta de Evidencias con `GOOGLE_SERVICE_ACCOUNT_EMAIL` como Content manager (o Editor).
 Sin ese permiso el upload de servidor responde 503 y la tablet vuelve al flujo legado. El service worker
@@ -95,7 +103,7 @@ Migración del Sheet (solo agrega columnas/pestañas; no borra datos):
 npm run migrate:fase0 -- --dry-run      # ver cambios
 npm run migrate:fase0                   # aplicar (dry-run automático sin credenciales)
 npm run migrate:fase0 -- --hash-claves  # además llena ClaveHash desde Clave
-npm run test:fase0                      # auth + movimientos + Drive privado + outbox
+npm run test:fase0                      # auth + movimientos + Drive privado + outbox + cierre (Local solo lectura)
 npm run migrate:fase1 -- --dry-run      # pestañas OT reales + EstadoUnidad
 npm run migrate:fase1
 npm run test:fase1                      # OT, ETR, semáforo, bloqueo de salida
