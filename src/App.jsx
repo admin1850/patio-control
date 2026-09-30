@@ -3324,8 +3324,40 @@ function Yt(e) {
         llevaRefrigerada: t ? true : undefined,
         refrigerada: t
       };
-    })()
+    })(),
+    ...parseMovimientoFase0Cells(e)
   };
+}
+var MOVIMIENTOS_BASE_COLS = 30;
+function parseMovimientoFase0Cells(e) {
+  let motivoRaw = String(e[30] ?? ``).trim();
+  let sep = motivoRaw.indexOf(`|`);
+  let motivoParo = sep >= 0 ? motivoRaw.slice(0, sep).trim() : motivoRaw;
+  let motivoParoOtro = sep >= 0 ? motivoRaw.slice(sep + 1).trim() : ``;
+  return {
+    ...(motivoParo ? {
+      motivoParo
+    } : {}),
+    ...(motivoParoOtro ? {
+      motivoParoOtro
+    } : {}),
+    ...(e[31] ? {
+      paradoDesde: e[31]
+    } : {}),
+    ...(e[32] ? {
+      zonaSlot: e[32]
+    } : {}),
+    ...(e[33] ? {
+      usuarioEmail: e[33]
+    } : {}),
+    ...(e[34] ? {
+      horaServidor: e[34]
+    } : {})
+  };
+}
+function movimientoFase0Cells(e) {
+  let motivo = e.motivoParo ? e.motivoParo === `otro` && e.motivoParoOtro ? `otro|${e.motivoParoOtro}` : e.motivoParo : ``;
+  return [motivo, e.paradoDesde ?? ``, e.zonaSlot ?? ``, e.usuarioEmail ?? ``, e.horaServidor ?? ``];
 }
 function Xt(e) {
   if (e) {
@@ -3358,13 +3390,13 @@ function Qt(e) {
   return [e.id, e.tipo, e.equipoId, e.placa, e.numeroEconomico, e.equipoTipo, e.fechaHora, e.operador, e.chofer ?? ``, Kt(e), e.kilometros, e.dieselPorcentaje, e.dieselLitros, JSON.stringify(e.checklist), e.fotos.join(`|`), e.condicionGeneral, e.observaciones ?? ``, e.creadoEn, e.yardaId, e.selloNumero ?? ``, e.firmaNombre ?? ``, e.firmaUrl ?? ``, e.geoLat ?? ``, JSON.stringify(e.fotosEvidencia ?? []), e.geoLng ?? ``, JSON.stringify({
     ...(e.cumplimiento ?? {}),
     selloCoincideEntrada: e.selloCoincideEntrada ?? null
-  }), L(e), e.empresaId ?? `api`, e.llevaRefrigerada && e.refrigerada ? JSON.stringify(e.refrigerada) : ``, e.whatsapp ?? ``];
+  }), L(e), e.empresaId ?? `api`, e.llevaRefrigerada && e.refrigerada ? JSON.stringify(e.refrigerada) : ``, e.whatsapp ?? ``, ...movimientoFase0Cells(e)];
 }
 async function $t(e) {
   return ((await (await Vt(e, `/values/Equipos!A2:I`)).json()).values ?? []).map(Ht).filter(Boolean);
 }
 async function en(e) {
-  return ((await (await Vt(e, `/values/Movimientos!A2:AD`)).json()).values ?? []).map(Yt).filter(Boolean).sort((e, t) => new Date(t.fechaHora).getTime() - new Date(e.fechaHora).getTime());
+  return ((await (await Vt(e, `/values/Movimientos!A2:AI`)).json()).values ?? []).map(Yt).filter(Boolean).sort((e, t) => new Date(t.fechaHora).getTime() - new Date(e.fechaHora).getTime());
 }
 async function tn(e, t) {
   await Vt(e, `/values/Equipos!A:I:append?valueInputOption=USER_ENTERED`, {
@@ -3406,12 +3438,28 @@ async function rn(e, t, n) {
   });
 }
 async function an(e, t) {
-  await Vt(e, `/values/Movimientos!A:AD:append?valueInputOption=USER_ENTERED`, {
+  let row = Qt(t);
+  let hasFase0 = row.slice(MOVIMIENTOS_BASE_COLS).some(c => c !== ``);
+  let append = r => Vt(e, `/values/Movimientos!A:${r.length > MOVIMIENTOS_BASE_COLS ? `AI` : `AD`}:append?valueInputOption=USER_ENTERED`, {
     method: `POST`,
     body: JSON.stringify({
-      values: [Qt(t)]
+      values: [r]
     })
   });
+  if (!hasFase0) {
+    await append(row.slice(0, MOVIMIENTOS_BASE_COLS));
+    return;
+  }
+  try {
+    await append(row);
+  } catch (err) {
+    // Hoja sin columnas AE:AI (falta `npm run migrate:fase0`): guardar sin ellas antes que perder el movimiento.
+    if (!/exceeds grid limits|grid limits/i.test(err instanceof Error ? err.message : ``)) {
+      throw err;
+    }
+    console.warn(`Movimientos sin columnas AE:AI; se guarda sin motivoParo/paradoDesde/zonaSlot/usuarioEmail/horaServidor.`);
+    await append(row.slice(0, MOVIMIENTOS_BASE_COLS));
+  }
 }
 async function on(e, t, n) {
   await nn(e, n.filter(e => e.id !== t));
@@ -3712,6 +3760,12 @@ function Sn() {
     }
   }, [n, e, o.refrigeraciones]);
   let w = (0, l.useCallback)(async t => {
+    if (i?.email && !t.usuarioEmail) {
+      t = {
+        ...t,
+        usuarioEmail: i.email
+      };
+    }
     s(e => {
       let n = Ee(e, t);
       let r = t.refrigerada?.refrigeracionId;
@@ -3759,7 +3813,7 @@ function Sn() {
         u(false);
       }
     }
-  }, [n, e, o.refrigeraciones]);
+  }, [n, e, o.refrigeraciones, i]);
   let te = (0, l.useCallback)(async t => {
     s(e => {
       let n = {
