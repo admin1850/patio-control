@@ -13,6 +13,11 @@ export function hasServerSession(user) {
   return user?.sesionServidor === true && Boolean(String(user?.email || '').trim())
 }
 
+/** Perfil del kardex (correo + rol). El anónimo local no entra. */
+export function isAuthenticated(user) {
+  return Boolean(String(user?.email || '').trim()) && Boolean(user?.rol)
+}
+
 /**
  * Prefiere el usuario en memoria. Si todavía no rehidrató, usa el perfil
  * guardado con `sesionServidor` para no caer al append de Sheets.

@@ -16,13 +16,14 @@ import {
   createMovimientoServer,
   fetchEstadoUnidadesOpcional,
   buscarLlegadaServidor,
-  fetchMe,
   fetchTableroOpcional,
   getDispositivoId,
+  apiFetch,
   isBackendUnavailable,
   jwtExpiresAtMs,
   listEstadoUnidadesServer,
   listMovimientosServer,
+  loginWithEmailClave,
   loginWithGoogleIdToken,
   logout as logoutServer,
   mapServerUserToAuthProfile,
@@ -50,6 +51,7 @@ import {
   assertWritable,
   hasServerSession,
   indexEstadosUnidad,
+  isAuthenticated,
   isLocalReadOnly,
   loadMovimientosRefresh,
   localReadOnlyError,
@@ -3964,11 +3966,19 @@ async function xn(e, t) {
 }
 function Sn() {
   let [e, t] = (0, l.useState)(() => Dt());
-  let [n, r] = (0, l.useState)(() => jt() && Dt().clientId ? `workspace` : `local`);
+  let [n, r] = (0, l.useState)(() => {
+    let cached = loadCachedAuthProfile();
+    if (cached?.email && cached?.rol) {
+      return `workspace`;
+    }
+    return jt() && Dt().clientId ? `workspace` : `local`;
+  });
   let [i, a] = (0, l.useState)(() => {
     let cached = loadCachedAuthProfile();
-    return cached?.sesionServidor ? cached : null;
+    return cached?.email && cached?.rol ? cached : null;
   });
+  let [authReady, setAuthReady] = (0, l.useState)(false);
+  let authEpoch = (0, l.useRef)(0);
   let [o, s] = (0, l.useState)(() => Ce());
   let [estadosUnidad, setEstadosUnidad] = (0, l.useState)(null);
   let [c, u] = (0, l.useState)(false);
@@ -4169,7 +4179,92 @@ function Sn() {
       u(false);
     }
   }, [e, _, refreshOb]);
+  let loginConCorreo = (0, l.useCallback)(async (email, clave) => {
+    authEpoch.current += 1;
+    let correo = String(email ?? ``).trim().toLowerCase();
+    let claveTrim = String(clave ?? ``).trim();
+    if (!correo.includes(`@`) || !String(correo.split(`@`)[1] || ``).includes(`.`)) {
+      throw Error(`Escribe un correo válido.`);
+    }
+    if (!claveTrim) {
+      throw Error(`Escribe la contraseña (Clave del kardex).`);
+    }
+    u(true);
+    f(null);
+    let usoGoogle = false;
+    try {
+      let authorized;
+      try {
+        let res = await loginWithEmailClave({
+          email: correo,
+          clave: claveTrim,
+          dispositivoId: getDispositivoId()
+        });
+        authorized = mapServerUserToAuthProfile(res?.user);
+        if (!authorized?.email || !authorized?.rol) {
+          throw Error(`El servidor no devolvió el usuario. Vuelve a intentar.`);
+        }
+      } catch (err) {
+        if (!isBackendUnavailable(err)) {
+          if (err?.status === 429) {
+            throw Error(`Demasiados intentos. Espera un minuto y vuelve a intentar.`);
+          }
+          throw Error(err?.message || `Acceso denegado.`);
+        }
+        if (!String(e.clientId || ``).trim()) {
+          throw Error(`No se pudo abrir la sesión en el servidor. Pide al admin que configure PATIO_SESSION_SECRET.`);
+        }
+        // Sin servidor: Google, y el correo tiene que ser el que se escribió.
+        usoGoogle = true;
+        await requestGoogleIdToken(e.clientId, e.hostedDomain);
+        let accessToken = await Ft(e);
+        let profile = await It(accessToken);
+        let googleEmail = String(profile?.email ?? ``).trim().toLowerCase();
+        if (!googleEmail || googleEmail !== correo) {
+          throw Error(`El correo de Google (${googleEmail || `sin correo`}) no coincide con ${correo}.`);
+        }
+        authorized = await assertUsuarioAutorizado(e, profile, claveTrim);
+      }
+      a(authorized);
+      saveCachedAuthProfile(authorized);
+      if (authorized.ubicacion && authorized.ubicacion !== `todas` && _e.some(y => y.id === authorized.ubicacion)) {
+        A(authorized.ubicacion);
+      }
+      await _(e, {
+        user: authorized
+      });
+      r(`workspace`);
+      let {
+        remaining: rem
+      } = await xn(e);
+      g(rem);
+      await flushServerOutbox(e, saved => {
+        s(state => ({
+          ...state,
+          movimientos: state.movimientos.map(m => m.id === saved.id ? saved : m)
+        }));
+      });
+      await refreshOb();
+      setAuthReady(true);
+    } catch (err) {
+      if (usoGoogle) {
+        Nt();
+        clearCachedIdToken();
+      }
+      void logoutServer();
+      a(null);
+      saveCachedAuthProfile(null);
+      r(`local`);
+      let message = err instanceof Error ? err.message : `No se pudo entrar`;
+      f(message);
+      setAuthReady(true);
+      throw err instanceof Error ? err : Error(message);
+    } finally {
+      u(false);
+    }
+  }, [e, _, refreshOb]);
   let b = (0, l.useCallback)(() => {
+    authEpoch.current += 1;
     Nt();
     clearCachedIdToken();
     try {
@@ -4183,9 +4278,28 @@ function Sn() {
   }, []);
   (0, l.useEffect)(() => {
     let alive = true;
-    fetchMe().then(user => {
-      let mapped = mapServerUserToAuthProfile(user);
-      if (!alive || !mapped) {
+    let epoch = authEpoch.current;
+    let vigente = () => alive && epoch === authEpoch.current;
+    apiFetch(`/api/auth/me`, {
+      method: `GET`
+    }).then(data => {
+      if (!vigente()) {
+        return;
+      }
+      let mapped = mapServerUserToAuthProfile(data?.user);
+      if (!mapped) {
+        let cached = loadCachedAuthProfile();
+        if (cached?.sesionServidor) {
+          a(null);
+          saveCachedAuthProfile(null);
+          r(`local`);
+        } else if (cached?.email && cached?.rol) {
+          a(cached);
+          r(`workspace`);
+        } else {
+          a(null);
+        }
+        setAuthReady(true);
         return;
       }
       let cached = loadCachedAuthProfile();
@@ -4207,9 +4321,11 @@ function Sn() {
         };
       });
       saveCachedAuthProfile(profile);
+      r(`workspace`);
+      setAuthReady(true);
       if (hasServerSession(profile)) {
         listMovimientosServer(2000).then(data => {
-          if (!alive || !Array.isArray(data?.movimientos)) {
+          if (!vigente() || !Array.isArray(data?.movimientos)) {
             return;
           }
           s(prev => ({
@@ -4218,13 +4334,30 @@ function Sn() {
           }));
         }).catch(() => {});
         listEstadoUnidadesServer().then(data => {
-          if (!alive || !Array.isArray(data?.estados)) {
+          if (!vigente() || !Array.isArray(data?.estados)) {
             return;
           }
           setEstadosUnidad(data.estados);
         }).catch(() => {});
       }
-    }).catch(() => {});
+    }).catch(err => {
+      if (!vigente()) {
+        return;
+      }
+      let cached = loadCachedAuthProfile();
+      let sinCookie = err instanceof ApiError && err.status === 401;
+      if (sinCookie && cached?.sesionServidor) {
+        a(null);
+        saveCachedAuthProfile(null);
+        r(`local`);
+      } else if (cached?.email && cached?.rol) {
+        a(cached);
+        r(`workspace`);
+      } else {
+        a(null);
+      }
+      setAuthReady(true);
+    });
     return () => {
       alive = false;
     };
@@ -4467,6 +4600,8 @@ function Sn() {
     config: e,
     mode: n,
     user: i,
+    authReady,
+    loginConCorreo,
     estadosUnidad,
     localReadOnly: isLocalReadOnly({
       mode: n,
@@ -5508,7 +5643,7 @@ function Vn({
   const Component939 = `div`;
   const Component940 = `section`;
   const Component941 = `div`;
-  return <Component941 className={`page`}><Component892 className={`form-head`}><Component890>{`Google Workspace`}</Component890><Component891>{`Entran con su correo Google + la clave que el admin les asignó en el kardex (hoja Autorizados). Sin email autorizado o con clave incorrecta, no hay acceso.`}</Component891></Component892><Component894 className={`banner ${t === `workspace` ? `success` : `info`}`}>{t === `workspace` && n ? <l.Fragment>{`Conectado como `}<Component893>{n.nombreKardex || n.name}</Component893>{` (`}{n.email}{`) · `}{rolLabel(n.rol)}{` · `}{ubicacionLabel(n.ubicacion)}{n.whatsapp ? ` · WA ${n.whatsapp}` : n.celular ? ` · cel ${n.celular}` : ``}{` · modo nube`}{o ? `` : ` · OFFLINE`}{a > 0 ? ` · ${a} en cola` : ``}</l.Fragment> : <l.Fragment>{`Modo local (solo este dispositivo). Conecta con una cuenta del kardex Autorizados para compartir con el equipo.`}</l.Fragment>}</Component894>{a > 0 && f && <Component896 className={`banner info`}>{`Hay `}{a}{` registro(s) pendientes.`}{` `}<Component895 type={`button`} className={`text-btn`} disabled={r || !o} onClick={() => void f()}>{`Subir cola ahora`}</Component895></Component896>}<Component904 className={`panel links-panel`}><Component897>{`Kardex y archivos compartidos`}</Component897><Component902 className={`link-list`}><Component899><Component898 href={AUTORIZADOS_SHEET_URL} target={`_blank`} rel={`noreferrer`}>{`Hoja Autorizados (kardex · quién puede usar la app)`}</Component898></Component899><Component901><Component900 href={KARDEX_DRIVE_URL} target={`_blank`} rel={`noreferrer`}>{`Carpeta Drive — Kardex autorizados`}</Component900></Component901><li><a href={wt} target={`_blank`} rel={`noreferrer`}>{`Hoja PatioControl — Patio y evidencias`}</a></li><li><a href={I} target={`_blank`} rel={`noreferrer`}>{`Carpeta PatioControl Evidencias`}</a></li></Component902><Component903 className={`hint`}>{`Alta: Email, Clave, Activo=SI y columnas Entrada/Salida/Parado/Baja/Historial/KPIs/Equipos/Cloud en SI o NO. Si las dejas vacías, se usa la plantilla del Rol (guardia = solo entrada/salida).`}</Component903></Component904>{normalizeRol(n?.rol) === `admin` && <section className={`panel`} data-panel={`integracion-key`} style={{
+  return <Component941 className={`page`}><Component892 className={`form-head`}><Component890>{`Google Workspace`}</Component890><Component891>{`Entrar es con correo + contraseña en la pantalla de acceso. Esta página es para admin: OAuth de Sheets y token de OCR.`}</Component891></Component892><Component894 className={`banner ${t === `workspace` ? `success` : `info`}`}>{t === `workspace` && n ? <l.Fragment>{`Conectado como `}<Component893>{n.nombreKardex || n.name}</Component893>{` (`}{n.email}{`) · `}{rolLabel(n.rol)}{` · `}{ubicacionLabel(n.ubicacion)}{n.whatsapp ? ` · WA ${n.whatsapp}` : n.celular ? ` · cel ${n.celular}` : ``}{` · modo nube`}{o ? `` : ` · OFFLINE`}{a > 0 ? ` · ${a} en cola` : ``}</l.Fragment> : <l.Fragment>{`Sesión con correo del kardex. Conecta Google aquí solo si hace falta el acceso a Sheets.`}</l.Fragment>}</Component894>{a > 0 && f && <Component896 className={`banner info`}>{`Hay `}{a}{` registro(s) pendientes.`}{` `}<Component895 type={`button`} className={`text-btn`} disabled={r || !o} onClick={() => void f()}>{`Subir cola ahora`}</Component895></Component896>}<Component904 className={`panel links-panel`}><Component897>{`Kardex y archivos compartidos`}</Component897><Component902 className={`link-list`}><Component899><Component898 href={AUTORIZADOS_SHEET_URL} target={`_blank`} rel={`noreferrer`}>{`Hoja Autorizados (kardex · quién puede usar la app)`}</Component898></Component899><Component901><Component900 href={KARDEX_DRIVE_URL} target={`_blank`} rel={`noreferrer`}>{`Carpeta Drive — Kardex autorizados`}</Component900></Component901><li><a href={wt} target={`_blank`} rel={`noreferrer`}>{`Hoja PatioControl — Patio y evidencias`}</a></li><li><a href={I} target={`_blank`} rel={`noreferrer`}>{`Carpeta PatioControl Evidencias`}</a></li></Component902><Component903 className={`hint`}>{`Alta: Email, Clave, Activo=SI y columnas Entrada/Salida/Parado/Baja/Historial/KPIs/Equipos/Cloud en SI o NO. Si las dejas vacías, se usa la plantilla del Rol (guardia = solo entrada/salida).`}</Component903></Component904>{normalizeRol(n?.rol) === `admin` && <section className={`panel`} data-panel={`integracion-key`} style={{
       marginTop: 16
     }}><div className={`panel-head`}><h2>{`Llave de integraciones`}</h2></div><p className={`hint`}>{`App Chofer, Frotcom y el pull diario del ERP (sys.carbalmotors.com) usan el header X-Patio-Key. El valor está en Netlify como PATIO_INTEGRATION_KEY (Site settings → Environment variables). No se muestra en esta pantalla ni se guarda en la tablet.`}</p></section>}<Component934 className={`form-panel`} onSubmit={v}><Component927 className={`fieldset`}><Component905>{`Conexión OAuth (una sola vez)`}</Component905><Component913 className={`hint setup-steps`}>{`1) En Google Cloud Console crea un proyecto → APIs: enable `}<Component906>{`Google Sheets API`}</Component906>{` y`}{` `}<Component907>{`Google Drive API`}</Component907>{`.`}<Component908 />{`2) Credenciales → OAuth client ID → tipo `}<Component909>{`Aplicación web`}</Component909>{`.`}<Component910 />{`3) Orígenes autorizados: `}<Component909>{`https://patiocontrol.netlify.app`}</Component909>{` (también http://localhost:5173 si pruebas en local).`}<Component911 />{`4) Pega el Client ID abajo. Dominio recomendado: `}<Component912>{`camircapital.com`}</Component912>{` (solo correos de la empresa).`}</Component913><Component926 className={`grid-2`}><Component916 className={`field full`}><Component914>{`Google Client ID *`}</Component914><Component915 className={`input`} value={m.clientId} onChange={e => h({
               ...m,
@@ -5525,7 +5660,7 @@ function Vn({
             })} /></Component925><label className={`field full`}><span>{`Clave del kardex *`}</span><input className={`input`} type={`password`} autoComplete={`current-password`} value={claveApp} onChange={e => setClaveApp(e.target.value)} placeholder={`La que el admin puso en columna Clave`} required={true} /></label><p className={`hint`} style={{
               gridColumn: `1 / -1`,
               margin: 0
-            }}>{`No es la contraseña de Google: es la Clave de tu fila en Autorizados. El admin la da de alta y puede cambiarla ahí.`}</p></Component926></Component927>{i && <Component928 className={`banner error`}>{i}</Component928>}{g && <Component929 className={`banner ${g.startsWith(`Autorizado`) || g.startsWith(`Conectado`) ? `success` : `error`}`}>{g}</Component929>}<Component933 className={`hero-actions`}><Component930 type={`submit`} className={`btn primary`} disabled={r}>{r ? `Conectando…` : t === `workspace` ? `Reconectar` : `Conectar con Google`}</Component930>{t === `workspace` && <l.Fragment><Component931 type={`button`} className={`btn soft`} disabled={r} onClick={() => void d()}>{`Actualizar datos`}</Component931><Component932 type={`button`} className={`btn soft`} onClick={u}>{`Usar solo local`}</Component932></l.Fragment>}</Component933></Component934><Component940 className={`panel`} style={{
+            }}>{`No es la contraseña de Google: es la Clave de tu fila en Autorizados. El admin la da de alta y puede cambiarla ahí.`}</p></Component926></Component927>{i && <Component928 className={`banner error`}>{i}</Component928>}{g && <Component929 className={`banner ${g.startsWith(`Autorizado`) || g.startsWith(`Conectado`) ? `success` : `error`}`}>{g}</Component929>}<Component933 className={`hero-actions`}><Component930 type={`submit`} className={`btn primary`} disabled={r}>{r ? `Conectando…` : t === `workspace` ? `Reconectar` : `Conectar con Google`}</Component930>{t === `workspace` && <Component931 type={`button`} className={`btn soft`} disabled={r} onClick={() => void d()}>{`Actualizar datos`}</Component931>}<Component932 type={`button`} className={`btn soft`} onClick={u}>{`Cerrar sesión`}</Component932></Component933></Component934><Component940 className={`panel`} style={{
       marginTop: 16
     }}><Component936 className={`panel-head`}><Component935>{`Plate Recognizer (OCR de placas)`}</Component935></Component936><Component937 className={`hint`}>{`Token de platerecognizer.com para leer placas por foto en inventariar, entrada, salida, baja y equipos. Sin guiones. Si no hay token, se usa Vision (Netlify) cuando esté configurado.`}</Component937><form className={`form-panel compact`} onSubmit={savePlateToken} style={{
         marginTop: 12,
@@ -5996,6 +6131,25 @@ function SalidaCortaForm({
         marginTop: 10
       }}><span>{`Motivo de autorización (encargado o admin) *`}</span><textarea className={`input textarea`} rows={2} value={overrideMotivo} onChange={e => setOverrideMotivo(e.target.value)} placeholder={`Escríbelo. Queda en la bitácora.`} /></label>}</fieldset>}{zonaSlotCap.node}{error && <p className={`banner error`}>{error}</p>}{okMsg && <p className={`banner success`}>{okMsg}</p>}<button type={`submit`} className={`btn primary wide`} disabled={busy}>{busy ? `Guardando…` : `Guardar salida y cerrar ciclo`}</button></form>;
 }
+function LoginGate({
+  onLogin,
+  syncing,
+  checking
+}) {
+  let [email, setEmail] = (0, l.useState)(``);
+  let [clave, setClave] = (0, l.useState)(``);
+  let [error, setError] = (0, l.useState)(null);
+  async function submit(ev) {
+    ev.preventDefault();
+    setError(null);
+    try {
+      await onLogin(email, clave);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `No se pudo entrar`);
+    }
+  }
+  return <div className={`page login-gate`}><header className={`login-hero`}><p className={`brand`}>{`PatioControl`}</p><h1>{`Acceso al patio`}</h1></header>{checking ? <p className={`login-status`}>{`Revisando sesión…`}</p> : <form className={`form-panel`} onSubmit={ev => void submit(ev)}><label className={`field`}><span>{`Correo electrónico *`}</span><input className={`input`} type={`email`} autoComplete={`username`} inputMode={`email`} value={email} onChange={ev => setEmail(ev.target.value)} required={true} /></label><label className={`field`}><span>{`Contraseña *`}</span><input className={`input`} type={`password`} autoComplete={`current-password`} value={clave} onChange={ev => setClave(ev.target.value)} required={true} /></label><p className={`hint`}>{`Usa el correo y la Clave de tu fila en Autorizados (kardex). No es la contraseña de Gmail.`}</p>{error && <p className={`banner error`}>{error}</p>}<button type={`submit`} className={`btn primary wide`} disabled={syncing}>{syncing ? `Entrando…` : `Entrar`}</button></form>}</div>;
+}
 function Un() {
   let [e, t] = (0, l.useState)(`dashboard`);
   let [n, r] = (0, l.useState)([]);
@@ -6006,8 +6160,12 @@ function Un() {
   let c = Sn();
   let navItems = (0, l.useMemo)(() => Re.filter(item => puedeMovimiento(c.user, item.id)), [c.user]);
   (0, l.useEffect)(() => {
+    if (!c.authReady || !isAuthenticated(c.user)) {
+      document.title = `PatioControl — Acceso`;
+      return;
+    }
     document.title = `PatioControl — ${Hn[e] || e}`;
-  }, [e]);
+  }, [e, c.authReady, c.user]);
   (0, l.useEffect)(() => {
     if (e !== `dashboard` && !puedeMovimiento(c.user, e)) {
       setPermMsg(`Tu rol no tiene permiso para “${Hn[e] || e}”. Pide al admin que lo active en el kardex.`);
@@ -6047,10 +6205,13 @@ function Un() {
     }
     await c.registrarMovimiento(payload);
   }
+  if (!c.authReady || !isAuthenticated(c.user)) {
+    return <LoginGate onLogin={(email, clave) => c.loginConCorreo(email, clave)} syncing={c.syncing} checking={!c.authReady} />;
+  }
   return <_Component7 page={e} onNavigate={page => {
     if (page === `mantenimiento`) setOtDraft(null);
     u(page);
-  }} onBack={d} modeLabel={c.mode === `workspace` && c.user?.rol ? `${rolLabel(c.user.rol)} · ${ubicacionLabel(c.user.ubicacion)}` : c.mode === `workspace` ? `Workspace` : `Local`} syncing={c.syncing} online={c.online} queueCount={c.queueCount} onFlushQueue={() => void c.flushQueue()} navItems={navItems}>{permMsg && <p className={`banner warn`} style={{
+  }} onBack={d} modeLabel={c.user?.rol ? `${rolLabel(c.user.rol)} · ${ubicacionLabel(c.user.ubicacion)}` : `Patio`} syncing={c.syncing} online={c.online} queueCount={c.queueCount} onFlushQueue={() => void c.flushQueue()} navItems={navItems}>{permMsg && <p className={`banner warn`} style={{
       marginBottom: 12
     }}>{permMsg}</p>}{c.localReadOnly && e !== `dashboard` && e !== `equipos` && <p className={`banner warn`} style={{
       marginBottom: 12
