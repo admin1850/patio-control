@@ -143,9 +143,27 @@
   status = 200
 
 [[redirects]]
+  from = "/api/integraciones/chofer/preaviso"
+  to = "/.netlify/functions/chofer-preaviso"
+  status = 200
+
+[[redirects]]
+  from = "/api/integraciones/frotcom/conciliar"
+  to = "/.netlify/functions/frotcom-conciliar"
+  status = 200
+
+[[redirects]]
+  from = "/api/integraciones/erp/costos-ot.csv"
+  to = "/.netlify/functions/erp-costos-ot"
+  status = 200
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
 
 [functions."avisos-diario"]
   schedule = "0 13 * * *"
+
+[functions."frotcom-conciliar"]
+  schedule = "*/30 * * * *"

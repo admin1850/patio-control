@@ -220,6 +220,24 @@ export function fetchKpisServidor(query = {}) {
  * KPIs nuevos, o `null` si el API no está (la página sigue con los KPIs del dispositivo).
  * @param {{ yarda?: string, desde?: string, hasta?: string }} [query]
  */
+/** Lista de preavisos de App Chofer. Vacía si el API no está o no hay filas. */
+export async function fetchLlegadasOpcional(yarda) {
+  try {
+    const q = yarda && yarda !== 'todas' ? `?yarda=${encodeURIComponent(yarda)}` : ''
+    const data = await apiFetch(`/api/integraciones/chofer/preaviso${q}`)
+    return Array.isArray(data?.llegadas) ? data.llegadas : []
+  } catch (err) {
+    if (err instanceof ApiError && [401, 403, 404, 405, 503].includes(err.status)) return []
+    if (isBackendUnavailable(err) || isNetworkFailure(err)) return []
+    return []
+  }
+}
+
+/** Texto de viajeId o QR → llegada con sello esperado, o match null. */
+export function buscarLlegadaServidor(texto) {
+  return apiFetch(`/api/integraciones/chofer/preaviso?q=${encodeURIComponent(String(texto || '').trim())}`)
+}
+
 export async function fetchKpisOpcional(query = {}) {
   try {
     const data = await fetchKpisServidor(query)

@@ -110,7 +110,9 @@ npm run test:fase1                      # OT, ETR, semáforo, bloqueo de salida
 npm run migrate:fase3 -- --dry-run      # pestaña Defectos
 npm run test:fase3                      # sello ciego, documentos, Thermo y daños
 npm run test:fase4                      # preventivo, avisos y KPIs
-npm test                                # fase 0 a fase 4
+npm run migrate:fase5 -- --dry-run      # columna viajeId (AJ) + pestaña LlegadasEsperadas
+npm run test:fase5                      # App Chofer, Frotcom y ERP
+npm test                                # fase 0 a fase 5
 ```
 
 Agrega `Movimientos!AE:AI` (`motivoParo, paradoDesde, zonaSlot, usuarioEmail, horaServidor`),
@@ -202,7 +204,94 @@ En la página de KPIs, las tarjetas nuevas aparecen cuando el API responde. Si n
 ```bash
 npm run migrate:fase4 -- --dry-run
 npm run test:fase4
-npm test                                # fase 0 + fase 1 + fase 2 + fase 3 + fase 4
+npm run test:fase5
+npm test                                # fase 0 + fase 1 + fase 2 + fase 3 + fase 4 + fase 5
+```
+
+## Fase 5 — App Chofer, Frotcom y ERP (stubs)
+
+Los tres canales hablan con PatioControl. PatioControl no exige sus credenciales para operar: sin llave externa el patio sigue igual y Frotcom responde en seco.
+
+Auth de `/api/integraciones/*`: cookie `patio_session` (o `Authorization: Bearer`) **o** header `X-Patio-Key` con el valor de `PATIO_INTEGRATION_KEY`. Si no hay secreto de sesión ni llave, la auth queda opcional (mismo modo dual que el resto).
+
+`npm run migrate:fase5` solo agrega (no borra filas):
+
+| Dónde | Qué |
+|-------|-----|
+| `Movimientos!AJ` | `viajeId` opcional. Si la cuadrícula no llega a AJ, el movimiento se guarda igual y el viajeId se omite |
+| `LlegadasEsperadas` | id, viajeId, placas, cajasJson, dolly, sello, cartaPorte, eta, yardaId, horaServidor, estatus (`PENDIENTE` \| `RECIBIDA`) |
+
+### App Chofer
+
+App Chofer hace el POST cuando el viaje va a la yarda. PatioControl no la llama.
+
+```http
+POST /api/integraciones/chofer/preaviso
+X-Patio-Key: <PATIO_INTEGRATION_KEY>
+Content-Type: application/json
+
+{
+  "viajeId": "VJ-100",
+  "placas": ["ABC123A"],
+  "cajas": ["CAJA1"],
+  "dolly": "DOLLY1",
+  "sello": "SELLO1",
+  "cartaPorte": "uuid-carta",
+  "eta": "2026-09-30T18:30:00.000Z",
+  "yardaId": "chihuahua"
+}
+```
+
+El mismo `viajeId` actualiza la fila (no duplica). `GET /api/integraciones/chofer/preaviso` lista las pendientes para el panel **Llegadas esperadas** (solo si hay filas). `GET /api/integraciones/chofer/preaviso?q=` acepta el viajeId, un JSON `{"viajeId":"…"}` o una URL con `?viajeId=`. La respuesta trae `match.selloEsperado` para rellenar el sello en la entrada. Al guardar la entrada con ese `viajeId`, el preaviso pasa a `RECIBIDA`.
+
+En la entrada, el campo **viajeId o texto del QR** es opcional: al pegar el QR se consulta ese GET y, si hay match, se llena el sello esperado.
+
+### Frotcom
+
+`proveedorGPS()` en `netlify/functions/lib/gpsProvider.js` es el contrato. El stub de Frotcom lee `FROTCOM_API_URL` y `FROTCOM_TOKEN`. Sin las dos, `POST /api/integraciones/frotcom/conciliar` responde `{ ok: true, dryRun: true, alertas: [] }` y no escribe nada.
+
+Con credenciales, compara la última posición contra `Movimientos` en ±30 min y las geocercas de `PATIO_GEOCERCAS_JSON`:
+
+```json
+[{ "yardaId": "chihuahua", "lat": 28.635, "lng": -106.089, "radioMetros": 500 }]
+```
+
+| Alerta en `AvisosLog` | Cuándo |
+|----------------------|--------|
+| `MOV_NO_REGISTRADO` | El GPS está dentro de la geocerca y no hay entrada/salida de esa unidad en ±30 min |
+| `SIN_CONFIRMACION_GPS` | Hay entrada o salida en los últimos 30 min y el GPS no la confirma dentro de la geocerca |
+
+La función `frotcom-conciliar` también corre `*/30 * * * *` (Netlify manda `{ "next_run" }`). A mano: el POST con sesión o `X-Patio-Key`.
+
+La ruta HTTP (`/vehicles/last-positions`) y el JSON son un stub. El contrato real de Frotcom se cambia solo en `gpsProvider.js`.
+
+### ERP (sys.carbalmotors.com)
+
+Pull diario, no hay push. Una vez al día (después de las 07:00, hora del centro) el ERP pide el día anterior:
+
+```http
+GET /api/integraciones/erp/costos-ot.csv?desde=2026-09-29&hasta=2026-09-29
+X-Patio-Key: <PATIO_INTEGRATION_KEY>
+```
+
+CSV: `unidad, otFolio, fecha, concepto, importe, proveedor`. Conceptos: `refacciones`, `mano de obra`, `externo` (o `estimado` si esos tres no vienen). `fecha` es la de liberación, lista o entrada a taller, en calendario de América/México. `desde` y `hasta` son `YYYY-MM-DD` e inclusivos; si se omiten, salen todas las OT con costo.
+
+### Variables
+
+| Variable | Uso |
+|----------|-----|
+| `PATIO_INTEGRATION_KEY` | Valor del header `X-Patio-Key` para App Chofer, Frotcom y el ERP. En Netlify: Site settings → Environment variables. No se muestra en la tablet |
+| `FROTCOM_API_URL`, `FROTCOM_TOKEN` | Stub GPS. Sin ellas, conciliación en seco |
+| `PATIO_GEOCERCAS_JSON` | Geocercas por yarda (lat, lng, radioMetros) |
+
+En Cloud, un admin ve el recordatorio de dónde vive `PATIO_INTEGRATION_KEY`. La llave no se guarda en el dispositivo.
+
+WhatsApp sigue como en Fase 4: sin `WHATSAPP_TOKEN` y `WHATSAPP_PHONE_ID` las alertas nuevas quedan en `AvisosLog` con `canal=log`.
+
+```bash
+npm run migrate:fase5 -- --dry-run
+npm run test:fase5
+npm test
 ```
 
 ```bash

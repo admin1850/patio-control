@@ -15,6 +15,7 @@ import {
   ApiError,
   createMovimientoServer,
   fetchEstadoUnidadesOpcional,
+  buscarLlegadaServidor,
   fetchMe,
   fetchTableroOpcional,
   getDispositivoId,
@@ -58,6 +59,7 @@ import {
 import Mantenimiento, { EstatusOperativoChip, MantenimientoBoard, puedeAbrirOtCliente, puedeAutorizarSalidaCliente } from "./components/Mantenimiento.jsx";
 import KpiMantenimiento from "./components/KpiMantenimiento.jsx";
 import Inventario from "./components/Inventario.jsx";
+import LlegadasEsperadas from "./components/LlegadasEsperadas.jsx";
 import { useZonaSlotFields } from "./components/ZonaSlotFields.jsx";
 import { countPending, enqueueMovimiento, flushOutbox } from "./lib/outbox.js";
 
@@ -1712,6 +1714,8 @@ function _Component4({
   let [Re, ze] = (0, l.useState)(``);
   let [Be, He] = (0, l.useState)(`buena`);
   let [Ue, We] = (0, l.useState)(``);
+  let [viajeId, setViajeId] = (0, l.useState)(``);
+  let [llegadaHint, setLlegadaHint] = (0, l.useState)(``);
   let [P, qe] = (0, l.useState)(null);
   let [Je, Ye] = (0, l.useState)(false);
   let [Xe, Qe] = (0, l.useState)(``);
@@ -2076,6 +2080,7 @@ function _Component4({
       fotosEvidencia: D,
       condicionGeneral: Be,
       selloNumero: Ue.trim() || undefined,
+      viajeId: e === `entrada` ? viajeId.trim() || undefined : undefined,
       selloCoincideEntrada: e === `salida` && P ? At === `ok` : e === `salida` ? null : undefined,
       observaciones: Xe.trim() || undefined,
       firmaNombre: ct.trim(),
@@ -2109,6 +2114,8 @@ function _Component4({
       ze(``);
       Qe(``);
       We(``);
+      setViajeId(``);
+      setLlegadaHint(``);
       qe(null);
       Ye(false);
       nt({});
@@ -2285,6 +2292,37 @@ function _Component4({
   const Component422 = `p`;
   const Component423 = `button`;
   const Component424 = `form`;
+  async function buscarPreaviso(raw) {
+    if (e !== `entrada`) return;
+    let texto = String(raw ?? ``).trim();
+    if (!texto) {
+      setLlegadaHint(``);
+      return;
+    }
+    try {
+      let data = await buscarLlegadaServidor(texto);
+      let match = data?.match;
+      if (!match) {
+        setLlegadaHint(`Sin preaviso para ese viaje.`);
+        return;
+      }
+      if (match.viajeId) setViajeId(String(match.viajeId));
+      let selloEsp = String(match.selloEsperado || match.sello || ``).trim().toUpperCase();
+      if (selloEsp) We(selloEsp);
+      let cajas = Array.isArray(match.cajas) ? match.cajas : [];
+      if (selloEsp || cajas.length) g(true);
+      if (cajas[0]) {
+        let placaCaja = typeof cajas[0] === `object` ? cajas[0].placa || cajas[0].id || `` : cajas[0];
+        if (placaCaja) le(String(placaCaja).toUpperCase());
+      }
+      if (match.yardaId) Dt(String(match.yardaId));
+      let placas = Array.isArray(match.placas) ? match.placas.filter(Boolean) : [];
+      if (!O.trim() && placas[0]) re(String(placas[0]).toUpperCase());
+      setLlegadaHint(`Preaviso ${match.viajeId}${match.selloEsperado || match.sello ? ` · sello esperado ${match.selloEsperado || match.sello}` : ``}${placas.length ? ` · ${placas.join(`, `)}` : ``}`);
+    } catch {
+      setLlegadaHint(``);
+    }
+  }
   async function redactarConGrok() {
     setGrokObsBusy(true);
     F(null);
@@ -2339,7 +2377,16 @@ function _Component4({
   }
   return <Component424 className={`form-panel`} id={`movement-form`} onSubmit={e => void jt(e)}>{(0, createPortal)(<Component273 className={`sticky-save-bar`}><Component272 type={`button`} className={`btn primary sticky-save`} disabled={yt} onClick={() => {
         document.getElementById(`movement-form`)?.requestSubmit();
-      }}>{yt ? `Guardando…` : e === `entrada` ? `Guardar entrada` : `Guardar salida`}</Component272></Component273>, document.body)}<Component276 className={`form-head`}><Component274>{e === `entrada` ? `Registrar entrada a planta` : `Registrar salida a ruta`}</Component274><Component275>{`Gate check con fotos guiadas, sello, firma y GPS · ~50 mov/día entre Chihuahua, Calera y Calpulalpan.`}</Component275></Component276><Component280 className={`fieldset`}><Component277>{`Empresa`}</Component277><Component279 className={`seg big wrap`}>{ie.map(e => <Component278 type={`button`} className={d === e.id ? `seg-btn on-ok` : `seg-btn`} onClick={() => Ot(e.id)} key={e.id}>{e.nombre}</Component278>)}</Component279></Component280><Component284 className={`fieldset`}><Component281>{`Yarda`}</Component281><Component283 className={`seg big wrap`}>{_e.map(e => <Component282 type={`button`} className={c === e.id ? `seg-btn on-ok` : `seg-btn`} onClick={() => Dt(e.id)} key={e.id}>{e.nombre}</Component282>)}</Component283></Component284>{e === `entrada` && <Component288 className={`quick-picks`}><Component285 className={`label`}>{`Catálogo de equipos`}{n.length === 0 ? ` (vacío · cárgalos en Equipos)` : ``}</Component285>{n.length > 0 && <l.Fragment><input className={`input`} style={{
+      }}>{yt ? `Guardando…` : e === `entrada` ? `Guardar entrada` : `Guardar salida`}</Component272></Component273>, document.body)}<Component276 className={`form-head`}><Component274>{e === `entrada` ? `Registrar entrada a planta` : `Registrar salida a ruta`}</Component274><Component275>{`Gate check con fotos guiadas, sello, firma y GPS · ~50 mov/día entre Chihuahua, Calera y Calpulalpan.`}</Component275></Component276>{e === `entrada` && <fieldset className={`fieldset`}><legend>{`Viaje (App Chofer)`}</legend><label className={`field`}><span>{`viajeId o texto del QR (opcional)`}</span><input className={`input`} data-field={`viaje-id`} value={viajeId} onChange={ev => {
+        setViajeId(ev.target.value);
+        setLlegadaHint(``);
+      }} onBlur={ev => void buscarPreaviso(ev.target.value)} onPaste={ev => {
+        let text = ev.clipboardData?.getData(`text`) || ``;
+        if (!text.trim()) return;
+        ev.preventDefault();
+        setViajeId(text.trim());
+        void buscarPreaviso(text);
+      }} placeholder={`Pega el QR o el viajeId`} autoComplete={`off`} /></label>{llegadaHint && <p className={`hint`} data-field={`llegada-hint`}>{llegadaHint}</p>}</fieldset>}<Component280 className={`fieldset`}><Component277>{`Empresa`}</Component277><Component279 className={`seg big wrap`}>{ie.map(e => <Component278 type={`button`} className={d === e.id ? `seg-btn on-ok` : `seg-btn`} onClick={() => Ot(e.id)} key={e.id}>{e.nombre}</Component278>)}</Component279></Component280><Component284 className={`fieldset`}><Component281>{`Yarda`}</Component281><Component283 className={`seg big wrap`}>{_e.map(e => <Component282 type={`button`} className={c === e.id ? `seg-btn on-ok` : `seg-btn`} onClick={() => Dt(e.id)} key={e.id}>{e.nombre}</Component282>)}</Component283></Component284>{e === `entrada` && <Component288 className={`quick-picks`}><Component285 className={`label`}>{`Catálogo de equipos`}{n.length === 0 ? ` (vacío · cárgalos en Equipos)` : ``}</Component285>{n.length > 0 && <l.Fragment><input className={`input`} style={{
           marginTop: 8,
           marginBottom: 8
         }} value={catalogQuery} onChange={ev => setCatalogQuery(ev.target.value)} placeholder={`Buscar placa, económico o chofer…`} /><Component287 className={`chip-row`}>{catalogMatches.map(eq => <Component286 type={`button`} className={`chip`} onClick={() => {
@@ -3532,7 +3579,10 @@ function Yt(e) {
         refrigerada: t
       };
     })(),
-    ...parseMovimientoFase0Cells(e)
+    ...parseMovimientoFase0Cells(e),
+    ...(e[35] ? {
+      viajeId: String(e[35])
+    } : {})
   };
 }
 var MOVIMIENTOS_BASE_COLS = 30;
@@ -3559,6 +3609,9 @@ function parseMovimientoFase0Cells(e) {
     } : {}),
     ...(e[34] ? {
       horaServidor: e[34]
+    } : {}),
+    ...(e[35] ? {
+      viajeId: String(e[35])
     } : {})
   };
 }
@@ -3597,13 +3650,22 @@ function Qt(e) {
   return [e.id, e.tipo, e.equipoId, e.placa, e.numeroEconomico, e.equipoTipo, e.fechaHora, e.operador, e.chofer ?? ``, Kt(e), e.kilometros, e.dieselPorcentaje, e.dieselLitros, JSON.stringify(e.checklist), e.fotos.join(`|`), e.condicionGeneral, e.observaciones ?? ``, e.creadoEn, e.yardaId, e.selloNumero ?? ``, e.firmaNombre ?? ``, e.firmaUrl ?? ``, e.geoLat ?? ``, JSON.stringify(e.fotosEvidencia ?? []), e.geoLng ?? ``, JSON.stringify({
     ...(e.cumplimiento ?? {}),
     selloCoincideEntrada: e.selloCoincideEntrada ?? null
-  }), L(e), e.empresaId ?? `api`, e.llevaRefrigerada && e.refrigerada ? JSON.stringify(e.refrigerada) : ``, e.whatsapp ?? ``, ...movimientoFase0Cells(e)];
+  }), L(e), e.empresaId ?? `api`, e.llevaRefrigerada && e.refrigerada ? JSON.stringify(e.refrigerada) : ``, e.whatsapp ?? ``, ...movimientoFase0Cells(e), e.viajeId ?? ``];
 }
 async function $t(e) {
   return ((await (await Vt(e, `/values/Equipos!A2:I`)).json()).values ?? []).map(Ht).filter(Boolean);
 }
 async function en(e) {
-  return ((await (await Vt(e, `/values/Movimientos!A2:AI`)).json()).values ?? []).map(Yt).filter(Boolean).sort((e, t) => new Date(t.fechaHora).getTime() - new Date(e.fechaHora).getTime());
+  let values;
+  try {
+    values = (await (await Vt(e, `/values/Movimientos!A2:AJ`)).json()).values ?? [];
+  } catch (err) {
+    if (!/exceeds grid limits|grid limits|Unable to parse range/i.test(err instanceof Error ? err.message : ``)) {
+      throw err;
+    }
+    values = (await (await Vt(e, `/values/Movimientos!A2:AI`)).json()).values ?? [];
+  }
+  return values.map(Yt).filter(Boolean).sort((e, t) => new Date(t.fechaHora).getTime() - new Date(e.fechaHora).getTime());
 }
 async function tn(e, t) {
   await Vt(e, `/values/Equipos!A:I:append?valueInputOption=USER_ENTERED`, {
@@ -3646,26 +3708,34 @@ async function rn(e, t, n) {
 }
 async function an(e, t) {
   let row = Qt(t);
-  let hasFase0 = row.slice(MOVIMIENTOS_BASE_COLS).some(c => c !== ``);
-  let append = r => Vt(e, `/values/Movimientos!A:${r.length > MOVIMIENTOS_BASE_COLS ? `AI` : `AD`}:append?valueInputOption=USER_ENTERED`, {
+  let grid = err => /exceeds grid limits|grid limits/i.test(err instanceof Error ? err.message : ``);
+  let appendEnd = (r, end) => Vt(e, `/values/Movimientos!A:${end}:append?valueInputOption=USER_ENTERED`, {
     method: `POST`,
     body: JSON.stringify({
       values: [r]
     })
   });
+  if (String(row[35] ?? ``) !== ``) {
+    try {
+      await appendEnd(row, `AJ`);
+      return;
+    } catch (err) {
+      if (!grid(err)) throw err;
+      console.warn(`Movimientos sin columna AJ (viajeId). Corre npm run migrate:fase5. Se guarda sin viajeId.`);
+      row = row.slice(0, 35);
+    }
+  }
+  let hasFase0 = row.slice(MOVIMIENTOS_BASE_COLS, 35).some(c => c !== `` && c != null);
   if (!hasFase0) {
-    await append(row.slice(0, MOVIMIENTOS_BASE_COLS));
+    await appendEnd(row.slice(0, MOVIMIENTOS_BASE_COLS), `AD`);
     return;
   }
   try {
-    await append(row);
+    await appendEnd(row.slice(0, 35), `AI`);
   } catch (err) {
-    // Hoja sin columnas AE:AI (falta `npm run migrate:fase0`): guardar sin ellas antes que perder el movimiento.
-    if (!/exceeds grid limits|grid limits/i.test(err instanceof Error ? err.message : ``)) {
-      throw err;
-    }
+    if (!grid(err)) throw err;
     console.warn(`Movimientos sin columnas AE:AI; se guarda sin motivoParo/paradoDesde/zonaSlot/usuarioEmail/horaServidor.`);
-    await append(row.slice(0, MOVIMIENTOS_BASE_COLS));
+    await appendEnd(row.slice(0, MOVIMIENTOS_BASE_COLS), `AD`);
   }
 }
 async function on(e, t, n) {
@@ -4801,7 +4871,7 @@ function An({
       marginBottom: 12
     }}><strong>{authUser.nombreKardex || authUser.name}</strong>{` · `}{rolLabel(authUser.rol)}{` · `}{ubicacionLabel(authUser.ubicacion)}{authUser.whatsapp ? ` · WA ${authUser.whatsapp}` : ``}{` · `}{authUser.email}</div> : soloLectura ? <div className={`banner warn`} style={{
       marginBottom: 12
-    }}><strong>{`Modo local`}</strong>{` · `}{LOCAL_READONLY_BANNER}{`. `}{onCloud ? <button type={`button`} className={`text-btn`} onClick={onCloud}>{`Conectar Cloud ahora`}</button> : `Ve a Cloud y conecta Google.`}</div> : null}<Component521 className={`hero-ops`}><Component511><Component508 className={`eyebrow`}>{`Gate · 3 yardas · API / Carbal-Pia`}</Component508><Component509>{`Control de accesos/salidas en los patios de trabajo`}</Component509><Component510 className={`lede`}>{`Chihuahua, Calera y Calpulalpan · ~25 viajes/día por sentido. Fotos guiadas, sello, firma y GPS.`}</Component510></Component511><Component512 className={`hero-prompt`}>{`Selecciona el tipo de movimiento o registro que necesitas hacer:`}</Component512><Component518 className={`hero-actions`}>{puedeMovimiento(authUser, `entrada`) && <Component513 type={`button`} className={`btn ghost`} onClick={() => t()}>{`Nueva entrada`}</Component513>}{puedeMovimiento(authUser, `salida`) && <Component514 type={`button`} className={`btn ghost`} onClick={() => n()}>{`Registrar salida`}</Component514>}{puedeMovimiento(authUser, `parado`) && <Component516 type={`button`} className={`btn ghost`} onClick={() => r()}>{`Equipo parado`}<Component515 className={`btn-sub`}>{`Inventariar`}</Component515></Component516>}{o && puedeMovimiento(authUser, `kpis`) && <Component517 type={`button`} className={`btn ghost`} onClick={o}>{`Ver KPIs`}</Component517>}</Component518><Component520 className={`hero-hint`}><Component519>{`Equipo parado`}</Component519>{` = unidad que ya está en yarda sin viaje de entrada ni salida (vacío en pool, taller, retenida, drop sin ciclo…). No es un arribo: es un conteo.`}</Component520></Component521><Component526 className={`fieldset`}><Component522>{`Empresa`}</Component522><Component525 className={`seg big wrap`}><Component523 type={`button`} className={u === `todas` ? `seg-btn on-ok` : `seg-btn`} onClick={() => C(`todas`)}>{`Todas`}</Component523>{ie.map(e => <Component524 type={`button`} className={u === e.id ? `seg-btn on-ok` : `seg-btn`} onClick={() => C(e.id)} key={e.id}>{e.nombre}</Component524>)}</Component525></Component526><Component531 className={`fieldset`}><Component527>{`Yarda`}</Component527><Component530 className={`seg big wrap`}><Component528 type={`button`} className={s === `todas` ? `seg-btn on-ok` : `seg-btn`} onClick={() => S(`todas`)}>{`Todas`}</Component528>{_e.map(e => <Component529 type={`button`} className={s === e.id ? `seg-btn on-ok` : `seg-btn`} onClick={() => S(e.id)} key={e.id}>{e.nombre}</Component529>)}</Component530></Component531><Component541 className={`stats stats-patio`}><Component534 className={`stat`}><Component532 className={`stat-label`}>{`En patio`}</Component532><Component533 className={`stat-value`}>{f.length}</Component533></Component534><Component537 className={`stat`}><Component535 className={`stat-label`}>{`En ciclo`}</Component535><Component536 className={`stat-value`}>{p.length}</Component536></Component537><Component540 className={`stat`}><Component538 className={`stat-label`}>{`Parados`}</Component538><Component539 className={`stat-value`}>{m.length}</Component539></Component540></Component541><Component552 className={`stats`}><Component544 className={`stat`}><Component542 className={`stat-label`}>{`Entradas hoy`}</Component542><Component543 className={`stat-value`}>{_}</Component543></Component544><Component547 className={`stat`}><Component545 className={`stat-label`}>{`Salidas hoy`}</Component545><Component546 className={`stat-value`}>{v}</Component546></Component547><Component551 className={`stat`}><Component548 className={`stat-label`}>{`Alertas`}</Component548><Component549 className={`stat-value`}>{b.length || y}</Component549><Component550 className={`hint`}>{x}{` críticas`}</Component550></Component551></Component552>{b.length > 0 && <Component560 className={`panel alerts-panel`}><Component554 className={`panel-head`}><Component553>{`Alertas operativas`}</Component553></Component554><Component559 className={`alert-list`}>{b.slice(0, 6).map(e => <Component558 className={`alert-row ${e.level}`} key={e.id}><Component555 className={`unit-placa`}>{e.title}</Component555><Component556 className={`unit-meta`}>{e.detail}</Component556><Component557 className={`unit-time`}>{kn(e.when)}</Component557></Component558>)}</Component559></Component560>}<MantenimientoBoard onOpen={onMantenimiento} compact={true} /><Component580 className={`panel`}><Component563 className={`panel-head`}><Component561>{`Equipos en patio`}{u === `todas` ? `` : ` · ${k(u)}`}{s === `todas` ? `` : ` · ${ye(s)}`}</Component561>{puedeMovimiento(authUser, `historial`) && <Component562 type={`button`} className={`text-btn`} onClick={a}>{`Ver historial`}</Component562>}</Component563>{f.length === 0 ? <Component564 className={`empty`}>{`No hay equipos en patio en este filtro.`}</Component564> : <Component579 className={`unit-list`}>{f.map(({
+    }}><strong>{`Modo local`}</strong>{` · `}{LOCAL_READONLY_BANNER}{`. `}{onCloud ? <button type={`button`} className={`text-btn`} onClick={onCloud}>{`Conectar Cloud ahora`}</button> : `Ve a Cloud y conecta Google.`}</div> : null}<Component521 className={`hero-ops`}><Component511><Component508 className={`eyebrow`}>{`Gate · 3 yardas · API / Carbal-Pia`}</Component508><Component509>{`Control de accesos/salidas en los patios de trabajo`}</Component509><Component510 className={`lede`}>{`Chihuahua, Calera y Calpulalpan · ~25 viajes/día por sentido. Fotos guiadas, sello, firma y GPS.`}</Component510></Component511><Component512 className={`hero-prompt`}>{`Selecciona el tipo de movimiento o registro que necesitas hacer:`}</Component512><Component518 className={`hero-actions`}>{puedeMovimiento(authUser, `entrada`) && <Component513 type={`button`} className={`btn ghost`} onClick={() => t()}>{`Nueva entrada`}</Component513>}{puedeMovimiento(authUser, `salida`) && <Component514 type={`button`} className={`btn ghost`} onClick={() => n()}>{`Registrar salida`}</Component514>}{puedeMovimiento(authUser, `parado`) && <Component516 type={`button`} className={`btn ghost`} onClick={() => r()}>{`Equipo parado`}<Component515 className={`btn-sub`}>{`Inventariar`}</Component515></Component516>}{o && puedeMovimiento(authUser, `kpis`) && <Component517 type={`button`} className={`btn ghost`} onClick={o}>{`Ver KPIs`}</Component517>}</Component518><Component520 className={`hero-hint`}><Component519>{`Equipo parado`}</Component519>{` = unidad que ya está en yarda sin viaje de entrada ni salida (vacío en pool, taller, retenida, drop sin ciclo…). No es un arribo: es un conteo.`}</Component520></Component521><Component526 className={`fieldset`}><Component522>{`Empresa`}</Component522><Component525 className={`seg big wrap`}><Component523 type={`button`} className={u === `todas` ? `seg-btn on-ok` : `seg-btn`} onClick={() => C(`todas`)}>{`Todas`}</Component523>{ie.map(e => <Component524 type={`button`} className={u === e.id ? `seg-btn on-ok` : `seg-btn`} onClick={() => C(e.id)} key={e.id}>{e.nombre}</Component524>)}</Component525></Component526><Component531 className={`fieldset`}><Component527>{`Yarda`}</Component527><Component530 className={`seg big wrap`}><Component528 type={`button`} className={s === `todas` ? `seg-btn on-ok` : `seg-btn`} onClick={() => S(`todas`)}>{`Todas`}</Component528>{_e.map(e => <Component529 type={`button`} className={s === e.id ? `seg-btn on-ok` : `seg-btn`} onClick={() => S(e.id)} key={e.id}>{e.nombre}</Component529>)}</Component530></Component531><Component541 className={`stats stats-patio`}><Component534 className={`stat`}><Component532 className={`stat-label`}>{`En patio`}</Component532><Component533 className={`stat-value`}>{f.length}</Component533></Component534><Component537 className={`stat`}><Component535 className={`stat-label`}>{`En ciclo`}</Component535><Component536 className={`stat-value`}>{p.length}</Component536></Component537><Component540 className={`stat`}><Component538 className={`stat-label`}>{`Parados`}</Component538><Component539 className={`stat-value`}>{m.length}</Component539></Component540></Component541><Component552 className={`stats`}><Component544 className={`stat`}><Component542 className={`stat-label`}>{`Entradas hoy`}</Component542><Component543 className={`stat-value`}>{_}</Component543></Component544><Component547 className={`stat`}><Component545 className={`stat-label`}>{`Salidas hoy`}</Component545><Component546 className={`stat-value`}>{v}</Component546></Component547><Component551 className={`stat`}><Component548 className={`stat-label`}>{`Alertas`}</Component548><Component549 className={`stat-value`}>{b.length || y}</Component549><Component550 className={`hint`}>{x}{` críticas`}</Component550></Component551></Component552>{b.length > 0 && <Component560 className={`panel alerts-panel`}><Component554 className={`panel-head`}><Component553>{`Alertas operativas`}</Component553></Component554><Component559 className={`alert-list`}>{b.slice(0, 6).map(e => <Component558 className={`alert-row ${e.level}`} key={e.id}><Component555 className={`unit-placa`}>{e.title}</Component555><Component556 className={`unit-meta`}>{e.detail}</Component556><Component557 className={`unit-time`}>{kn(e.when)}</Component557></Component558>)}</Component559></Component560>}<LlegadasEsperadas yarda={s} /><MantenimientoBoard onOpen={onMantenimiento} compact={true} /><Component580 className={`panel`}><Component563 className={`panel-head`}><Component561>{`Equipos en patio`}{u === `todas` ? `` : ` · ${k(u)}`}{s === `todas` ? `` : ` · ${ye(s)}`}</Component561>{puedeMovimiento(authUser, `historial`) && <Component562 type={`button`} className={`text-btn`} onClick={a}>{`Ver historial`}</Component562>}</Component563>{f.length === 0 ? <Component564 className={`empty`}>{`No hay equipos en patio en este filtro.`}</Component564> : <Component579 className={`unit-list`}>{f.map(({
           equipo: e,
           entrada: a,
           estado: o
@@ -5438,7 +5508,9 @@ function Vn({
   const Component939 = `div`;
   const Component940 = `section`;
   const Component941 = `div`;
-  return <Component941 className={`page`}><Component892 className={`form-head`}><Component890>{`Google Workspace`}</Component890><Component891>{`Entran con su correo Google + la clave que el admin les asignó en el kardex (hoja Autorizados). Sin email autorizado o con clave incorrecta, no hay acceso.`}</Component891></Component892><Component894 className={`banner ${t === `workspace` ? `success` : `info`}`}>{t === `workspace` && n ? <l.Fragment>{`Conectado como `}<Component893>{n.nombreKardex || n.name}</Component893>{` (`}{n.email}{`) · `}{rolLabel(n.rol)}{` · `}{ubicacionLabel(n.ubicacion)}{n.whatsapp ? ` · WA ${n.whatsapp}` : n.celular ? ` · cel ${n.celular}` : ``}{` · modo nube`}{o ? `` : ` · OFFLINE`}{a > 0 ? ` · ${a} en cola` : ``}</l.Fragment> : <l.Fragment>{`Modo local (solo este dispositivo). Conecta con una cuenta del kardex Autorizados para compartir con el equipo.`}</l.Fragment>}</Component894>{a > 0 && f && <Component896 className={`banner info`}>{`Hay `}{a}{` registro(s) pendientes.`}{` `}<Component895 type={`button`} className={`text-btn`} disabled={r || !o} onClick={() => void f()}>{`Subir cola ahora`}</Component895></Component896>}<Component904 className={`panel links-panel`}><Component897>{`Kardex y archivos compartidos`}</Component897><Component902 className={`link-list`}><Component899><Component898 href={AUTORIZADOS_SHEET_URL} target={`_blank`} rel={`noreferrer`}>{`Hoja Autorizados (kardex · quién puede usar la app)`}</Component898></Component899><Component901><Component900 href={KARDEX_DRIVE_URL} target={`_blank`} rel={`noreferrer`}>{`Carpeta Drive — Kardex autorizados`}</Component900></Component901><li><a href={wt} target={`_blank`} rel={`noreferrer`}>{`Hoja PatioControl — Patio y evidencias`}</a></li><li><a href={I} target={`_blank`} rel={`noreferrer`}>{`Carpeta PatioControl Evidencias`}</a></li></Component902><Component903 className={`hint`}>{`Alta: Email, Clave, Activo=SI y columnas Entrada/Salida/Parado/Baja/Historial/KPIs/Equipos/Cloud en SI o NO. Si las dejas vacías, se usa la plantilla del Rol (guardia = solo entrada/salida).`}</Component903></Component904><Component934 className={`form-panel`} onSubmit={v}><Component927 className={`fieldset`}><Component905>{`Conexión OAuth (una sola vez)`}</Component905><Component913 className={`hint setup-steps`}>{`1) En Google Cloud Console crea un proyecto → APIs: enable `}<Component906>{`Google Sheets API`}</Component906>{` y`}{` `}<Component907>{`Google Drive API`}</Component907>{`.`}<Component908 />{`2) Credenciales → OAuth client ID → tipo `}<Component909>{`Aplicación web`}</Component909>{`.`}<Component910 />{`3) Orígenes autorizados: `}<Component909>{`https://patiocontrol.netlify.app`}</Component909>{` (también http://localhost:5173 si pruebas en local).`}<Component911 />{`4) Pega el Client ID abajo. Dominio recomendado: `}<Component912>{`camircapital.com`}</Component912>{` (solo correos de la empresa).`}</Component913><Component926 className={`grid-2`}><Component916 className={`field full`}><Component914>{`Google Client ID *`}</Component914><Component915 className={`input`} value={m.clientId} onChange={e => h({
+  return <Component941 className={`page`}><Component892 className={`form-head`}><Component890>{`Google Workspace`}</Component890><Component891>{`Entran con su correo Google + la clave que el admin les asignó en el kardex (hoja Autorizados). Sin email autorizado o con clave incorrecta, no hay acceso.`}</Component891></Component892><Component894 className={`banner ${t === `workspace` ? `success` : `info`}`}>{t === `workspace` && n ? <l.Fragment>{`Conectado como `}<Component893>{n.nombreKardex || n.name}</Component893>{` (`}{n.email}{`) · `}{rolLabel(n.rol)}{` · `}{ubicacionLabel(n.ubicacion)}{n.whatsapp ? ` · WA ${n.whatsapp}` : n.celular ? ` · cel ${n.celular}` : ``}{` · modo nube`}{o ? `` : ` · OFFLINE`}{a > 0 ? ` · ${a} en cola` : ``}</l.Fragment> : <l.Fragment>{`Modo local (solo este dispositivo). Conecta con una cuenta del kardex Autorizados para compartir con el equipo.`}</l.Fragment>}</Component894>{a > 0 && f && <Component896 className={`banner info`}>{`Hay `}{a}{` registro(s) pendientes.`}{` `}<Component895 type={`button`} className={`text-btn`} disabled={r || !o} onClick={() => void f()}>{`Subir cola ahora`}</Component895></Component896>}<Component904 className={`panel links-panel`}><Component897>{`Kardex y archivos compartidos`}</Component897><Component902 className={`link-list`}><Component899><Component898 href={AUTORIZADOS_SHEET_URL} target={`_blank`} rel={`noreferrer`}>{`Hoja Autorizados (kardex · quién puede usar la app)`}</Component898></Component899><Component901><Component900 href={KARDEX_DRIVE_URL} target={`_blank`} rel={`noreferrer`}>{`Carpeta Drive — Kardex autorizados`}</Component900></Component901><li><a href={wt} target={`_blank`} rel={`noreferrer`}>{`Hoja PatioControl — Patio y evidencias`}</a></li><li><a href={I} target={`_blank`} rel={`noreferrer`}>{`Carpeta PatioControl Evidencias`}</a></li></Component902><Component903 className={`hint`}>{`Alta: Email, Clave, Activo=SI y columnas Entrada/Salida/Parado/Baja/Historial/KPIs/Equipos/Cloud en SI o NO. Si las dejas vacías, se usa la plantilla del Rol (guardia = solo entrada/salida).`}</Component903></Component904>{normalizeRol(n?.rol) === `admin` && <section className={`panel`} data-panel={`integracion-key`} style={{
+      marginTop: 16
+    }}><div className={`panel-head`}><h2>{`Llave de integraciones`}</h2></div><p className={`hint`}>{`App Chofer, Frotcom y el pull diario del ERP (sys.carbalmotors.com) usan el header X-Patio-Key. El valor está en Netlify como PATIO_INTEGRATION_KEY (Site settings → Environment variables). No se muestra en esta pantalla ni se guarda en la tablet.`}</p></section>}<Component934 className={`form-panel`} onSubmit={v}><Component927 className={`fieldset`}><Component905>{`Conexión OAuth (una sola vez)`}</Component905><Component913 className={`hint setup-steps`}>{`1) En Google Cloud Console crea un proyecto → APIs: enable `}<Component906>{`Google Sheets API`}</Component906>{` y`}{` `}<Component907>{`Google Drive API`}</Component907>{`.`}<Component908 />{`2) Credenciales → OAuth client ID → tipo `}<Component909>{`Aplicación web`}</Component909>{`.`}<Component910 />{`3) Orígenes autorizados: `}<Component909>{`https://patiocontrol.netlify.app`}</Component909>{` (también http://localhost:5173 si pruebas en local).`}<Component911 />{`4) Pega el Client ID abajo. Dominio recomendado: `}<Component912>{`camircapital.com`}</Component912>{` (solo correos de la empresa).`}</Component913><Component926 className={`grid-2`}><Component916 className={`field full`}><Component914>{`Google Client ID *`}</Component914><Component915 className={`input`} value={m.clientId} onChange={e => h({
               ...m,
               clientId: e.target.value
             })} placeholder={`123456789-abc.apps.googleusercontent.com`} required={true} /></Component916><Component919 className={`field`}><Component917>{`Dominio Workspace (opcional)`}</Component917><Component918 className={`input`} value={m.hostedDomain} onChange={e => h({

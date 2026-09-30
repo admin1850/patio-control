@@ -29,7 +29,7 @@ export const AUDITORIA_HEADERS = [
   'dispositivoId',
 ]
 
-/** Columnas A:AI de Movimientos, mismo orden que App.jsx (Qt / Yt), incluidas AE:AI. */
+/** Columnas A:AJ de Movimientos, mismo orden que App.jsx (Qt / Yt). AJ es viajeId (Fase 5). */
 export const MOVIMIENTO_COLUMNS = [
   'id',
   'tipo',
@@ -66,10 +66,14 @@ export const MOVIMIENTO_COLUMNS = [
   'zonaSlot',
   'usuarioEmail',
   'horaServidor',
+  'viajeId',
 ]
 
-export const MOVIMIENTOS_READ_RANGE = 'Movimientos!A2:AI'
-export const MOVIMIENTOS_APPEND_RANGE = 'Movimientos!A:AI'
+export const MOVIMIENTOS_READ_RANGE = 'Movimientos!A2:AJ'
+export const MOVIMIENTOS_APPEND_RANGE = 'Movimientos!A:AJ'
+/** Lectura anterior a Fase 5, si la cuadrícula todavía no llega a AJ. */
+export const MOVIMIENTOS_READ_RANGE_FASE4 = 'Movimientos!A2:AI'
+export const MOVIMIENTOS_APPEND_RANGE_FASE4 = 'Movimientos!A:AI'
 
 export const OT_SHEET = 'OrdenesTrabajo'
 export const OT_EVENTOS_SHEET = 'OT_Eventos'
@@ -173,6 +177,22 @@ export const AVISOS_LOG_COLUMNS = ['id', 'tipo', 'yarda', 'unidadId', 'canal', '
 export const AVISOS_SUSCRIPCIONES_SHEET = 'AvisosSuscripciones'
 export const AVISOS_SUSCRIPCIONES_COLUMNS = ['id', 'tipo', 'yarda', 'canal', 'destino', 'activo']
 
+/** Preaviso de App Chofer (Fase 5). estatus: PENDIENTE | RECIBIDA */
+export const LLEGADAS_ESPERADAS_SHEET = 'LlegadasEsperadas'
+export const LLEGADAS_ESPERADAS_COLUMNS = [
+  'id',
+  'viajeId',
+  'placas',
+  'cajasJson',
+  'dolly',
+  'sello',
+  'cartaPorte',
+  'eta',
+  'yardaId',
+  'horaServidor',
+  'estatus',
+]
+
 /** Ubicación de la unidad (columna `ubicacion` cuando el valor es de Fase 2). */
 export const UBICACIONES_UNIDAD = ['EN_PATIO', 'EN_RUTA', 'EN_TALLER_EXTERNO', 'EN_CLIENTE']
 export const ESTATUS_CARGA = ['VACIA', 'CARGADA', 'EN_CARGA', 'NA']
@@ -210,6 +230,8 @@ export const AVISOS_LOG_READ_RANGE = `${AVISOS_LOG_SHEET}!A2:${columnLetter(AVIS
 export const AVISOS_LOG_APPEND_RANGE = `${AVISOS_LOG_SHEET}!A:${columnLetter(AVISOS_LOG_COLUMNS.length - 1)}`
 export const AVISOS_SUSCRIPCIONES_READ_RANGE = `${AVISOS_SUSCRIPCIONES_SHEET}!A2:${columnLetter(AVISOS_SUSCRIPCIONES_COLUMNS.length - 1)}`
 export const AVISOS_SUSCRIPCIONES_APPEND_RANGE = `${AVISOS_SUSCRIPCIONES_SHEET}!A:${columnLetter(AVISOS_SUSCRIPCIONES_COLUMNS.length - 1)}`
+export const LLEGADAS_ESPERADAS_READ_RANGE = `${LLEGADAS_ESPERADAS_SHEET}!A2:${columnLetter(LLEGADAS_ESPERADAS_COLUMNS.length - 1)}`
+export const LLEGADAS_ESPERADAS_APPEND_RANGE = `${LLEGADAS_ESPERADAS_SHEET}!A:${columnLetter(LLEGADAS_ESPERADAS_COLUMNS.length - 1)}`
 
 /**
  * Índice dentro de `A:A` (la fila 1 es el encabezado, índice 0, y no cuenta).
@@ -710,6 +732,70 @@ export function rowToAvisoSuscripcion(e) {
   }
 }
 
+function readStringList(raw) {
+  if (raw == null || raw === '') return []
+  if (Array.isArray(raw)) {
+    return raw
+      .map((item) => {
+        if (item && typeof item === 'object') return String(item.placa || item.id || '').trim()
+        return String(item ?? '').trim()
+      })
+      .filter(Boolean)
+  }
+  const text = String(raw).trim()
+  if (text.startsWith('[')) {
+    const parsed = parseJsonCell(text)
+    if (Array.isArray(parsed)) return readStringList(parsed)
+  }
+  return text.split(/[|,]/).map((part) => part.trim()).filter(Boolean)
+}
+
+function readCajas(raw) {
+  if (Array.isArray(raw)) return raw
+  const parsed = parseJsonCell(raw)
+  if (Array.isArray(parsed)) return parsed
+  if (raw == null || raw === '') return []
+  return String(raw).split(/[|,]/).map((part) => part.trim()).filter(Boolean)
+}
+
+/** @param {Record<string, any>} llegada */
+export function llegadaToRow(llegada) {
+  const o = llegada && typeof llegada === 'object' ? llegada : {}
+  const estatus = String(o.estatus || 'PENDIENTE').trim().toUpperCase() === 'RECIBIDA' ? 'RECIBIDA' : 'PENDIENTE'
+  return [
+    textCell(o.id),
+    textCell(o.viajeId),
+    jsonArrayCell(readStringList(o.placas)),
+    jsonArrayCell(readCajas(o.cajas ?? o.cajasJson)),
+    textCell(o.dolly),
+    textCell(o.sello).toUpperCase(),
+    textCell(o.cartaPorte),
+    textCell(o.eta),
+    textCell(o.yardaId).toLowerCase(),
+    textCell(o.horaServidor),
+    estatus,
+  ]
+}
+
+/** @param {unknown[] | null | undefined} e */
+export function rowToLlegada(e) {
+  if (!e?.[0] && !e?.[1]) return null
+  const estatus = String(e[10] ?? '').trim().toUpperCase() === 'RECIBIDA' ? 'RECIBIDA' : 'PENDIENTE'
+  return {
+    id: String(e[0] ?? ''),
+    viajeId: String(e[1] ?? ''),
+    placas: readStringList(e[2]),
+    cajas: readCajas(e[3]),
+    dolly: String(e[4] ?? ''),
+    sello: String(e[5] ?? ''),
+    cartaPorte: String(e[6] ?? ''),
+    eta: String(e[7] ?? ''),
+    yardaId: String(e[8] ?? '').trim().toLowerCase(),
+    horaServidor: String(e[9] ?? ''),
+    estatus,
+  }
+}
+
 function origenCell(m) {
   if (m.cliente || m.origen || m.destino) {
     return JSON.stringify({
@@ -805,7 +891,7 @@ function parseFase0(e) {
 }
 
 /**
- * Movimiento de la app → fila A:AI. Append-only; no interpreta fórmulas (el repo escribe RAW).
+ * Movimiento de la app → fila A:AJ. Append-only; no interpreta fórmulas (el repo escribe RAW).
  * @param {Record<string, any>} mov
  * @returns {unknown[]}
  */
@@ -854,11 +940,12 @@ export function movimientoToRow(mov) {
   row[32] = textCell(m.zonaSlot)
   row[33] = textCell(m.usuarioEmail)
   row[34] = textCell(m.horaServidor)
+  row[MOVIMIENTO_COLUMNS.indexOf('viajeId')] = textCell(m.viajeId)
   return row
 }
 
 /**
- * Fila A:AI → movimiento público (misma forma que Yt en App.jsx).
+ * Fila A:AJ → movimiento público (misma forma que Yt en App.jsx).
  * @param {unknown[] | null | undefined} e
  */
 export function rowToMovimiento(e) {
@@ -902,6 +989,7 @@ export function rowToMovimiento(e) {
     empresaId: e[27] || 'api',
     ...(ref ? { llevaRefrigerada: true, refrigerada: ref } : {}),
     ...parseFase0(e),
+    ...(e[35] ? { viajeId: String(e[35]) } : {}),
   }
 }
 
@@ -1058,10 +1146,18 @@ export function createSheetsRepo(opts = {}) {
     return row[0]
   }
 
-  /** Filas A2:AI en orden de hoja (más antiguo primero). */
+  /** Filas A2:AJ en orden de hoja (más antiguo primero). Si AJ no existe, lee A:AI. */
   async function listMovimientos() {
-    const rows = await sheetsGet(MOVIMIENTOS_READ_RANGE)
-    return rows.map(rowToMovimiento).filter(Boolean)
+    try {
+      const rows = await sheetsGet(MOVIMIENTOS_READ_RANGE)
+      return rows.map(rowToMovimiento).filter(Boolean)
+    } catch (err) {
+      if (/exceeds grid limits|grid limits/i.test(String(err?.message ?? ''))) {
+        const rows = await sheetsGet(MOVIMIENTOS_READ_RANGE_FASE4)
+        return rows.map(rowToMovimiento).filter(Boolean)
+      }
+      throw err
+    }
   }
 
   async function findMovimientoById(id) {
@@ -1083,8 +1179,15 @@ export function createSheetsRepo(opts = {}) {
       return await sheetsAppend(MOVIMIENTOS_APPEND_RANGE, [rowValues])
     } catch (err) {
       if (/exceeds grid limits|grid limits/i.test(String(err?.message ?? ''))) {
+        if (rowValues.length > 35) {
+          try {
+            return await sheetsAppend(MOVIMIENTOS_APPEND_RANGE_FASE4, [rowValues.slice(0, 35)])
+          } catch (retryErr) {
+            if (!/exceeds grid limits|grid limits/i.test(String(retryErr?.message ?? ''))) throw retryErr
+          }
+        }
         throw repoError(
-          'La hoja Movimientos no tiene columnas hasta AI. Ejecuta npm run migrate:fase0.',
+          'La hoja Movimientos no tiene columnas hasta AJ (viajeId). Ejecuta npm run migrate:fase0 y npm run migrate:fase5.',
           503,
           'GRID',
         )
@@ -1098,6 +1201,7 @@ export function createSheetsRepo(opts = {}) {
   }
 
   function migrateHint(title) {
+    if (title === LLEGADAS_ESPERADAS_SHEET) return 'npm run migrate:fase5'
     if (
       title === PLAN_PREVENTIVO_SHEET ||
       title === SERVICIO_PROGRAMADO_SHEET ||
@@ -1284,6 +1388,19 @@ export function createSheetsRepo(opts = {}) {
     return updateRowById(AVISOS_SUSCRIPCIONES_SHEET, AVISOS_SUSCRIPCIONES_COLUMNS, id, rowValues)
   }
 
+  async function listLlegadasEsperadas() {
+    const rows = await sheetsGetTab(LLEGADAS_ESPERADAS_READ_RANGE, LLEGADAS_ESPERADAS_SHEET)
+    return rows.map(rowToLlegada).filter((item) => item && (item.id || item.viajeId))
+  }
+
+  async function appendLlegadaEsperada(rowValues) {
+    return appendTab(LLEGADAS_ESPERADAS_APPEND_RANGE, LLEGADAS_ESPERADAS_SHEET, rowValues)
+  }
+
+  async function updateLlegadaEsperadaById(id, rowValues) {
+    return updateRowById(LLEGADAS_ESPERADAS_SHEET, LLEGADAS_ESPERADAS_COLUMNS, id, rowValues)
+  }
+
   return {
     spreadsheetId,
     getAccessToken,
@@ -1326,6 +1443,9 @@ export function createSheetsRepo(opts = {}) {
     listAvisosSuscripciones,
     appendAvisoSuscripcion,
     updateAvisoSuscripcionById,
+    listLlegadasEsperadas,
+    appendLlegadaEsperada,
+    updateLlegadaEsperadaById,
   }
 }
 

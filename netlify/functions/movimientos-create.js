@@ -8,6 +8,7 @@ import { json, parseJsonBody, preflight, requireSession } from './lib/http.js'
 import { intentarAviso } from './lib/avisosService.js'
 import { aplicarCumplimientoServidor, createGateService, persistirDefectos } from './lib/gateService.js'
 import { createMovimientosService } from './lib/movimientosService.js'
+import { marcarLlegadaRecibida } from './lib/llegadasService.js'
 import { lecturaDeMovimiento, createPreventivoService } from './lib/preventivoService.js'
 import { getSheetsRepo } from './lib/sheetsRepo.js'
 
@@ -146,6 +147,9 @@ export async function handler(event, deps) {
           })
         }
       })
+    }
+    if (result.movimiento?.viajeId) {
+      await marcarLlegadaRecibida(repo, result.movimiento.viajeId)
     }
     if (String(mov?.tipo ?? '').trim().toLowerCase() === 'salida' && !result.idempotent) {
       try {
