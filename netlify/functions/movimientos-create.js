@@ -5,8 +5,8 @@
  */
 
 import { json, parseJsonBody, preflight, requireSession } from './lib/http.js'
+import { aplicarCumplimientoServidor, createGateService, persistirDefectos } from './lib/gateService.js'
 import { createMovimientosService } from './lib/movimientosService.js'
-import { createOtService } from './lib/otService.js'
 import { getSheetsRepo } from './lib/sheetsRepo.js'
 
 function sheets(deps) {
@@ -19,25 +19,41 @@ function movimientoFromBody(body) {
 }
 
 /**
- * Bloquea la salida en el servidor si la unidad (o su caja/dolly) no está operable.
- * Si las pestañas de Fase 1 no existen (503), no rompe el gate: la salida sigue.
- * La bitácora del override la escribe validarSalida; un segundo intento cercano no duplica el evento.
+ * Gate fuerte de salida. El cliente no decide `validadoGate`.
+ * Si las pestañas de Fase 1 no existen (503), la salida sigue y el cumplimiento queda sin validar.
+ * La bitácora del override la escribe el gate; un segundo intento cercano no duplica el evento.
  */
 async function gateSalida(event, session, mov, repo, headers) {
   if (String(mov?.tipo ?? '').trim().toLowerCase() !== 'salida') return null
-  if (typeof repo?.listEstadoUnidad !== 'function' || typeof repo?.listOrdenesTrabajo !== 'function') return null
+  if (typeof repo?.listEstadoUnidad !== 'function' || typeof repo?.listOrdenesTrabajo !== 'function') {
+    aplicarCumplimientoServidor(mov, { validacionServidor: false, resultado: 'SIN_VALIDACION' })
+    return null
+  }
   const relacionados = [mov.placaCaja1, mov.placaCaja2]
     .filter(Boolean)
     .map((placa) => ({ placa, tipo: 'caja' }))
   if (mov.equipoTipo === 'dolly') relacionados.push({ unidadId: mov.equipoId, placa: mov.placa, tipo: 'dolly' })
   try {
-    const gate = await createOtService(repo).validarSalida(session, {
+    const gate = await createGateService(repo).validarSalida(session, {
       equipoId: mov.equipoId,
       placa: mov.placa,
       relacionados,
       overrideMotivo: mov.overrideMotivo,
       trasladoTallerExterno: mov.trasladoTallerExterno === true || mov.motivoSalida === 'TRASLADO_TALLER_EXTERNO',
+      motivo: mov.motivo,
+      selloCapturado: mov.selloCapturado || mov.selloNumero,
+      kilometros: mov.kilometros,
+      cartaPorteUuid: mov.cartaPorteUuid || mov.cumplimiento?.cartaPorteUuid,
+      licenciaFederal: mov.licenciaFederal || mov.cumplimiento?.licenciaFederal,
+      llevaRefrigerada: mov.llevaRefrigerada,
+      setPoint: mov.setPoint ?? mov.refrigerada?.setPoint,
+      tempReal: mov.tempReal ?? mov.refrigerada?.temperaturaReal,
+      dieselThermo: mov.dieselThermo ?? mov.refrigerada?.dieselThermo,
+      horometro: mov.horometro ?? mov.refrigerada?.horometroThermo,
+      refrigerada: mov.refrigerada,
+      cumplimiento: mov.cumplimiento,
     })
+    aplicarCumplimientoServidor(mov, gate)
     if (gate.resultado === 'PERMITIDO') return null
     return json(
       event,
@@ -45,13 +61,17 @@ async function gateSalida(event, session, mov, repo, headers) {
       {
         error: gate.mensaje,
         resultado: gate.resultado,
+        motivos: gate.motivos,
         unidades: gate.unidades,
         puedeAutorizar: gate.puedeAutorizar,
       },
       headers,
     )
   } catch (err) {
-    if ((Number(err?.status) || 500) === 503) return null
+    if ((Number(err?.status) || 500) === 503) {
+      aplicarCumplimientoServidor(mov, { validacionServidor: false, resultado: 'SIN_VALIDACION' })
+      return null
+    }
     const status = Number(err?.status) || 500
     return json(event, status, { error: err?.message || 'No se pudo validar la salida.' }, headers)
   }
@@ -72,12 +92,25 @@ export async function handler(event, deps) {
   if (bloqueo) return bloqueo
 
   try {
-    const svc = createMovimientosService(sheets(deps))
+    const repo = sheets(deps)
+    const svc = createMovimientosService(repo)
     const result = await svc.crear(auth.session, mov)
+    const avisos = []
+    if (String(mov?.tipo ?? '').trim().toLowerCase() === 'salida' && !result.idempotent) {
+      try {
+        await persistirDefectos(repo, auth.session, { ...mov, id: result.movimiento.id }, result.movimiento.horaServidor)
+      } catch (err) {
+        if ((Number(err?.status) || 500) === 503) {
+          avisos.push('La salida quedó registrada. La hoja Defectos no está; corre npm run migrate:fase3.')
+        } else {
+          avisos.push(err?.message || 'No se pudieron guardar los daños nuevos.')
+        }
+      }
+    }
     return json(
       event,
       200,
-      { movimiento: result.movimiento, idempotent: Boolean(result.idempotent) },
+      { movimiento: result.movimiento, idempotent: Boolean(result.idempotent), avisos },
       { ...auth.headers, 'Cache-Control': 'no-store' },
     )
   } catch (err) {

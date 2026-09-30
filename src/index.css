@@ -1438,3 +1438,44 @@ html.kiosk .grok-dudas {
     grid-template-columns: 1fr;
   }
 }
+.dano-grid {
+  display: grid;
+  gap: 12px;
+}
+.dano-card {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px;
+  background: #fff;
+}
+.dano-card img,
+.dano-ph {
+  width: 100%;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 8px;
+  background: #eef2f6;
+}
+.dano-ph {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-align: center;
+  padding: 8px;
+}
+.dano-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+@media (width < 720px) {
+  .dano-card {
+    grid-template-columns: 1fr;
+  }
+}

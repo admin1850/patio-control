@@ -27,10 +27,22 @@ import {
   mapServerUserToAuthProfile,
   sessionLikelyAvailable,
   tryCreateMovimientoViaServer,
+  crearOrdenServidor,
+  isGateUnavailable,
   ubicarTrasMovimiento,
   uploadMediaServer,
   validarSalidaAntesDeGuardar,
 } from "./lib/serverApi.js";
+import {
+  angulosDeEquipo,
+  faltanMarcasDano,
+  licenciaFederalValida,
+  normalizarEstadoDano,
+  precargaKmDiesel,
+  requiereSelloSalida,
+  textoAyudaSelloCiego,
+  uuidCartaPorteValido,
+} from "./lib/salidaFuerte.js";
 import {
   LOCAL_READONLY_BANNER,
   activeServerUser,
@@ -43,7 +55,7 @@ import {
   movimientoWriteMode,
   puedeVerPagina,
 } from "./lib/patioSync.js";
-import Mantenimiento, { EstatusOperativoChip, MantenimientoBoard, puedeAutorizarSalidaCliente } from "./components/Mantenimiento.jsx";
+import Mantenimiento, { EstatusOperativoChip, MantenimientoBoard, puedeAbrirOtCliente, puedeAutorizarSalidaCliente } from "./components/Mantenimiento.jsx";
 import Inventario from "./components/Inventario.jsx";
 import { useZonaSlotFields } from "./components/ZonaSlotFields.jsx";
 import { countPending, enqueueMovimiento, flushOutbox } from "./lib/outbox.js";
@@ -3786,11 +3798,20 @@ async function subirFotosMovimiento(e, t) {
       slotId: `firma`
     });
   }
+  let defectos = Array.isArray(t.defectos) ? t.defectos.map(d => {
+    let slot = d.slotId || `dano-${d.angulo}`;
+    let fotos = n.filter(f => f.slotId === slot && fotoYaPublicada(f.url)).map(f => f.url);
+    return {
+      ...d,
+      fotos: fotos.length ? fotos : (d.fotos || []).filter(fotoYaPublicada)
+    };
+  }) : t.defectos;
   return {
     ...t,
     fotosEvidencia: n,
     fotos: n.map(item => item.url),
-    firmaUrl: r
+    firmaUrl: r,
+    ...(Array.isArray(defectos) ? { defectos } : {})
   };
 }
 async function bn(e, t, opts = {}) {
@@ -3801,6 +3822,9 @@ async function bn(e, t, opts = {}) {
     try {
       let data = await createMovimientoServer(prepared);
       if (data?.movimiento?.id) {
+        if (Array.isArray(data.avisos) && data.avisos.length) {
+          data.movimiento.avisosServidor = data.avisos.join(` `);
+        }
         return data.movimiento;
       }
       let err = Error(`El servidor no confirmó el movimiento.`);
@@ -4259,7 +4283,7 @@ function Sn() {
         ...state,
         movimientos: state.movimientos.map(m => m.id === saved.id ? saved : m)
       }));
-      let avisoInventario = null;
+      let avisoInventario = saved?.avisosServidor || null;
       let rId = t.refrigerada?.refrigeracionId;
       let hor = t.refrigerada?.horometroThermo;
       if (n === `workspace` && rId && hor != null) {
@@ -4279,12 +4303,15 @@ function Sn() {
         }
       }
       if (writeMode === `server`) {
-        avisoInventario = await ubicarTrasMovimiento({
+        let avisoUbicacion = await ubicarTrasMovimiento({
           ...t,
           id: saved?.id || t.id,
           equipoId: saved?.equipoId || t.equipoId,
           placa: saved?.placa || t.placa
         });
+        if (avisoUbicacion) {
+          avisoInventario = [avisoInventario, avisoUbicacion].filter(Boolean).join(` `);
+        }
       }
       return avisoInventario;
     } catch (err) {
@@ -5485,42 +5512,63 @@ var SALIDA_CORTA_SLOTS = [{
   silhouette: `side`,
   required: false
 }];
+function slotsSalidaCorta(llevaRefrigerada) {
+  if (!llevaRefrigerada) {
+    return SALIDA_CORTA_SLOTS;
+  }
+  return [...SALIDA_CORTA_SLOTS, {
+    id: `salida-thermo`,
+    label: `Panel Thermo`,
+    hint: `Set point, temperatura real y diésel del Thermo, legibles.`,
+    silhouette: `thermo`,
+    required: true
+  }];
+}
 function findMovAbierto(movimientos, equipoId) {
   return movimientos.find(e => e.equipoId === equipoId);
 }
-/** Salida corta: parte de unidad en patio; solo sello, km/diésel, fotos, firma. */
+/** Salida corta con gate fuerte: sello ciego, documentos, Thermo y daños. */
 function SalidaCortaForm({
-  initialPlaca: initialPlaca = ``,
+  initialPlaca = ``,
   equipos,
   movimientos,
   onSubmit,
   onDone,
-  user = null
+  user = null,
+  onPromptOt = null
 }) {
-  let [yardaId, setYardaId] = (0, l.useState)(() => be());
-  let [empresaId, setEmpresaId] = (0, l.useState)(() => oe());
-  let [selectedId, setSelectedId] = (0, l.useState)(null);
-  let [operador, setOperador] = (0, l.useState)(``);
-  let [selloSalida, setSelloSalida] = (0, l.useState)(``);
-  let [confirmaSello, setConfirmaSello] = (0, l.useState)(false);
-  let [km, setKm] = (0, l.useState)(``);
-  let [dieselPct, setDieselPct] = (0, l.useState)(``);
-  let [dieselL, setDieselL] = (0, l.useState)(``);
-  let [condicion, setCondicion] = (0, l.useState)(`buena`);
-  let [obs, setObs] = (0, l.useState)(``);
-  let [fotos, setFotos] = (0, l.useState)({});
-  let [firma, setFirma] = (0, l.useState)(null);
-  let [firmaNombre, setFirmaNombre] = (0, l.useState)(``);
-  let [error, setError] = (0, l.useState)(null);
-  let [okMsg, setOkMsg] = (0, l.useState)(null);
-  let [busy, setBusy] = (0, l.useState)(false);
-  let [gateMsg, setGateMsg] = (0, l.useState)(null);
-  let [gateLevel, setGateLevel] = (0, l.useState)(null);
-  let [overrideMotivo, setOverrideMotivo] = (0, l.useState)(``);
-  let [trasladoExterno, setTrasladoExterno] = (0, l.useState)(false);
-  let [pideAutorizacion, setPideAutorizacion] = (0, l.useState)(false);
+  let vacio = precargaKmDiesel();
+  let [yardaId, setYardaId] = l.useState(() => be());
+  let [empresaId, setEmpresaId] = l.useState(() => oe());
+  let [selectedId, setSelectedId] = l.useState(null);
+  let [operador, setOperador] = l.useState(``);
+  let [selloSalida, setSelloSalida] = l.useState(``);
+  let [km, setKm] = l.useState(vacio.km);
+  let [dieselPct, setDieselPct] = l.useState(vacio.dieselPct);
+  let [dieselL, setDieselL] = l.useState(vacio.dieselL);
+  let [condicion, setCondicion] = l.useState(`buena`);
+  let [obs, setObs] = l.useState(``);
+  let [fotos, setFotos] = l.useState({});
+  let [firma, setFirma] = l.useState(null);
+  let [firmaNombre, setFirmaNombre] = l.useState(``);
+  let [cartaPorte, setCartaPorte] = l.useState(``);
+  let [licencia, setLicencia] = l.useState(``);
+  let [setPoint, setSetPoint] = l.useState(``);
+  let [tempReal, setTempReal] = l.useState(``);
+  let [dieselThermo, setDieselThermo] = l.useState(``);
+  let [horometro, setHorometro] = l.useState(``);
+  let [danos, setDanos] = l.useState({});
+  let [error, setError] = l.useState(null);
+  let [okMsg, setOkMsg] = l.useState(null);
+  let [busy, setBusy] = l.useState(false);
+  let [otBusy, setOtBusy] = l.useState(``);
+  let [gateMsg, setGateMsg] = l.useState(null);
+  let [gateLevel, setGateLevel] = l.useState(null);
+  let [overrideMotivo, setOverrideMotivo] = l.useState(``);
+  let [trasladoExterno, setTrasladoExterno] = l.useState(false);
+  let [pideAutorizacion, setPideAutorizacion] = l.useState(false);
   let zonaSlotCap = useZonaSlotFields();
-  let enPatio = (0, l.useMemo)(() => equipos.map(eq => {
+  let enPatio = l.useMemo(() => equipos.map(eq => {
     let mov = findMovAbierto(movimientos, eq.id);
     if (!mov || mov.tipo !== `entrada`) {
       return null;
@@ -5536,47 +5584,123 @@ function SalidaCortaForm({
       entrada: mov
     };
   }).filter(Boolean), [equipos, movimientos, yardaId, empresaId]);
-  (0, l.useEffect)(() => {
-    if (!initialPlaca.trim()) {
-      return;
-    }
-    let hit = enPatio.find(e => normalizePlacaMX(e.equipo.placa) === normalizePlacaMX(initialPlaca));
-    if (hit) {
-      setSelectedId(hit.equipo.id);
-    }
-  }, [initialPlaca, enPatio]);
-  let sel = enPatio.find(e => e.equipo.id === selectedId) || null;
-  let selloEntrada = sel?.entrada.selloNumero?.trim().toUpperCase() || ``;
-  let selloCmp = (() => {
-    if (!selloEntrada) {
-      return `none`;
-    }
-    let s = selloSalida.trim().toUpperCase();
-    if (!s) {
-      return `pending`;
-    }
-    return s === selloEntrada ? `ok` : `mismatch`;
-  })();
-  let dieselDelta = (() => {
-    if (sel?.entrada.dieselPorcentaje == null || dieselPct === ``) {
-      return null;
-    }
-    return Number(dieselPct) - Number(sel.entrada.dieselPorcentaje);
-  })();
   function pickUnit(row) {
+    let limpio = precargaKmDiesel();
     setSelectedId(row.equipo.id);
     setSelloSalida(``);
-    setConfirmaSello(false);
-    setKm(row.entrada.kilometros != null ? String(row.entrada.kilometros) : ``);
-    setDieselPct(row.entrada.dieselPorcentaje != null ? String(row.entrada.dieselPorcentaje) : ``);
-    setDieselL(row.entrada.dieselLitros != null ? String(row.entrada.dieselLitros) : ``);
-    setCondicion(row.entrada.condicionGeneral || `buena`);
+    setKm(limpio.km);
+    setDieselPct(limpio.dieselPct);
+    setDieselL(limpio.dieselL);
+    setCartaPorte(``);
+    setLicencia(``);
+    setSetPoint(``);
+    setTempReal(``);
+    setDieselThermo(``);
+    setHorometro(``);
+    setDanos({});
+    setCondicion(`buena`);
     setObs(``);
     setFotos({});
     setError(null);
     setGateMsg(null);
     setGateLevel(null);
     setPideAutorizacion(false);
+    setOverrideMotivo(``);
+    setTrasladoExterno(false);
+  }
+  l.useEffect(() => {
+    if (!initialPlaca.trim() || selectedId) {
+      return;
+    }
+    let hit = enPatio.find(e => normalizePlacaMX(e.equipo.placa) === normalizePlacaMX(initialPlaca));
+    if (hit) {
+      pickUnit(hit);
+    }
+  }, [initialPlaca, enPatio, selectedId]);
+  let sel = enPatio.find(e => e.equipo.id === selectedId) || null;
+  let refrigerada = Boolean(sel?.entrada.llevaRefrigerada);
+  let slots = slotsSalidaCorta(refrigerada);
+  let angulos = sel ? angulosDeEquipo(sel.equipo.tipo || sel.entrada.equipoTipo, sel.entrada.fotosEvidencia) : [];
+  let pideSello = Boolean(sel && requiereSelloSalida(sel.entrada, sel.equipo));
+  let dieselDelta = (() => {
+    if (sel?.entrada.dieselPorcentaje == null || dieselPct === ``) {
+      return null;
+    }
+    return Number(dieselPct) - Number(sel.entrada.dieselPorcentaje);
+  })();
+  let thermoAviso = ``;
+  if (refrigerada && setPoint !== `` && tempReal !== `` && Math.abs(Number(tempReal) - Number(setPoint)) > 2) {
+    thermoAviso = `La temperatura se aleja más de 2°C del set point. El gate puede pedir autorización.`;
+  }
+  if (refrigerada && dieselThermo !== `` && Number(dieselThermo) < 25) {
+    thermoAviso = thermoAviso ? `${thermoAviso} Diésel del Thermo menor a 25.` : `Diésel del Thermo menor a 25. El gate puede pedir autorización.`;
+  }
+  function marcarDano(anguloId, estado) {
+    setDanos(prev => ({
+      ...prev,
+      [anguloId]: {
+        ...prev[anguloId],
+        estado: normalizarEstadoDano(estado)
+      }
+    }));
+  }
+  async function tomarDano(anguloId, file) {
+    if (!file) {
+      return;
+    }
+    if (!file.type.startsWith(`image/`)) {
+      setError(`Solo imágenes`);
+      return;
+    }
+    let dataUrl = await re(file);
+    setDanos(prev => ({
+      ...prev,
+      [anguloId]: {
+        ...prev[anguloId],
+        foto: dataUrl
+      }
+    }));
+  }
+  async function abrirOt(angulo) {
+    if (!sel) {
+      return;
+    }
+    setOtBusy(angulo.id);
+    setError(null);
+    try {
+      let result = await crearOrdenServidor({
+        unidadId: sel.equipo.id,
+        placa: sel.equipo.placa,
+        tipo: `CORRECTIVO`,
+        motivo: `Daño nuevo en ${angulo.label} detectado al salir`,
+        etr: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
+        yarda: yardaId,
+        tallerTipo: `INTERNO`,
+        prioridad: `ALTA`
+      });
+      let orden = result?.orden;
+      setDanos(prev => ({
+        ...prev,
+        [angulo.id]: {
+          ...prev[angulo.id],
+          estado: `DANO_NUEVO`,
+          otId: orden?.id || prev[angulo.id]?.otId || ``,
+          otFolio: orden?.folio || ``,
+          otMsg: result?.linked ? `Se enlazó la OT abierta ${orden?.folio || ``}.` : `OT correctiva ${orden?.folio || ``} creada.`
+        }
+      }));
+    } catch (err) {
+      let text = isGateUnavailable(err) ? `Sin servidor de OT. El daño queda en la salida y puedes seguir.` : err instanceof Error ? err.message : `No se pudo abrir la OT`;
+      setDanos(prev => ({
+        ...prev,
+        [angulo.id]: {
+          ...prev[angulo.id],
+          otMsg: text
+        }
+      }));
+    } finally {
+      setOtBusy(``);
+    }
   }
   async function onSave(ev) {
     ev.preventDefault();
@@ -5590,19 +5714,34 @@ function SalidaCortaForm({
       setError(`Indica quién registra en caseta`);
       return;
     }
-    if ((sel.entrada.equipoTipo === `caja` || sel.entrada.placaCaja1 || sel.entrada.selloNumero) && !selloSalida.trim()) {
+    if (pideSello && !selloSalida.trim()) {
       setError(`Captura el sello de salida`);
       return;
     }
-    if (selloCmp === `mismatch` && !confirmaSello) {
-      setError(`El sello no coincide con la entrada. Confirma la discrepancia.`);
+    if (!uuidCartaPorteValido(cartaPorte)) {
+      setError(`Captura el UUID de la Carta Porte (folio fiscal)`);
       return;
     }
-    if (selloCmp === `mismatch` && confirmaSello && obs.trim().length < 8) {
-      setError(`Describe la discrepancia de sello en observaciones (mín. 8 caracteres)`);
+    if (!licenciaFederalValida(licencia)) {
+      setError(`Captura la licencia federal (8 a 20 caracteres)`);
       return;
     }
-    if (!ge(SALIDA_CORTA_SLOTS, fotos)) {
+    if (refrigerada && (setPoint === `` || tempReal === `` || dieselThermo === `` || horometro === ``)) {
+      setError(`Completa set point, temperatura real, diésel y horómetro del Thermo`);
+      return;
+    }
+    let faltan = faltanMarcasDano(angulos, danos);
+    if (faltan.length) {
+      setError(`Marca cada ángulo: sin cambio o daño nuevo`);
+      return;
+    }
+    for (let angulo of angulos) {
+      if (!danos[angulo.id]?.foto) {
+        setError(`Toma la foto de salida de ${angulo.label}`);
+        return;
+      }
+    }
+    if (!ge(slots, fotos)) {
       setError(`Completa las fotos obligatorias de salida`);
       return;
     }
@@ -5618,10 +5757,21 @@ function SalidaCortaForm({
       if (sel.equipo.tipo === `dolly` || sel.entrada.equipoTipo === `dolly`) {
         relacionados.push({ unidadId: sel.equipo.id, placa: sel.equipo.placa, tipo: `dolly` });
       }
+      let uuid = cartaPorte.trim().toUpperCase();
+      let lic = licencia.trim().toUpperCase();
       let gate = await validarSalidaAntesDeGuardar({
         equipoId: sel.equipo.id,
         placa: sel.equipo.placa,
         relacionados,
+        selloCapturado: selloSalida.trim().toUpperCase(),
+        kilometros: km === `` ? undefined : Number(km),
+        cartaPorteUuid: uuid,
+        licenciaFederal: lic,
+        llevaRefrigerada: refrigerada || undefined,
+        setPoint: refrigerada ? Number(setPoint) : undefined,
+        tempReal: refrigerada ? Number(tempReal) : undefined,
+        dieselThermo: refrigerada ? Number(dieselThermo) : undefined,
+        horometro: refrigerada ? Number(horometro) : undefined,
         overrideMotivo: overrideMotivo.trim() || undefined,
         trasladoTallerExterno: trasladoExterno || undefined,
         consultar: sessionLikelyAvailable()
@@ -5641,11 +5791,20 @@ function SalidaCortaForm({
         setGateLevel(null);
       }
       let geo = await ht();
-      let fotosEvidencia = SALIDA_CORTA_SLOTS.filter(s => fotos[s.id]).map(s => ({
+      let fotosEvidencia = slots.filter(s => fotos[s.id]).map(s => ({
         slotId: s.id,
         label: s.label,
         url: fotos[s.id]
       }));
+      for (let angulo of angulos) {
+        if (danos[angulo.id]?.foto) {
+          fotosEvidencia.push({
+            slotId: `dano-${angulo.id}`,
+            label: `Salida · ${angulo.label}`,
+            url: danos[angulo.id].foto
+          });
+        }
+      }
       let entrada = sel.entrada;
       let equipo = sel.equipo;
       let avisoInventario = await onSubmit({
@@ -5675,28 +5834,53 @@ function SalidaCortaForm({
         fotosEvidencia,
         condicionGeneral: condicion,
         selloNumero: selloSalida.trim().toUpperCase() || undefined,
-        selloCoincideEntrada: selloEntrada ? selloCmp === `ok` : null,
+        selloCapturado: selloSalida.trim().toUpperCase(),
+        selloCoincideEntrada: null,
         observaciones: obs.trim() || undefined,
         firmaNombre: firmaNombre.trim(),
         firmaUrl: firma,
         geoLat: geo?.lat ?? null,
         geoLng: geo?.lng ?? null,
         cumplimiento: {
-          ...(entrada.cumplimiento ?? {}),
-          validadoGate: true,
-          salidaCorta: true
+          cartaPorteUuid: uuid,
+          licenciaFederal: lic,
+          salidaCorta: true,
+          salidaFuerte: true,
+          validadoGate: false,
+          danos: angulos.map(a => ({
+            angulo: a.id,
+            estado: normalizarEstadoDano(danos[a.id]?.estado)
+          }))
         },
+        defectos: angulos.filter(a => normalizarEstadoDano(danos[a.id]?.estado) === `DANO_NUEVO`).map(a => ({
+          angulo: a.id,
+          tipo: `DANO_NUEVO`,
+          slotId: `dano-${a.id}`,
+          otId: danos[a.id]?.otId || ``,
+          fotos: []
+        })),
+        cartaPorteUuid: uuid,
+        licenciaFederal: lic,
         overrideMotivo: overrideMotivo.trim() || undefined,
         trasladoTallerExterno: trasladoExterno || undefined,
         zona: zonaSlotCap.zona.trim() || undefined,
         slot: zonaSlotCap.slot.trim() || undefined,
-        llevaRefrigerada: entrada.llevaRefrigerada,
-        refrigerada: entrada.refrigerada,
+        llevaRefrigerada: refrigerada || undefined,
+        refrigerada: refrigerada ? {
+          ...entrada.refrigerada,
+          setPoint: Number(setPoint),
+          temperaturaReal: Number(tempReal),
+          dieselThermo: Number(dieselThermo),
+          horometroThermo: Number(horometro)
+        } : undefined,
         creadoEn: new Date().toISOString()
       });
       A(yardaId);
       se(empresaId);
-      if (avisoInventario) setError(avisoInventario);
+      if (avisoInventario) {
+        setGateLevel(`warn`);
+        setGateMsg(avisoInventario);
+      }
       setOkMsg(`Salida registrada: ${equipo.placa} · ciclo cerrado`);
       setTimeout(() => onDone(), 1200);
     } catch (err) {
@@ -5705,7 +5889,7 @@ function SalidaCortaForm({
       setBusy(false);
     }
   }
-  return <form className={`form-panel`} id={`salida-corta-form`} onSubmit={e => void onSave(e)}>{(0, createPortal)(<div className={`sticky-save-bar`}><button type={`button`} className={`btn primary sticky-save`} disabled={busy} onClick={() => document.getElementById(`salida-corta-form`)?.requestSubmit()}>{busy ? `Guardando…` : `Guardar salida`}</button></div>, document.body)}<div className={`form-head`}><h1>{`Registrar salida a ruta`}</h1><p>{`Salida corta: elige la unidad en patio. Solo capturas sello, km/diésel, fotos de cierre y firma. El resto viene de la entrada.`}</p></div><fieldset className={`fieldset`}><legend>{`Empresa`}</legend><div className={`seg big wrap`}>{ie.map(emp => <button type={`button`} className={empresaId === emp.id ? `seg-btn on-ok` : `seg-btn`} onClick={() => {
+  return <form className={`form-panel`} id={`salida-corta-form`} onSubmit={e => void onSave(e)}>{createPortal(<div className={`sticky-save-bar`}><button type={`button`} className={`btn primary sticky-save`} disabled={busy} onClick={() => document.getElementById(`salida-corta-form`)?.requestSubmit()}>{busy ? `Guardando…` : `Guardar salida`}</button></div>, document.body)}<div className={`form-head`}><h1>{`Registrar salida a ruta`}</h1><p>{`Salida fuerte: sello ciego, Carta Porte, licencia y daños. El sello de la entrada no se muestra.`}</p></div><fieldset className={`fieldset`}><legend>{`Empresa`}</legend><div className={`seg big wrap`}>{ie.map(emp => <button type={`button`} className={empresaId === emp.id ? `seg-btn on-ok` : `seg-btn`} onClick={() => {
         setEmpresaId(emp.id);
         se(emp.id);
         setSelectedId(null);
@@ -5715,16 +5899,29 @@ function SalidaCortaForm({
         setSelectedId(null);
       }} key={y.id}>{y.nombre}</button>)}</div></fieldset><div className={`quick-picks`}><p className={`label`}>{`Unidades en patio · `}{_e.find(y => y.id === yardaId)?.nombre}</p>{enPatio.length === 0 ? <p className={`empty`}>{`No hay unidades en ciclo/parado en esta yarda. Registra primero una entrada.`}</p> : <div className={`chip-row`}>{enPatio.map(row => <button type={`button`} className={selectedId === row.equipo.id ? `chip on` : `chip`} onClick={() => pickUnit(row)} key={row.equipo.id}>{row.equipo.placa}{` · `}{row.equipo.numeroEconomico}</button>)}</div>}</div>{sel && <div className={`banner info`} style={{
       marginTop: 12
-    }}><strong>{sel.equipo.placa}</strong>{` · eco `}{sel.equipo.numeroEconomico}{sel.entrada.chofer ? ` · chofer ${sel.entrada.chofer}` : ``}{selloEntrada ? ` · sello entrada ${selloEntrada}` : ``}{sel.entrada.kilometros != null ? ` · km ${sel.entrada.kilometros}` : ``}{sel.entrada.dieselPorcentaje != null ? ` · diésel ${sel.entrada.dieselPorcentaje}%` : ``}{` · llegó `}{kn(sel.entrada.fechaHora)}</div>}<fieldset className={`fieldset`}><legend>{`Caseta`}</legend><label className={`field`}><span>{`Operador de patio *`}</span><input className={`input`} value={operador} onChange={e => setOperador(e.target.value)} placeholder={`Quién registra la salida`} required={true} /></label></fieldset>{sel && <fieldset className={`fieldset`}><legend>{`Sello y combustible`}</legend>{selloEntrada && <p className={`banner info`}>{`Sello en entrada: `}<strong>{selloEntrada}</strong></p>}<label className={`field`}><span>{`Sello de salida`}{selloEntrada || sel.entrada.placaCaja1 ? ` *` : ``}</span><input className={`input`} value={selloSalida} onChange={e => {
-        setSelloSalida(e.target.value.toUpperCase());
-        setConfirmaSello(false);
-      }} placeholder={`Recaptura el sello (no se autocompleta)`} /></label>{selloCmp === `ok` && <p className={`banner success`}>{`Sello coincide con la entrada.`}</p>}{selloCmp === `mismatch` && <l.Fragment><p className={`banner error`}>{`Discrepancia: entrada ${selloEntrada} ≠ salida ${selloSalida.trim().toUpperCase()}`}</p><label className={`check-inline`}><input type={`checkbox`} checked={confirmaSello} onChange={e => setConfirmaSello(e.target.checked)} />{`Confirmo discrepancia (queda en KPIs)`}</label></l.Fragment>}<div className={`grid-3`} style={{
-        marginTop: 12
-      }}><label className={`field`}><span>{`Kilómetros`}</span><input className={`input`} type={`number`} min={0} value={km} onChange={e => setKm(e.target.value)} placeholder={`Km al salir`} /></label><label className={`field`}><span>{`Diésel %`}</span><input className={`input`} type={`number`} min={0} max={100} value={dieselPct} onChange={e => setDieselPct(e.target.value)} placeholder={`%`} /></label><label className={`field`}><span>{`Diésel litros`}</span><input className={`input`} type={`number`} min={0} step={0.1} value={dieselL} onChange={e => setDieselL(e.target.value)} placeholder={`L`} /></label></div>{dieselDelta != null && dieselDelta <= -15 && <p className={`banner warn`} style={{
+    }}><strong>{sel.equipo.placa}</strong>{` · eco `}{sel.equipo.numeroEconomico}{sel.entrada.chofer ? ` · chofer ${sel.entrada.chofer}` : ``}{` · llegó `}{kn(sel.entrada.fechaHora)}{refrigerada ? ` · caja refrigerada` : ``}</div>}<fieldset className={`fieldset`}><legend>{`Caseta`}</legend><label className={`field`}><span>{`Operador de patio *`}</span><input className={`input`} value={operador} onChange={e => setOperador(e.target.value)} placeholder={`Quién registra la salida`} required={true} /></label></fieldset>{sel && <fieldset className={`fieldset`}><legend>{`Sello ciego`}</legend><p className={`hint`}>{textoAyudaSelloCiego()}</p><label className={`field`}><span>{`Sello de salida`}{pideSello ? ` *` : ``}</span><input className={`input`} name={`sello-captura-salida`} autoComplete={`off`} value={selloSalida} onChange={e => setSelloSalida(e.target.value.toUpperCase())} placeholder={`Lee el sello en la puerta`} /></label></fieldset>}{sel && <fieldset className={`fieldset`}><legend>{`Documentos de salida`}</legend><div className={`grid-2`}><label className={`field`}><span>{`Carta Porte UUID *`}</span><input className={`input`} value={cartaPorte} onChange={e => setCartaPorte(e.target.value.toUpperCase())} placeholder={`XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX`} autoComplete={`off`} required={true} /></label><label className={`field`}><span>{`Licencia federal *`}</span><input className={`input`} value={licencia} onChange={e => setLicencia(e.target.value.toUpperCase())} placeholder={`Número de licencia SCT/SICT`} autoComplete={`off`} required={true} /></label></div>{cartaPorte && !uuidCartaPorteValido(cartaPorte) && <p className={`field-error`}>{`El UUID no tiene formato de folio fiscal.`}</p>}{licencia && !licenciaFederalValida(licencia) && <p className={`field-error`}>{`La licencia debe tener de 8 a 20 caracteres.`}</p>}</fieldset>}{sel && <fieldset className={`fieldset`}><legend>{`Kilómetros y diésel`}</legend><p className={`hint`}>{`No se copian de la entrada. Si capturas kilómetros, no pueden ser menores al último registro.`}{sel.entrada.kilometros != null ? ` Último km: ${sel.entrada.kilometros}.` : ``}</p><div className={`grid-3`}><label className={`field`}><span>{`Kilómetros`}</span><input className={`input`} type={`number`} min={0} value={km} onChange={e => setKm(e.target.value)} placeholder={`Km al salir`} autoComplete={`off`} /></label><label className={`field`}><span>{`Diésel %`}</span><input className={`input`} type={`number`} min={0} max={100} value={dieselPct} onChange={e => setDieselPct(e.target.value)} placeholder={`%`} autoComplete={`off`} /></label><label className={`field`}><span>{`Diésel litros`}</span><input className={`input`} type={`number`} min={0} step={0.1} value={dieselL} onChange={e => setDieselL(e.target.value)} placeholder={`L`} autoComplete={`off`} /></label></div>{dieselDelta != null && dieselDelta <= -15 && <p className={`banner warn`} style={{
+          marginTop: 10
+        }}>{`Merma de diésel: ${dieselDelta.toFixed(0)}% vs entrada (${sel.entrada.dieselPorcentaje}% → ${dieselPct}%).`}</p>}</fieldset>}{refrigerada && <fieldset className={`fieldset`}><legend>{`Thermo / caja refrigerada`}</legend><div className={`grid-2`}><label className={`field`}><span>{`Set point (°C) *`}</span><input className={`input`} type={`number`} step={0.1} value={setPoint} onChange={e => setSetPoint(e.target.value)} placeholder={`Ej. 2`} required={true} /></label><label className={`field`}><span>{`Temperatura real (°C) *`}</span><input className={`input`} type={`number`} step={0.1} value={tempReal} onChange={e => setTempReal(e.target.value)} placeholder={`Display`} required={true} /></label><label className={`field`}><span>{`Diésel Thermo (%) *`}</span><input className={`input`} type={`number`} min={0} max={100} step={1} value={dieselThermo} onChange={e => setDieselThermo(e.target.value)} placeholder={`0 a 100`} required={true} /></label><label className={`field`}><span>{`Horómetro *`}</span><input className={`input`} type={`number`} min={0} step={0.1} value={horometro} onChange={e => setHorometro(e.target.value)} placeholder={`Horas`} required={true} /></label></div>{thermoAviso && <p className={`banner warn`} style={{
         marginTop: 10
-      }}>{`Merma de diésel: ${dieselDelta.toFixed(0)}% vs entrada (${sel.entrada.dieselPorcentaje}% → ${dieselPct}%).`}</p>}</fieldset>}<fieldset className={`fieldset`}><legend>{`Condición al salir`}</legend><div className={`seg big`}>{[`buena`, `regular`, `mala`].map(c => <button type={`button`} className={condicion === c ? `seg-btn ${c === `buena` ? `on-ok` : c === `regular` ? `on-warn` : `on-bad`}` : `seg-btn`} onClick={() => setCondicion(c)} key={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</button>)}</div></fieldset><fieldset className={`fieldset`}><legend>{`Fotos de salida`}</legend><_Component slots={SALIDA_CORTA_SLOTS} captured={fotos} onChange={setFotos} /></fieldset><fieldset className={`fieldset`}><legend>{`Firma digital`}</legend><_Component3 value={firma} onChange={setFirma} signerName={firmaNombre} onSignerNameChange={setFirmaNombre} /><p className={`hint`}>{`Al guardar se captura GPS (si el cel lo permite).`}</p></fieldset><fieldset className={`fieldset`}><legend>{`Observaciones`}</legend><textarea className={`input textarea`} rows={2} value={obs} onChange={e => setObs(e.target.value)} placeholder={`Daños nuevos, discrepancia de sello, incidencias…`} /></fieldset>{gateMsg && <p className={`banner ${gateLevel === `error` ? `error` : `warn`}`}>{gateMsg}</p>}{gateLevel === `error` && <fieldset className={`fieldset`}><legend>{`Excepción de salida`}</legend><label className={`check-inline`}><input type={`checkbox`} checked={trasladoExterno} onChange={e => setTrasladoExterno(e.target.checked)} />{`Traslado a taller externo`}</label>{(pideAutorizacion || puedeAutorizarSalidaCliente(user)) && <label className={`field`} style={{
+      }}>{thermoAviso}</p>}</fieldset>}<fieldset className={`fieldset`}><legend>{`Condición al salir`}</legend><div className={`seg big`}>{[`buena`, `regular`, `mala`].map(c => <button type={`button`} className={condicion === c ? `seg-btn ${c === `buena` ? `on-ok` : c === `regular` ? `on-warn` : `on-bad`}` : `seg-btn`} onClick={() => setCondicion(c)} key={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</button>)}</div></fieldset>{sel && <fieldset className={`fieldset`}><legend>{`Daños · antes y después`}</legend><p className={`hint`}>{`Compara la foto de entrada con la de ahora. Marca sin cambio o daño nuevo.`}</p><div className={`dano-grid`}>{angulos.map(a => {
+        let marca = danos[a.id] || {};
+        let estado = normalizarEstadoDano(marca.estado);
+        return <article className={`dano-card`} key={a.id}><div><p className={`label`}>{`Entrada · `}{a.label}</p>{a.entradaUrl ? <img src={a.entradaUrl} alt={`Entrada ${a.label}`} /> : <div className={`dano-ph`}>{`Sin foto de entrada`}</div>}</div><div><p className={`label`}>{`Salida · `}{a.label}</p>{marca.foto ? <img src={marca.foto} alt={`Salida ${a.label}`} /> : <div className={`dano-ph`}>{`Toma la foto de ahora`}</div>}<button type={`button`} className={`btn soft`} style={{
+              marginTop: 8
+            }} onClick={() => document.getElementById(`dano-file-${a.id}`)?.click()}>{marca.foto ? `Retomar` : `Tomar foto`}</button><input id={`dano-file-${a.id}`} type={`file`} accept={`image/*`} capture={`environment`} hidden={true} onChange={e => {
+              void tomarDano(a.id, e.target.files?.[0]);
+              e.target.value = ``;
+            }} /></div><div className={`dano-actions`}><div className={`seg`}><button type={`button`} className={estado === `SIN_CAMBIO` ? `seg-btn on-ok` : `seg-btn`} onClick={() => marcarDano(a.id, `SIN_CAMBIO`)}>{`Sin cambio`}</button><button type={`button`} className={estado === `DANO_NUEVO` ? `seg-btn on-bad` : `seg-btn`} onClick={() => marcarDano(a.id, `DANO_NUEVO`)}>{`Daño nuevo`}</button></div>{estado === `DANO_NUEVO` && puedeAbrirOtCliente(user) && <button type={`button`} className={`btn primary`} disabled={otBusy === a.id || Boolean(marca.otId)} onClick={() => void abrirOt(a)}>{otBusy === a.id ? `Abriendo OT…` : marca.otId ? `OT ${marca.otFolio || `ligada`}` : `Crear OT correctiva`}</button>}{estado === `DANO_NUEVO` && onPromptOt && <button type={`button`} className={`text-btn`} onClick={() => onPromptOt({
+              unidadId: sel.equipo.id,
+              placa: sel.equipo.placa,
+              tipo: `CORRECTIVO`,
+              motivo: `Daño nuevo en ${a.label} detectado al salir`,
+              yarda: yardaId,
+              origen: `dano-salida`
+            })}>{`Abrir en Taller`}</button>}{marca.otMsg && <p className={`hint`}>{marca.otMsg}</p>}</div></article>;
+      })}</div></fieldset>}<fieldset className={`fieldset`}><legend>{`Fotos de salida`}</legend><_Component slots={slots} captured={fotos} onChange={setFotos} /></fieldset><fieldset className={`fieldset`}><legend>{`Firma digital`}</legend><_Component3 value={firma} onChange={setFirma} signerName={firmaNombre} onSignerNameChange={setFirmaNombre} /><p className={`hint`}>{`Al guardar se captura GPS (si el cel lo permite).`}</p></fieldset><fieldset className={`fieldset`}><legend>{`Observaciones`}</legend><textarea className={`input textarea`} rows={2} value={obs} onChange={e => setObs(e.target.value)} placeholder={`Daños, incidencias, autorización…`} /></fieldset>{gateMsg && <p className={`banner ${gateLevel === `error` ? `error` : `warn`}`}>{gateMsg}</p>}{gateLevel === `error` && <fieldset className={`fieldset`}><legend>{`Excepción de salida`}</legend><label className={`check-inline`}><input type={`checkbox`} checked={trasladoExterno} onChange={e => setTrasladoExterno(e.target.checked)} />{`Traslado a taller externo`}</label>{(pideAutorizacion || puedeAutorizarSalidaCliente(user)) && <label className={`field`} style={{
         marginTop: 10
-      }}><span>{`Motivo de autorización (encargado o admin) *`}</span><textarea className={`input textarea`} rows={2} value={overrideMotivo} onChange={e => setOverrideMotivo(e.target.value)} placeholder={`Escríbelo. Queda en la bitácora de la OT.`} /></label>}</fieldset>}{zonaSlotCap.node}{error && <p className={`banner error`}>{error}</p>}{okMsg && <p className={`banner success`}>{okMsg}</p>}<button type={`submit`} className={`btn primary wide`} disabled={busy}>{busy ? `Guardando…` : `Guardar salida y cerrar ciclo`}</button></form>;
+      }}><span>{`Motivo de autorización (encargado o admin) *`}</span><textarea className={`input textarea`} rows={2} value={overrideMotivo} onChange={e => setOverrideMotivo(e.target.value)} placeholder={`Escríbelo. Queda en la bitácora.`} /></label>}</fieldset>}{zonaSlotCap.node}{error && <p className={`banner error`}>{error}</p>}{okMsg && <p className={`banner success`}>{okMsg}</p>}<button type={`submit`} className={`btn primary wide`} disabled={busy}>{busy ? `Guardando…` : `Guardar salida y cerrar ciclo`}</button></form>;
 }
 function Un() {
   let [e, t] = (0, l.useState)(`dashboard`);
@@ -5788,6 +5985,9 @@ function Un() {
       await guardSubmit(`entrada`, e);
     }} onDone={() => u(`dashboard`)} key={`entrada-${i}`} />}{e === `salida` && puedeMovimiento(c.user, `salida`) && <SalidaCortaForm initialPlaca={o} equipos={c.state.equipos} movimientos={c.state.movimientos} user={c.user} onSubmit={async e => {
       await guardSubmit(`salida`, e);
+    }} onPromptOt={draft => {
+      setOtDraft(draft);
+      u(`mantenimiento`);
     }} onDone={() => u(`dashboard`)} key={`salida-${i}`} />}{e === `mantenimiento` && <Mantenimiento user={c.user} draft={otDraft} key={`mant-${i}`} />}{e === `inventario` && <Inventario user={c.user} key={`inv-${i}`} />}{e === `parado` && puedeMovimiento(c.user, `parado`) && <_Component5 initialPlaca={o} equipos={c.state.equipos} movimientos={c.state.movimientos} onSaveEquipo={e => void c.guardarEquipo(e)} onPromptOt={draft => {
       setOtDraft(draft);
       u(`mantenimiento`);
