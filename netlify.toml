@@ -158,6 +158,16 @@
   status = 200
 
 [[redirects]]
+  from = "/api/equipos"
+  to = "/.netlify/functions/equipos"
+  status = 200
+
+[[redirects]]
+  from = "/api/refrigeracion"
+  to = "/.netlify/functions/refrigeracion"
+  status = 200
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
