@@ -99,6 +99,29 @@ export async function loadMovimientosRefresh({ user, listServer, listSheets }) {
   return { source: 'sheets', movimientos: Array.isArray(rows) ? rows : [] }
 }
 
+/**
+ * Origen del catálogo (equipos o refrigeración) al refrescar.
+ * Con sesión de servidor NO se cae a Sheets: si el API no está, `items: null`
+ * y la UI conserva la caché. Sin sesión se lee Sheets.
+ * @returns {Promise<{ source: 'server' | 'server-unavailable' | 'sheets', items: any[] | null }>}
+ */
+export async function loadCatalogoRefresh({ user, listServer, listSheets }) {
+  if (hasServerSession(user)) {
+    try {
+      const items = await listServer()
+      if (Array.isArray(items)) return { source: 'server', items }
+    } catch (err) {
+      if (!isBackendUnavailable(err)) throw err
+    }
+    return { source: 'server-unavailable', items: null }
+  }
+  if (typeof listSheets !== 'function') {
+    return { source: 'sheets', items: null }
+  }
+  const items = await listSheets()
+  return { source: 'sheets', items: Array.isArray(items) ? items : [] }
+}
+
 /** Mapa unidadId/placa → fila EstadoUnidad para los chips del patio. */
 export function indexEstadosUnidad(estados) {
   const map = {}

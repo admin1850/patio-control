@@ -21,8 +21,14 @@ import {
   apiFetch,
   isBackendUnavailable,
   jwtExpiresAtMs,
+  eliminarEquipoServer,
+  eliminarRefrigeracionServer,
+  guardarEquipoServer,
+  guardarRefrigeracionServer,
+  listEquiposServer,
   listEstadoUnidadesServer,
   listMovimientosServer,
+  listRefrigeracionServer,
   loginWithEmailClave,
   loginWithGoogleIdToken,
   logout as logoutServer,
@@ -53,6 +59,7 @@ import {
   indexEstadosUnidad,
   isAuthenticated,
   isLocalReadOnly,
+  loadCatalogoRefresh,
   loadMovimientosRefresh,
   localReadOnlyError,
   movimientoWriteMode,
@@ -63,7 +70,7 @@ import KpiMantenimiento from "./components/KpiMantenimiento.jsx";
 import Inventario from "./components/Inventario.jsx";
 import LlegadasEsperadas from "./components/LlegadasEsperadas.jsx";
 import { useZonaSlotFields } from "./components/ZonaSlotFields.jsx";
-import { countPending, enqueueMovimiento, flushOutbox } from "./lib/outbox.js";
+import { countPending, enqueueMovimiento, enqueueOutbox, flushOutbox, migrateLegacyQueueToOutbox } from "./lib/outbox.js";
 
 function _Component({
   slots: e,
@@ -1661,6 +1668,39 @@ function mt() {
   let t = e => String(e).padStart(2, `0`);
   return `${e.getFullYear()}-${t(e.getMonth() + 1)}-${t(e.getDate())}T${t(e.getHours())}:${t(e.getMinutes())}`;
 }
+var CAPTURA_TARDIA_MS = 15 * 60 * 1000;
+function puedeCapturaTardia(user) {
+  let rol = normalizeRol(user?.rol);
+  return rol === `encargado_yarda` || rol === `admin`;
+}
+/** Guardia: siempre la hora del dispositivo al guardar. Encargado/admin pueden marcar captura tardía. */
+function resolverFechaCaptura({
+  user,
+  capturaTardia = false,
+  fechaLocal,
+  motivo,
+  ahora = new Date()
+} = {}) {
+  let dispositivo = ahora.toISOString();
+  if (!puedeCapturaTardia(user) || !capturaTardia) {
+    return { fechaHora: dispositivo };
+  }
+  let claimed = fechaLocal ? new Date(fechaLocal) : ahora;
+  if (Number.isNaN(claimed.getTime())) claimed = ahora;
+  let motivoTxt = String(motivo ?? ``).trim();
+  let lejos = Math.abs(claimed.getTime() - ahora.getTime()) > CAPTURA_TARDIA_MS;
+  if (capturaTardia || lejos) {
+    if (motivoTxt.length < 3) {
+      return { error: `Indica el motivo de la captura tardía (mínimo 3 caracteres).` };
+    }
+  }
+  return {
+    fechaHora: claimed.toISOString(),
+    fechaCapturaDispositivo: dispositivo,
+    capturaTardiaMotivo: motivoTxt,
+    nota: `Captura tardía: ${motivoTxt}`
+  };
+}
 function ht() {
   return new Promise(e => {
     if (!navigator.geolocation) {
@@ -1684,7 +1724,8 @@ function _Component4({
   movimientos: i,
   onSaveEquipo: a,
   onSubmit: o,
-  onDone: s
+  onDone: s,
+  user: authUser = null
 }) {
   let [c, u] = (0, l.useState)(() => be());
   let [d, f] = (0, l.useState)(() => oe());
@@ -1704,6 +1745,9 @@ function _Component4({
   let [fe, pe] = (0, l.useState)(``);
   let [me, ve] = (0, l.useState)(``);
   let [ye, j] = (0, l.useState)(mt());
+  let [abiertoEn] = (0, l.useState)(() => new Date().toISOString());
+  let [capturaTardia, setCapturaTardia] = (0, l.useState)(false);
+  let [motivoCapturaTardia, setMotivoCapturaTardia] = (0, l.useState)(``);
   let [xe, Se] = (0, l.useState)(``);
   let [Ce, M] = (0, l.useState)(``);
   let [we, N] = (0, l.useState)(``);
@@ -1986,6 +2030,16 @@ function _Component4({
       F(`Completa licencia federal y bitácora para autorizar el gate (Carta Porte es opcional)`);
       return;
     }
+    let fechaCap = resolverFechaCaptura({
+      user: authUser,
+      capturaTardia,
+      fechaLocal: ye,
+      motivo: motivoCapturaTardia
+    });
+    if (fechaCap.error) {
+      F(fechaCap.error);
+      return;
+    }
     let C = wt;
     if (C) {
       let t = at(te, e);
@@ -2049,7 +2103,11 @@ function _Component4({
       placa: E.placa,
       numeroEconomico: E.numeroEconomico,
       equipoTipo: E.tipo,
-      fechaHora: new Date(ye).toISOString(),
+      fechaHora: fechaCap.fechaHora,
+      ...(fechaCap.capturaTardiaMotivo ? {
+        capturaTardiaMotivo: fechaCap.capturaTardiaMotivo,
+        fechaCapturaDispositivo: fechaCap.fechaCapturaDispositivo
+      } : {}),
       operador: xe.trim(),
       chofer: `${Ce.trim()} ${we.trim()}`,
       whatsapp: r,
@@ -2084,12 +2142,20 @@ function _Component4({
       selloNumero: Ue.trim() || undefined,
       viajeId: e === `entrada` ? viajeId.trim() || undefined : undefined,
       selloCoincideEntrada: e === `salida` && P ? At === `ok` : e === `salida` ? null : undefined,
-      observaciones: Xe.trim() || undefined,
+      observaciones: (() => {
+        let obs = Xe.trim();
+        if (!fechaCap.nota) return obs || undefined;
+        return obs ? `${obs}\n${fechaCap.nota}` : fechaCap.nota;
+      })(),
       firmaNombre: ct.trim(),
       firmaUrl: rt,
       geoLat: ne?.lat ?? null,
       geoLng: ne?.lng ?? null,
-      cumplimiento: ut,
+      cumplimiento: fechaCap.capturaTardiaMotivo ? {
+        ...ut,
+        capturaTardiaMotivo: fechaCap.capturaTardiaMotivo,
+        fechaCapturaDispositivo: fechaCap.fechaCapturaDispositivo
+      } : ut,
       llevaRefrigerada: C || undefined,
       refrigerada: C ? te : undefined,
       zona: zonaSlotCap.zona.trim() || undefined,
@@ -2481,7 +2547,7 @@ function _Component4({
             marginTop: 6
           }}>{`Trasera: `}<Component340>{(placaCamionTraseraVal.trim() || O.trim()).toUpperCase()}</Component340>{placaCamionTraseraVal.trim() && placaCamionTraseraVal.trim().toUpperCase() !== O.trim().toUpperCase() ? ` (OCR ≠ frontal — revisa)` : ` (misma / OCR)`}</Component341>}{!ae && <div className={`field`} style={{
             marginTop: 10
-          }}><span>{`Explícame el motivo porque no trae placa:`}</span><textarea className={`input textarea`} rows={2} value={motivoSinPlacaTrasera} onChange={e => setMotivoSinPlacaTrasera(e.target.value)} placeholder={`Ej. dañada, extraviada, solo frontal…`} required={true} /></div>}</Component342>}<Component345 className={`field`}><Component343>{p ? `No. económico tractocamión` : `No. económico`}</Component343><Component344 className={`input`} value={me} onChange={e => ve(e.target.value)} placeholder={`ECO-045`} /></Component345><Component348 className={`field`}><Component346>{`Fecha y hora *`}</Component346><Component347 className={`input`} type={`datetime-local`} value={ye} onChange={e => j(e.target.value)} required={true} /></Component348></Component349>{(xt || St) && !wt && <Component351 className={`check-inline`}><Component350 type={`checkbox`} checked={C} onChange={e => w(e.target.checked)} />{`Exigir foto de interior (vacío / consolidación)`}</Component351>}</Component352>{wt && <_Component2 tipo={e} value={te} onChange={T} entradaVacia={e === `entrada`} refrigeraciones={r} />}<Component380 className={`fieldset`}><Component353>{`Personas y ruta`}</Component353><Component379 className={`grid-2`}><Component356 className={`field`}><Component354>{`Operador de patio *`}</Component354><Component355 className={`input`} value={xe} onChange={e => Se(e.target.value)} placeholder={`Quién registra`} required={true} /></Component356><Component358 className={`field full`}><Component357>{`Chofer/Operador (quien entra o sale con la unidad)`}</Component357></Component358><Component361 className={`field`}><Component359>{`Nombre *`}</Component359><Component360 className={`input`} value={Ce} onChange={e => M(e.target.value)} placeholder={`Nombre`} autoComplete={`given-name`} required={true} /></Component361><Component364 className={`field`}><Component362>{`Apellido *`}</Component362><Component363 className={`input`} value={we} onChange={e => N(e.target.value)} placeholder={`Apellido`} autoComplete={`family-name`} required={true} /></Component364><Component369 className={`field full`}><Component365>{`WhatsApp *`}</Component365><Component368 className={`phone-input`}><Component366 className={`phone-prefix`}>{`+52`}</Component366><Component367 className={`input`} inputMode={`numeric`} autoComplete={`tel-national`} maxLength={10} value={Te} onChange={e => Ee(e.target.value.replace(/\D/g, ``).slice(0, 10))} placeholder={`10 dígitos del celular`} required={true} /></Component368></Component369><Component372 className={`field full`}><Component370>{`Cliente`}</Component370><Component371 className={`input`} value={Oe} onChange={e => ke(e.target.value)} placeholder={`Nombre del cliente`} /></Component372><Component375 className={`field`}><Component373>{`Origen`}</Component373><Component374 className={`input`} value={Ae} onChange={e => je(e.target.value)} placeholder={`De dónde viene`} /></Component375><Component378 className={`field`}><Component376>{`Destino`}</Component376><Component377 className={`input`} value={Me} onChange={e => Ne(e.target.value)} placeholder={`A dónde va`} /></Component378></Component379></Component380><Component392 className={`fieldset`}><Component381>{`Odómetro y diésel`}</Component381><Component391 className={`grid-3`}><Component384 className={`field`}><Component382>{`Kilómetros`}</Component382><Component383 className={`input`} type={`number`} min={0} step={1} value={Pe} onChange={e => Fe(e.target.value)} placeholder={`125480`} /></Component384><Component387 className={`field`}><Component385>{`Diésel %`}</Component385><Component386 className={`input`} type={`number`} min={0} max={100} step={1} value={Ie} onChange={e => Le(e.target.value)} placeholder={`65`} /></Component387><Component390 className={`field`}><Component388>{`Diésel litros`}</Component388><Component389 className={`input`} type={`number`} min={0} step={0.1} value={Re} onChange={e => ze(e.target.value)} placeholder={`180`} /></Component390></Component391></Component392>{(xt || St) && <Component404 className={`fieldset`}><Component393>{`Sello de seguridad (C-TPAT / OEA)`}</Component393>{e === `salida` && <Component394 className={`hint`}>{`Recaptura el sello al salir. No se autocompleta para validar contra la entrada.`}</Component394>}{e === `salida` && P && <Component396 className={`banner info`}>{`Sello registrado en entrada: `}<Component395>{P}</Component395></Component396>}<Component399 className={`field`}><Component397>{`Número de serie del sello *`}</Component397><Component398 className={`input`} value={Ue} onChange={t => {
+          }}><span>{`Explícame el motivo porque no trae placa:`}</span><textarea className={`input textarea`} rows={2} value={motivoSinPlacaTrasera} onChange={e => setMotivoSinPlacaTrasera(e.target.value)} placeholder={`Ej. dañada, extraviada, solo frontal…`} required={true} /></div>}</Component342>}<Component345 className={`field`}><Component343>{p ? `No. económico tractocamión` : `No. económico`}</Component343><Component344 className={`input`} value={me} onChange={e => ve(e.target.value)} placeholder={`ECO-045`} /></Component345><Component348 className={`field`}><Component346>{`Fecha y hora`}</Component346><p className={`hint`} data-field={`fecha-hora`}>{kn(abiertoEn)}</p></Component348>{puedeCapturaTardia(authUser) && <div className={`field`} data-field={`captura-tardia`}><label className={`check-inline`}><input type={`checkbox`} checked={capturaTardia} onChange={ev => setCapturaTardia(ev.target.checked)} />{`Captura tardía`}</label>{capturaTardia && <l.Fragment><label className={`field`}><span>{`Fecha y hora reales`}</span><input className={`input`} type={`datetime-local`} value={ye} onChange={ev => j(ev.target.value)} /></label><label className={`field`}><span>{`Motivo *`}</span><textarea className={`input textarea`} rows={2} value={motivoCapturaTardia} onChange={ev => setMotivoCapturaTardia(ev.target.value)} placeholder={`Por qué se registra después`} /></label></l.Fragment>}</div>}</Component349>{(xt || St) && !wt && <Component351 className={`check-inline`}><Component350 type={`checkbox`} checked={C} onChange={e => w(e.target.checked)} />{`Exigir foto de interior (vacío / consolidación)`}</Component351>}</Component352>{wt && <_Component2 tipo={e} value={te} onChange={T} entradaVacia={e === `entrada`} refrigeraciones={r} />}<Component380 className={`fieldset`}><Component353>{`Personas y ruta`}</Component353><Component379 className={`grid-2`}><Component356 className={`field`}><Component354>{`Operador de patio *`}</Component354><Component355 className={`input`} value={xe} onChange={e => Se(e.target.value)} placeholder={`Quién registra`} required={true} /></Component356><Component358 className={`field full`}><Component357>{`Chofer/Operador (quien entra o sale con la unidad)`}</Component357></Component358><Component361 className={`field`}><Component359>{`Nombre *`}</Component359><Component360 className={`input`} value={Ce} onChange={e => M(e.target.value)} placeholder={`Nombre`} autoComplete={`given-name`} required={true} /></Component361><Component364 className={`field`}><Component362>{`Apellido *`}</Component362><Component363 className={`input`} value={we} onChange={e => N(e.target.value)} placeholder={`Apellido`} autoComplete={`family-name`} required={true} /></Component364><Component369 className={`field full`}><Component365>{`WhatsApp *`}</Component365><Component368 className={`phone-input`}><Component366 className={`phone-prefix`}>{`+52`}</Component366><Component367 className={`input`} inputMode={`numeric`} autoComplete={`tel-national`} maxLength={10} value={Te} onChange={e => Ee(e.target.value.replace(/\D/g, ``).slice(0, 10))} placeholder={`10 dígitos del celular`} required={true} /></Component368></Component369><Component372 className={`field full`}><Component370>{`Cliente`}</Component370><Component371 className={`input`} value={Oe} onChange={e => ke(e.target.value)} placeholder={`Nombre del cliente`} /></Component372><Component375 className={`field`}><Component373>{`Origen`}</Component373><Component374 className={`input`} value={Ae} onChange={e => je(e.target.value)} placeholder={`De dónde viene`} /></Component375><Component378 className={`field`}><Component376>{`Destino`}</Component376><Component377 className={`input`} value={Me} onChange={e => Ne(e.target.value)} placeholder={`A dónde va`} /></Component378></Component379></Component380><Component392 className={`fieldset`}><Component381>{`Odómetro y diésel`}</Component381><Component391 className={`grid-3`}><Component384 className={`field`}><Component382>{`Kilómetros`}</Component382><Component383 className={`input`} type={`number`} min={0} step={1} value={Pe} onChange={e => Fe(e.target.value)} placeholder={`125480`} /></Component384><Component387 className={`field`}><Component385>{`Diésel %`}</Component385><Component386 className={`input`} type={`number`} min={0} max={100} step={1} value={Ie} onChange={e => Le(e.target.value)} placeholder={`65`} /></Component387><Component390 className={`field`}><Component388>{`Diésel litros`}</Component388><Component389 className={`input`} type={`number`} min={0} step={0.1} value={Re} onChange={e => ze(e.target.value)} placeholder={`180`} /></Component390></Component391></Component392>{(xt || St) && <Component404 className={`fieldset`}><Component393>{`Sello de seguridad (C-TPAT / OEA)`}</Component393>{e === `salida` && <Component394 className={`hint`}>{`Recaptura el sello al salir. No se autocompleta para validar contra la entrada.`}</Component394>}{e === `salida` && P && <Component396 className={`banner info`}>{`Sello registrado en entrada: `}<Component395>{P}</Component395></Component396>}<Component399 className={`field`}><Component397>{`Número de serie del sello *`}</Component397><Component398 className={`input`} value={Ue} onChange={t => {
           We(t.target.value.toUpperCase());
           if (e === `salida` && !P && O.trim()) {
             let e = De({
@@ -3828,6 +3894,37 @@ function hn() {
 function gn(e) {
   localStorage.setItem(mn, JSON.stringify(e));
 }
+/** Pasa la cola localStorage al outbox IndexedDB y la vacía. */
+async function migrarColaLegadaSiServidor() {
+  let items = hn();
+  if (!items.length) return { migrated: 0, ids: [] };
+  let result = await migrateLegacyQueueToOutbox(() => items, enqueueOutbox);
+  gn([]);
+  return result;
+}
+function revertirEnLista(lista, id, anterior) {
+  if (anterior) {
+    if (!lista.some(item => item.id === id)) return [anterior, ...lista];
+    return lista.map(item => item.id === id ? anterior : item);
+  }
+  return lista.filter(item => item.id !== id);
+}
+async function persistirCatalogoServidor(run, { setSyncing, setError, revert }) {
+  setSyncing(true);
+  setError(null);
+  try {
+    await run();
+  } catch (err) {
+    if (err instanceof ApiError && !isBackendUnavailable(err)) {
+      revert();
+      setError(err instanceof Error ? err.message : `No se pudo guardar en el servidor`);
+    } else {
+      setError(`Servidor no disponible. El cambio quedó en este dispositivo.`);
+    }
+  } finally {
+    setSyncing(false);
+  }
+}
 function _n(e, t) {
   let n = hn().filter(t => t.id !== e.id);
   n.push({
@@ -3997,6 +4094,21 @@ function Sn() {
     void refreshOb();
   }, [refreshOb, p]);
   (0, l.useEffect)(() => {
+    if (!hasServerSession(activeServerUser(i, loadCachedAuthProfile()))) return;
+    let cancel = false;
+    (async () => {
+      if (!hn().length) return;
+      try {
+        await migrarColaLegadaSiServidor();
+        if (!cancel) g([]);
+        await refreshOb();
+      } catch {
+        // El flush vuelve a intentar la migración.
+      }
+    })();
+    return () => { cancel = true; };
+  }, [i, refreshOb]);
+  (0, l.useEffect)(() => {
     M(o);
   }, [o]);
   (0, l.useEffect)(() => {
@@ -4024,19 +4136,20 @@ function Sn() {
           // Si el API no está, Sheets sigue siendo el respaldo de la lista.
           listSheets: () => en(cfg)
         });
-        let equipos = null;
-        let refrigeraciones = null;
-        try {
-          // Equipos y refrigeración siguen en Sheets (token del navegador).
-          let pair = await Promise.all([$t(cfg), ln(cfg)]);
-          equipos = pair[0];
-          refrigeraciones = pair[1];
-        } catch {
-          // Sin token OAuth se conserva la caché local. Los movimientos ya vienen del API.
-        }
+        // Con sesión el catálogo sale del API. Si no está, se conserva la caché (no Sheets).
+        let equiposLoaded = await loadCatalogoRefresh({
+          user: activeUser,
+          listServer: async () => (await listEquiposServer())?.equipos,
+          listSheets: () => $t(cfg)
+        });
+        let refriLoaded = await loadCatalogoRefresh({
+          user: activeUser,
+          listServer: async () => (await listRefrigeracionServer())?.refrigeraciones,
+          listSheets: () => ln(cfg)
+        });
         s(prev => ({
-          equipos: equipos ?? prev.equipos,
-          refrigeraciones: refrigeraciones ?? prev.refrigeraciones,
+          equipos: Array.isArray(equiposLoaded.items) ? equiposLoaded.items : prev.equipos,
+          refrigeraciones: Array.isArray(refriLoaded.items) ? refriLoaded.items : prev.refrigeraciones,
           movimientos: Array.isArray(loaded.movimientos) ? loaded.movimientos.map(Se) : prev.movimientos
         }));
         try {
@@ -4068,6 +4181,14 @@ function Sn() {
     if (!(navigator.onLine && (serverSession || n === `workspace` && e.clientId))) {
       return;
     }
+    if (serverSession && hn().length) {
+      try {
+        await migrarColaLegadaSiServidor();
+        g([]);
+      } catch {
+        // Se reintenta. No se vuelve a escribir en localStorage.
+      }
+    }
     let idb = 0;
     try {
       idb = await countPending();
@@ -4085,7 +4206,8 @@ function Sn() {
           movimientos: t.movimientos.map(t => t.id === saved.id ? saved : t)
         }));
       });
-      if (hn().length !== 0) {
+      // localStorage solo en híbrido, sin sesión de servidor.
+      if (!serverSession && hn().length !== 0) {
         let {
           remaining: t
         } = await xn(e, saved => {
@@ -4156,10 +4278,19 @@ function Sn() {
         user: authorized
       });
       r(`workspace`);
-      let {
-        remaining: rem
-      } = await xn(i);
-      g(rem);
+      if (hasServerSession(authorized)) {
+        try {
+          await migrarColaLegadaSiServidor();
+          g([]);
+        } catch {
+          // El flush de IndexedDB sigue; la cola legada se reintenta.
+        }
+      } else {
+        let {
+          remaining: rem
+        } = await xn(i);
+        g(rem);
+      }
       await flushServerOutbox(i, saved => {
         s(state => ({
           ...state,
@@ -4339,6 +4470,20 @@ function Sn() {
           }
           setEstadosUnidad(data.estados);
         }).catch(() => {});
+        loadCatalogoRefresh({
+          user: profile,
+          listServer: async () => (await listEquiposServer())?.equipos
+        }).then(loaded => {
+          if (!alive || !Array.isArray(loaded.items)) return;
+          s(prev => ({ ...prev, equipos: loaded.items }));
+        }).catch(() => {});
+        loadCatalogoRefresh({
+          user: profile,
+          listServer: async () => (await listRefrigeracionServer())?.refrigeraciones
+        }).then(loaded => {
+          if (!alive || !Array.isArray(loaded.items)) return;
+          s(prev => ({ ...prev, refrigeraciones: loaded.items }));
+        }).catch(() => {});
       }
     }).catch(err => {
       if (!vigente()) {
@@ -4376,7 +4521,21 @@ function Sn() {
       f(err instanceof Error ? err.message : LOCAL_READONLY_BANNER);
       throw err;
     }
+    let actor = activeServerUser(i, loadCachedAuthProfile());
+    let anterior = o.equipos.find(item => item.id === t.id) ?? null;
     s(e => we(e, t));
+    if (hasServerSession(actor)) {
+      await persistirCatalogoServidor(() => guardarEquipoServer(t), {
+        setSyncing: u,
+        setError: f,
+        revert: () => s(state => {
+          let next = { ...state, equipos: revertirEnLista(state.equipos, t.id, anterior) };
+          M(next);
+          return next;
+        })
+      });
+      return;
+    }
     if (n === `workspace` && navigator.onLine) {
       u(true);
       f(null);
@@ -4399,7 +4558,21 @@ function Sn() {
       f(err instanceof Error ? err.message : LOCAL_READONLY_BANNER);
       throw err;
     }
+    let actorRef = activeServerUser(i, loadCachedAuthProfile());
+    let anteriorRef = o.refrigeraciones.find(item => item.id === t.id) ?? null;
     s(e => N(e, t));
+    if (hasServerSession(actorRef)) {
+      await persistirCatalogoServidor(() => guardarRefrigeracionServer(t), {
+        setSyncing: u,
+        setError: f,
+        revert: () => s(state => {
+          let next = { ...state, refrigeraciones: revertirEnLista(state.refrigeraciones, t.id, anteriorRef) };
+          M(next);
+          return next;
+        })
+      });
+      return;
+    }
     if (n === `workspace` && navigator.onLine) {
       u(true);
       f(null);
@@ -4422,7 +4595,21 @@ function Sn() {
       f(err instanceof Error ? err.message : LOCAL_READONLY_BANNER);
       throw err;
     }
+    let actorDelRef = activeServerUser(i, loadCachedAuthProfile());
+    let anteriorDelRef = o.refrigeraciones.find(item => item.id === t) ?? null;
     s(e => Te(e, t));
+    if (hasServerSession(actorDelRef)) {
+      await persistirCatalogoServidor(() => eliminarRefrigeracionServer(t), {
+        setSyncing: u,
+        setError: f,
+        revert: () => s(state => {
+          let next = { ...state, refrigeraciones: revertirEnLista(state.refrigeraciones, t, anteriorDelRef) };
+          M(next);
+          return next;
+        })
+      });
+      return;
+    }
     if (n === `workspace` && navigator.onLine) {
       u(true);
       try {
@@ -4469,10 +4656,11 @@ function Sn() {
         try {
           await enqueueMovimiento(t, `Sin conexión`);
           await refreshOb();
-          return;
-        } catch {
-          // IndexedDB no disponible: la cola localStorage sigue cubriendo la caseta.
+          f(`Sin conexión. El movimiento quedó en la cola de este dispositivo.`);
+        } catch (err) {
+          f(err instanceof Error ? err.message : `Sin conexión y no se pudo guardar la cola en este dispositivo.`);
         }
+        return;
       }
       g(_n(t, `Sin conexión`));
       return;
@@ -4490,7 +4678,7 @@ function Sn() {
       let avisoInventario = saved?.avisosServidor || null;
       let rId = t.refrigerada?.refrigeracionId;
       let hor = t.refrigerada?.horometroThermo;
-      if (n === `workspace` && rId && hor != null) {
+      if (writeMode !== `server` && n === `workspace` && rId && hor != null) {
         let refri = o.refrigeraciones.find(item => item.id === rId);
         if (refri) {
           try {
@@ -4539,10 +4727,10 @@ function Sn() {
           await enqueueMovimiento(queued, message);
           await refreshOb();
           f(`${message} · quedó en cola offline`);
-          return;
         } catch {
-          // Si IndexedDB falla, no perder el registro: cola legada.
+          f(`${message} · no se pudo encolar en este dispositivo`);
         }
+        return;
       }
       f(`${message} · quedó en cola offline`);
       g(_n(queued, message));
@@ -4568,6 +4756,20 @@ function Sn() {
       M(n);
       return n;
     });
+    let actorDelEq = activeServerUser(i, loadCachedAuthProfile());
+    let anteriorDelEq = o.equipos.find(item => item.id === t) ?? null;
+    if (hasServerSession(actorDelEq)) {
+      await persistirCatalogoServidor(() => eliminarEquipoServer(t), {
+        setSyncing: u,
+        setError: f,
+        revert: () => s(state => {
+          let next = { ...state, equipos: revertirEnLista(state.equipos, t, anteriorDelEq) };
+          M(next);
+          return next;
+        })
+      });
+      return;
+    }
     if (n === `workspace` && navigator.onLine) {
       u(true);
       try {
@@ -5750,6 +5952,10 @@ function SalidaCortaForm({
   let [empresaId, setEmpresaId] = l.useState(() => oe());
   let [selectedId, setSelectedId] = l.useState(null);
   let [operador, setOperador] = l.useState(``);
+  let [abiertoEnSalida] = l.useState(() => new Date().toISOString());
+  let [capturaTardiaSalida, setCapturaTardiaSalida] = l.useState(false);
+  let [motivoCapturaTardiaSalida, setMotivoCapturaTardiaSalida] = l.useState(``);
+  let [fechaTardia, setFechaTardia] = l.useState(() => mt());
   let [selloSalida, setSelloSalida] = l.useState(``);
   let [km, setKm] = l.useState(vacio.km);
   let [dieselPct, setDieselPct] = l.useState(vacio.dieselPct);
@@ -5957,6 +6163,16 @@ function SalidaCortaForm({
       setError(`Se requiere firma digital y nombre de quien firma`);
       return;
     }
+    let fechaCap = resolverFechaCaptura({
+      user,
+      capturaTardia: capturaTardiaSalida,
+      fechaLocal: fechaTardia,
+      motivo: motivoCapturaTardiaSalida
+    });
+    if (fechaCap.error) {
+      setError(fechaCap.error);
+      return;
+    }
     setBusy(true);
     try {
       let relacionados = [];
@@ -6024,7 +6240,11 @@ function SalidaCortaForm({
         placa: equipo.placa,
         numeroEconomico: equipo.numeroEconomico,
         equipoTipo: equipo.tipo,
-        fechaHora: new Date().toISOString(),
+        fechaHora: fechaCap.fechaHora,
+        ...(fechaCap.capturaTardiaMotivo ? {
+          capturaTardiaMotivo: fechaCap.capturaTardiaMotivo,
+          fechaCapturaDispositivo: fechaCap.fechaCapturaDispositivo
+        } : {}),
         operador: operador.trim(),
         chofer: entrada.chofer,
         whatsapp: entrada.whatsapp,
@@ -6044,7 +6264,11 @@ function SalidaCortaForm({
         selloNumero: selloSalida.trim().toUpperCase() || undefined,
         selloCapturado: selloSalida.trim().toUpperCase(),
         selloCoincideEntrada: null,
-        observaciones: obs.trim() || undefined,
+        observaciones: (() => {
+          let texto = obs.trim();
+          if (!fechaCap.nota) return texto || undefined;
+          return texto ? `${texto}\n${fechaCap.nota}` : fechaCap.nota;
+        })(),
         firmaNombre: firmaNombre.trim(),
         firmaUrl: firma,
         geoLat: geo?.lat ?? null,
@@ -6055,6 +6279,10 @@ function SalidaCortaForm({
           salidaCorta: true,
           salidaFuerte: true,
           validadoGate: false,
+          ...(fechaCap.capturaTardiaMotivo ? {
+            capturaTardiaMotivo: fechaCap.capturaTardiaMotivo,
+            fechaCapturaDispositivo: fechaCap.fechaCapturaDispositivo
+          } : {}),
           danos: angulos.map(a => ({
             angulo: a.id,
             estado: normalizarEstadoDano(danos[a.id]?.estado)
@@ -6107,7 +6335,7 @@ function SalidaCortaForm({
         setSelectedId(null);
       }} key={y.id}>{y.nombre}</button>)}</div></fieldset><div className={`quick-picks`}><p className={`label`}>{`Unidades en patio · `}{_e.find(y => y.id === yardaId)?.nombre}</p>{enPatio.length === 0 ? <p className={`empty`}>{`No hay unidades en ciclo/parado en esta yarda. Registra primero una entrada.`}</p> : <div className={`chip-row`}>{enPatio.map(row => <button type={`button`} className={selectedId === row.equipo.id ? `chip on` : `chip`} onClick={() => pickUnit(row)} key={row.equipo.id}>{row.equipo.placa}{` · `}{row.equipo.numeroEconomico}</button>)}</div>}</div>{sel && <div className={`banner info`} style={{
       marginTop: 12
-    }}><strong>{sel.equipo.placa}</strong>{` · eco `}{sel.equipo.numeroEconomico}{sel.entrada.chofer ? ` · chofer ${sel.entrada.chofer}` : ``}{` · llegó `}{kn(sel.entrada.fechaHora)}{refrigerada ? ` · caja refrigerada` : ``}</div>}<fieldset className={`fieldset`}><legend>{`Caseta`}</legend><label className={`field`}><span>{`Operador de patio *`}</span><input className={`input`} value={operador} onChange={e => setOperador(e.target.value)} placeholder={`Quién registra la salida`} required={true} /></label></fieldset>{sel && <fieldset className={`fieldset`}><legend>{`Sello ciego`}</legend><p className={`hint`}>{textoAyudaSelloCiego()}</p><label className={`field`}><span>{`Sello de salida`}{pideSello ? ` *` : ``}</span><input className={`input`} name={`sello-captura-salida`} autoComplete={`off`} value={selloSalida} onChange={e => setSelloSalida(e.target.value.toUpperCase())} placeholder={`Lee el sello en la puerta`} /></label></fieldset>}{sel && <fieldset className={`fieldset`}><legend>{`Documentos de salida`}</legend><div className={`grid-2`}><label className={`field`}><span>{`Carta Porte UUID (opcional)`}</span><input className={`input`} value={cartaPorte} onChange={e => setCartaPorte(e.target.value.toUpperCase())} placeholder={`XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX`} autoComplete={`off`} /></label><label className={`field`}><span>{`Licencia federal *`}</span><input className={`input`} value={licencia} onChange={e => setLicencia(e.target.value.toUpperCase())} placeholder={`Número de licencia SCT/SICT`} autoComplete={`off`} required={true} /></label></div>{cartaPorte && !uuidCartaPorteValido(cartaPorte) && <p className={`field-error`}>{`El UUID no tiene formato de folio fiscal.`}</p>}{licencia && !licenciaFederalValida(licencia) && <p className={`field-error`}>{`La licencia debe tener de 8 a 20 caracteres.`}</p>}</fieldset>}{sel && <fieldset className={`fieldset`}><legend>{`Kilómetros y diésel`}</legend><p className={`hint`}>{`No se copian de la entrada. Si capturas kilómetros, no pueden ser menores al último registro.`}{sel.entrada.kilometros != null ? ` Último km: ${sel.entrada.kilometros}.` : ``}</p><div className={`grid-3`}><label className={`field`}><span>{`Kilómetros`}</span><input className={`input`} type={`number`} min={0} value={km} onChange={e => setKm(e.target.value)} placeholder={`Km al salir`} autoComplete={`off`} /></label><label className={`field`}><span>{`Diésel %`}</span><input className={`input`} type={`number`} min={0} max={100} value={dieselPct} onChange={e => setDieselPct(e.target.value)} placeholder={`%`} autoComplete={`off`} /></label><label className={`field`}><span>{`Diésel litros`}</span><input className={`input`} type={`number`} min={0} step={0.1} value={dieselL} onChange={e => setDieselL(e.target.value)} placeholder={`L`} autoComplete={`off`} /></label></div>{dieselDelta != null && dieselDelta <= -15 && <p className={`banner warn`} style={{
+    }}><strong>{sel.equipo.placa}</strong>{` · eco `}{sel.equipo.numeroEconomico}{sel.entrada.chofer ? ` · chofer ${sel.entrada.chofer}` : ``}{` · llegó `}{kn(sel.entrada.fechaHora)}{refrigerada ? ` · caja refrigerada` : ``}</div>}<fieldset className={`fieldset`}><legend>{`Caseta`}</legend><label className={`field`}><span>{`Operador de patio *`}</span><input className={`input`} value={operador} onChange={e => setOperador(e.target.value)} placeholder={`Quién registra la salida`} required={true} /></label><div className={`field`}><span>{`Fecha y hora`}</span><p className={`hint`} data-field={`fecha-hora`}>{kn(abiertoEnSalida)}</p></div>{puedeCapturaTardia(user) && <div className={`field`} data-field={`captura-tardia`}><label className={`check-inline`}><input type={`checkbox`} checked={capturaTardiaSalida} onChange={ev => setCapturaTardiaSalida(ev.target.checked)} />{`Captura tardía`}</label>{capturaTardiaSalida && <l.Fragment><label className={`field`}><span>{`Fecha y hora reales`}</span><input className={`input`} type={`datetime-local`} value={fechaTardia} onChange={ev => setFechaTardia(ev.target.value)} /></label><label className={`field`}><span>{`Motivo *`}</span><textarea className={`input textarea`} rows={2} value={motivoCapturaTardiaSalida} onChange={ev => setMotivoCapturaTardiaSalida(ev.target.value)} placeholder={`Por qué se registra después`} /></label></l.Fragment>}</div>}</fieldset>{sel && <fieldset className={`fieldset`}><legend>{`Sello ciego`}</legend><p className={`hint`}>{textoAyudaSelloCiego()}</p><label className={`field`}><span>{`Sello de salida`}{pideSello ? ` *` : ``}</span><input className={`input`} name={`sello-captura-salida`} autoComplete={`off`} value={selloSalida} onChange={e => setSelloSalida(e.target.value.toUpperCase())} placeholder={`Lee el sello en la puerta`} /></label></fieldset>}{sel && <fieldset className={`fieldset`}><legend>{`Documentos de salida`}</legend><div className={`grid-2`}><label className={`field`}><span>{`Carta Porte UUID (opcional)`}</span><input className={`input`} value={cartaPorte} onChange={e => setCartaPorte(e.target.value.toUpperCase())} placeholder={`XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX`} autoComplete={`off`} /></label><label className={`field`}><span>{`Licencia federal *`}</span><input className={`input`} value={licencia} onChange={e => setLicencia(e.target.value.toUpperCase())} placeholder={`Número de licencia SCT/SICT`} autoComplete={`off`} required={true} /></label></div>{cartaPorte && !uuidCartaPorteValido(cartaPorte) && <p className={`field-error`}>{`El UUID no tiene formato de folio fiscal.`}</p>}{licencia && !licenciaFederalValida(licencia) && <p className={`field-error`}>{`La licencia debe tener de 8 a 20 caracteres.`}</p>}</fieldset>}{sel && <fieldset className={`fieldset`}><legend>{`Kilómetros y diésel`}</legend><p className={`hint`}>{`No se copian de la entrada. Si capturas kilómetros, no pueden ser menores al último registro.`}{sel.entrada.kilometros != null ? ` Último km: ${sel.entrada.kilometros}.` : ``}</p><div className={`grid-3`}><label className={`field`}><span>{`Kilómetros`}</span><input className={`input`} type={`number`} min={0} value={km} onChange={e => setKm(e.target.value)} placeholder={`Km al salir`} autoComplete={`off`} /></label><label className={`field`}><span>{`Diésel %`}</span><input className={`input`} type={`number`} min={0} max={100} value={dieselPct} onChange={e => setDieselPct(e.target.value)} placeholder={`%`} autoComplete={`off`} /></label><label className={`field`}><span>{`Diésel litros`}</span><input className={`input`} type={`number`} min={0} step={0.1} value={dieselL} onChange={e => setDieselL(e.target.value)} placeholder={`L`} autoComplete={`off`} /></label></div>{dieselDelta != null && dieselDelta <= -15 && <p className={`banner warn`} style={{
           marginTop: 10
         }}>{`Merma de diésel: ${dieselDelta.toFixed(0)}% vs entrada (${sel.entrada.dieselPorcentaje}% → ${dieselPct}%).`}</p>}</fieldset>}{refrigerada && <fieldset className={`fieldset`}><legend>{`Thermo / caja refrigerada`}</legend><div className={`grid-2`}><label className={`field`}><span>{`Set point (°C) *`}</span><input className={`input`} type={`number`} step={0.1} value={setPoint} onChange={e => setSetPoint(e.target.value)} placeholder={`Ej. 2`} required={true} /></label><label className={`field`}><span>{`Temperatura real (°C) *`}</span><input className={`input`} type={`number`} step={0.1} value={tempReal} onChange={e => setTempReal(e.target.value)} placeholder={`Display`} required={true} /></label><label className={`field`}><span>{`Diésel Thermo (%) *`}</span><input className={`input`} type={`number`} min={0} max={100} step={1} value={dieselThermo} onChange={e => setDieselThermo(e.target.value)} placeholder={`0 a 100`} required={true} /></label><label className={`field`}><span>{`Horómetro *`}</span><input className={`input`} type={`number`} min={0} step={0.1} value={horometro} onChange={e => setHorometro(e.target.value)} placeholder={`Horas`} required={true} /></label></div>{thermoAviso && <p className={`banner warn`} style={{
         marginTop: 10
@@ -6215,7 +6443,7 @@ function Un() {
       marginBottom: 12
     }}>{permMsg}</p>}{c.localReadOnly && e !== `dashboard` && e !== `equipos` && <p className={`banner warn`} style={{
       marginBottom: 12
-    }}>{LOCAL_READONLY_BANNER}</p>}{e === `dashboard` && <An state={c.state} mode={c.mode} user={c.user} estadosUnidad={c.estadosUnidad} onCloud={() => u(`workspace`)} onEntrada={e => u(`entrada`, e)} onSalida={e => u(`salida`, e)} onParado={e => u(`parado`, e)} onBaja={e => u(`baja`, e)} onHistorial={() => u(`historial`)} onKpis={() => u(`kpis`)} onMantenimiento={() => u(`mantenimiento`)} />}{e === `entrada` && puedeMovimiento(c.user, `entrada`) && <_Component4 tipo={`entrada`} initialPlaca={o} equipos={c.state.equipos} refrigeraciones={c.state.refrigeraciones} movimientos={c.state.movimientos} onSaveEquipo={e => void c.guardarEquipo(e)} onSubmit={async e => {
+    }}>{LOCAL_READONLY_BANNER}</p>}{e === `dashboard` && <An state={c.state} mode={c.mode} user={c.user} estadosUnidad={c.estadosUnidad} onCloud={() => u(`workspace`)} onEntrada={e => u(`entrada`, e)} onSalida={e => u(`salida`, e)} onParado={e => u(`parado`, e)} onBaja={e => u(`baja`, e)} onHistorial={() => u(`historial`)} onKpis={() => u(`kpis`)} onMantenimiento={() => u(`mantenimiento`)} />}{e === `entrada` && puedeMovimiento(c.user, `entrada`) && <_Component4 tipo={`entrada`} user={c.user} initialPlaca={o} equipos={c.state.equipos} refrigeraciones={c.state.refrigeraciones} movimientos={c.state.movimientos} onSaveEquipo={e => void c.guardarEquipo(e)} onSubmit={async e => {
       await guardSubmit(`entrada`, e);
     }} onDone={() => u(`dashboard`)} key={`entrada-${i}`} />}{e === `salida` && puedeMovimiento(c.user, `salida`) && <SalidaCortaForm initialPlaca={o} equipos={c.state.equipos} movimientos={c.state.movimientos} user={c.user} onSubmit={async e => {
       await guardSubmit(`salida`, e);
