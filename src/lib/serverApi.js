@@ -81,9 +81,44 @@ export function listMovimientosServer(limit = 500) {
   return apiFetch(`/api/movimientos${q}`, { method: 'GET' })
 }
 
-/** Alta append-only. `mov` es el movimiento ya con fotos en URL http. */
+/** Alta append-only. `mov` es el movimiento ya con fotos en URL http o `/api/media`. */
 export function createMovimientoServer(mov) {
   return apiFetch('/api/movimientos', { method: 'POST', json: mov })
+}
+
+/**
+ * Sube una foto comprimida (data URL) al backend. El archivo queda privado en Drive.
+ * @param {{ fileName: string, dataUrl: string, yardaId?: string, movimientoId?: string, slotId?: string }} args
+ * @returns {Promise<{ fileId: string, viewPath: string }>}
+ */
+export function uploadMediaServer({ fileName, dataUrl, yardaId, movimientoId, slotId }) {
+  return apiFetch('/api/media/upload', {
+    method: 'POST',
+    json: { fileName, dataUrl, yardaId, movimientoId, slotId },
+  })
+}
+
+/**
+ * Fallo de red (fetch no llegó a una respuesta HTTP). 503/404 son backend ausente, no esto.
+ * @param {unknown} err
+ */
+export function isNetworkFailure(err) {
+  return !(err instanceof ApiError)
+}
+
+const AUTH_PROFILE_KEY = 'patio-control-auth-profile'
+
+/** Hay perfil guardado de un login que pasó por `/api/auth/login` (cookie httpOnly probable). */
+export function sessionLikelyAvailable() {
+  try {
+    if (typeof localStorage === 'undefined') return false
+    const raw = localStorage.getItem(AUTH_PROFILE_KEY)
+    if (!raw) return false
+    const profile = JSON.parse(raw)
+    return profile?.sesionServidor === true && Boolean(profile?.email)
+  } catch {
+    return false
+  }
 }
 
 /**

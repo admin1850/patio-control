@@ -6,7 +6,9 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // prompt: el SW nuevo espera; no hace skipWaiting solo.
+      // Así no recargamos a media captura ni con el outbox pendiente.
+      registerType: 'prompt',
       includeAssets: ['favicon.svg', 'apple-touch-icon.png', 'icons.svg'],
       manifest: {
         name: 'PatioControl — Gate Management',
@@ -24,6 +26,8 @@ export default defineConfig({
         ],
       },
       workbox: {
+        skipWaiting: false,
+        clientsClaim: true,
         navigateFallback: '/index.html',
         runtimeCaching: [
           {

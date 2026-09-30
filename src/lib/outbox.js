@@ -1,21 +1,17 @@
 /**
- * Outbox offline en IndexedDB (esqueleto Fase 0 — aún no conectado a App.jsx).
+ * Outbox offline en IndexedDB.
  *
  * DB `patio-outbox`, store `pending` (keyPath `id`, índice `status`).
- * Registro: { id, status: 'pending'|'failed'|'synced', createdAt, updatedAt, attempts, lastError, event }
+ * Registro: { id, type, movimiento, queuedAt, status, attempts, lastError, event }
+ *
+ * App.jsx lo usa cuando el alta por servidor se intentó y falló la red.
+ * La cola localStorage `patio-control-offline-queue` sigue para el modo legado (sin sesión de servidor).
  *
  * Blobs (fotos ya comprimidas con re(file, 1280, 0.72), firma PNG) se guardan como
  * ArrayBuffer `{ __blob: true, type, data }`: Safari/iOS ha tenido fallas guardando Blob
  * directo en IndexedDB. `rehydrateEvent` los devuelve a Blob antes de subir.
- *
- * Uso previsto en App.jsx (Fase 1), reemplazando la cola localStorage `patio-control-offline-queue`:
- *   await enqueue({ tipo: 'movimiento', payload: mov, blobs: { 'placa-camion-frontal': blob } })
- *   for (const rec of await listPending()) {
- *     const ev = await rehydrateEvent(rec.event)
- *     try { await apiFetch('/api/movimientos', { method: 'POST', body: … }); await markSynced(rec.id) }
- *     catch (e) { await markFailed(rec.id, e) }
- *   }
- * disparado en `online`, al abrir la app y tras cada registro.
+ * Si el movimiento trae data URLs (texto), se dejan tal cual: la caseta ya las comprimió
+ * y volver a decodificarlas aquí no ahorra espacio de forma fiable.
  */
 
 export const OUTBOX_DB = 'patio-outbox'
@@ -110,14 +106,47 @@ function newId() {
  */
 export async function enqueue(event) {
   const id = String(event?.id || newId())
-  const stored = await serializeEvent({ ...event, id })
   const now = new Date().toISOString()
+  const stored = await serializeEvent({ ...event, id })
+  const type = event?.type || event?.tipo || 'movimiento'
+  const lastError = event?.lastError ? String(event.lastError).slice(0, 500) : null
   await withStore('readwrite', (store) =>
     reqToPromise(
-      store.put({ id, status: 'pending', createdAt: now, updatedAt: now, attempts: 0, lastError: null, event: stored }),
+      store.put({
+        id,
+        status: 'pending',
+        type,
+        movimiento: stored?.movimiento ?? null,
+        queuedAt: event?.queuedAt || now,
+        createdAt: now,
+        updatedAt: now,
+        attempts: 0,
+        lastError,
+        event: stored,
+      }),
     ),
   )
   return id
+}
+
+/**
+ * Encola un movimiento que no pudo crearse en el servidor.
+ * Fotos: Blob preferido (se persiste como ArrayBuffer). Si vienen data URLs ya
+ * comprimidas por `re(file, 1280, 0.72)`, se guardan como texto.
+ * @param {Record<string, any>} movimiento
+ * @param {string | null} [lastError]
+ * @returns {Promise<string>}
+ */
+export function enqueueMovimiento(movimiento, lastError = null) {
+  const id = String(movimiento?.id || newId())
+  return enqueue({
+    id,
+    type: 'movimiento',
+    tipo: 'movimiento',
+    movimiento,
+    queuedAt: new Date().toISOString(),
+    ...(lastError ? { lastError } : {}),
+  })
 }
 
 /** Pendientes y fallidos (reintentables), del más antiguo al más reciente. */
@@ -143,8 +172,9 @@ export function markSynced(id) {
   return update(id, (rec) => ({
     status: 'synced',
     lastError: null,
+    movimiento: null,
     syncedAt: new Date().toISOString(),
-    event: { id: rec.event?.id, tipo: rec.event?.tipo },
+    event: { id: rec.event?.id, tipo: rec.event?.tipo || rec.type },
   }))
 }
 
@@ -152,4 +182,62 @@ export function markSynced(id) {
 export function markFailed(id, error) {
   const msg = error instanceof Error ? error.message : String(error ?? 'Error de sincronización')
   return update(id, (rec) => ({ status: 'failed', attempts: (rec.attempts || 0) + 1, lastError: msg.slice(0, 500) }))
+}
+
+export async function countPending() {
+  const list = await listPending()
+  return list.length
+}
+
+/**
+ * Reintenta cada pendiente o fallido, del más antiguo al más reciente.
+ * `createFn` recibe el movimiento con Blobs rehidratados.
+ * @param {(movimiento: any, rec: any) => Promise<unknown>} createFn
+ * @returns {Promise<{ synced: number, failed: number, remaining: number }>}
+ */
+export async function flushOutbox(createFn) {
+  if (typeof createFn !== 'function') throw new Error('flushOutbox requiere createFn')
+  const pending = await listPending()
+  let synced = 0
+  let failed = 0
+  for (const rec of pending) {
+    const event = rehydrateEvent(rec.event)
+    const movimiento = event?.movimiento ?? event?.payload
+    const type = event?.type || event?.tipo || rec.type
+    if (!movimiento || type !== 'movimiento') {
+      await markFailed(rec.id, 'Evento de outbox sin movimiento')
+      failed++
+      continue
+    }
+    try {
+      await createFn(movimiento, rec)
+      await markSynced(rec.id)
+      synced++
+    } catch (err) {
+      await markFailed(rec.id, err)
+      failed++
+    }
+  }
+  return { synced, failed, remaining: await countPending() }
+}
+
+/** Cierra la conexión cacheada. Solo para pruebas. */
+export async function resetOutboxForTests() {
+  if (dbPromise) {
+    try {
+      const db = await dbPromise
+      db.close?.()
+    } catch {
+      // ya cerrada
+    }
+  }
+  dbPromise = null
+  if (typeof indexedDB !== 'undefined' && typeof indexedDB.deleteDatabase === 'function') {
+    await new Promise((resolve) => {
+      const req = indexedDB.deleteDatabase(OUTBOX_DB)
+      req.onsuccess = () => resolve()
+      req.onerror = () => resolve()
+      req.onblocked = () => resolve()
+    })
+  }
 }

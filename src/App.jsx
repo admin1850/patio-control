@@ -13,15 +13,20 @@ import {
 } from "./lib/placaOcr.js";
 import {
   ApiError,
+  createMovimientoServer,
   fetchMe,
   getDispositivoId,
   isBackendUnavailable,
+  isNetworkFailure,
   jwtExpiresAtMs,
   loginWithGoogleIdToken,
   logout as logoutServer,
   mapServerUserToAuthProfile,
+  sessionLikelyAvailable,
   tryCreateMovimientoViaServer,
+  uploadMediaServer,
 } from "./lib/serverApi.js";
+import { countPending, enqueueMovimiento, flushOutbox } from "./lib/outbox.js";
 
 function _Component({
   slots: e,
@@ -39,6 +44,15 @@ function _Component({
   let d = e.filter(e => e.required && t[e.id]).length;
   let f = e.filter(e => e.required).length;
   let canLeer = !!(c && isPlateSlot(c) && t[c.id] && onPlateOcrProp);
+  (0, l.useEffect)(() => {
+    let w = window;
+    w.__PATIO_CAPTURE_COUNT = (w.__PATIO_CAPTURE_COUNT || 0) + 1;
+    w.__PATIO_CAPTURE_OPEN = true;
+    return () => {
+      w.__PATIO_CAPTURE_COUNT = Math.max(0, (w.__PATIO_CAPTURE_COUNT || 1) - 1);
+      w.__PATIO_CAPTURE_OPEN = w.__PATIO_CAPTURE_COUNT > 0;
+    };
+  }, []);
   async function p(file) {
     if (!file || !c) {
       return;
@@ -826,10 +840,16 @@ function _Component7({
   navItems: navItems = Re
 }) {
   let [u, d] = (0, l.useState)(() => Fe());
+  let [swBanner, setSwBanner] = (0, l.useState)(() => Boolean(window.__PATIO_SW_WAITING));
   (0, l.useEffect)(() => {
     document.documentElement.classList.toggle(`kiosk`, u);
     Ie(u);
   }, [u]);
+  (0, l.useEffect)(() => {
+    let on = () => setSwBanner(true);
+    window.addEventListener(`patio-sw-update`, on);
+    return () => window.removeEventListener(`patio-sw-update`, on);
+  }, []);
   let f = e !== `dashboard` && !!n;
   const Component106 = `p`;
   const Component107 = `p`;
@@ -847,7 +867,15 @@ function _Component7({
   const Component119 = `button`;
   const Component120 = `nav`;
   const Component121 = `div`;
-  return <Component121 className={u ? `app-shell kiosk-shell` : `app-shell`}><Component113 className={`topbar`}><Component108 className={`brand-block`}><Component106 className={`brand`}>{`PatioControl`}</Component106><Component107 className={`brand-sub`}>{`Gate · evidencias · cumplimiento`}{i ? ` · ${i}` : ``}{a ? ` · sync…` : ``}{u ? ` · quiosco` : ``}{o ? `` : ` · OFFLINE`}</Component107></Component108><Component112 className={`topbar-actions`}><Component109 type={`button`} className={u ? `nav-link active` : `nav-link`} onClick={() => d(e => !e)} title={`Botones y textos más grandes para tablet de caseta`}>{u ? `Quiosco ON` : `Quiosco`}</Component109><Component111 className={`nav-desktop`} aria-label={`Principal`}>{navItems.map(n => <Component110 type={`button`} className={e === n.id ? `nav-link active` : `nav-link`} onClick={() => t(n.id)} key={n.id}>{n.label}</Component110>)}</Component111></Component112></Component113>{!o && <Component114 className={`banner error status-strip`}>{`Sin conexión · los registros se guardan en este dispositivo y se suben después.`}</Component114>}{o && s > 0 && <Component116 className={`banner info status-strip`}>{s}{` movimiento(s) pendientes de subir a Workspace.`}{` `}{c && <Component115 type={`button`} className={`text-btn`} onClick={c}>{`Subir ahora`}</Component115>}</Component116>}<Le /><Component117 className={`main`}>{r}</Component117>{f && <Component118 type={`button`} className={`btn-back-fixed`} onClick={n} aria-label={`Atrás`}>{`← Atrás`}</Component118>}<GrokDudas page={e} /><Component120 className={`nav-mobile`} aria-label={`Móvil`}>{navItems.map(n => <Component119 type={`button`} className={e === n.id ? `mob-link active` : `mob-link`} onClick={() => t(n.id)} key={n.id}>{n.short}</Component119>)}</Component120></Component121>;
+  return <Component121 className={u ? `app-shell kiosk-shell` : `app-shell`}><Component113 className={`topbar`}><Component108 className={`brand-block`}><Component106 className={`brand`}>{`PatioControl`}</Component106><Component107 className={`brand-sub`}>{`Gate · evidencias · cumplimiento`}{i ? ` · ${i}` : ``}{a ? ` · sync…` : ``}{u ? ` · quiosco` : ``}{o ? `` : ` · OFFLINE`}</Component107></Component108><Component112 className={`topbar-actions`}><Component109 type={`button`} className={u ? `nav-link active` : `nav-link`} onClick={() => d(e => !e)} title={`Botones y textos más grandes para tablet de caseta`}>{u ? `Quiosco ON` : `Quiosco`}</Component109><Component111 className={`nav-desktop`} aria-label={`Principal`}>{navItems.map(n => <Component110 type={`button`} className={e === n.id ? `nav-link active` : `nav-link`} onClick={() => t(n.id)} key={n.id}>{n.label}</Component110>)}</Component111></Component112></Component113>{swBanner && <p className={`banner warn status-strip`} role={`status`}>{`Actualización lista — reinicia al terminar`}{` `}<button type={`button`} className={`text-btn`} onClick={() => {
+    if (window.__PATIO_CAPTURE_OPEN) {
+      return;
+    }
+    let go = window.__PATIO_SW_UPDATE;
+    if (typeof go === `function`) {
+      void go();
+    }
+  }}>{`Reiniciar`}</button></p>}{!o && <Component114 className={`banner error status-strip`}>{`Sin conexión · los registros se guardan en este dispositivo y se suben después.`}</Component114>}{o && s > 0 && <Component116 className={`banner info status-strip`}>{s}{` movimiento(s) pendientes de subir a Workspace.`}{` `}{c && <Component115 type={`button`} className={`text-btn`} onClick={c}>{`Subir ahora`}</Component115>}</Component116>}<Le /><Component117 className={`main`}>{r}</Component117>{f && <Component118 type={`button`} className={`btn-back-fixed`} onClick={n} aria-label={`Atrás`}>{`← Atrás`}</Component118>}<GrokDudas page={e} /><Component120 className={`nav-mobile`} aria-label={`Móvil`}>{navItems.map(n => <Component119 type={`button`} className={e === n.id ? `mob-link active` : `mob-link`} onClick={() => t(n.id)} key={n.id}>{n.short}</Component119>)}</Component120></Component121>;
 }
 function Be(e) {
   if (e.fotoUrls?.length) {
@@ -3190,7 +3218,31 @@ function Rt(e) {
     type: r
   });
 }
-async function zt(e, t, n) {
+function fotoYaPublicada(url) {
+  return typeof url === `string` && (url.startsWith(`http`) || url.startsWith(`/api/media`));
+}
+async function zt(e, t, n, meta = {}) {
+  if (sessionLikelyAvailable() && navigator.onLine) {
+    try {
+      let up = await uploadMediaServer({
+        fileName: n,
+        dataUrl: t,
+        yardaId: meta.yardaId,
+        movimientoId: meta.movimientoId,
+        slotId: meta.slotId
+      });
+      if (up?.viewPath) {
+        return up.viewPath;
+      }
+      if (up?.fileId) {
+        return `/api/media?id=${up.fileId}`;
+      }
+    } catch (err) {
+      if (!isBackendUnavailable(err)) {
+        throw err;
+      }
+    }
+  }
   let r = await Lt(e);
   let i = Rt(t);
   let a = {
@@ -3227,17 +3279,20 @@ async function zt(e, t, n) {
   }).catch(() => undefined);
   return `https://drive.google.com/uc?id=${c.id}&export=view`;
 }
-async function Bt(e, t, n) {
+async function Bt(e, t, n, meta = {}) {
   let r = [];
   for (let i of t) {
-    if (i.url.startsWith(`http`)) {
+    if (fotoYaPublicada(i.url)) {
       r.push(i);
       continue;
     }
-    let t = `${n}-${i.slotId}-${Date.now()}.jpg`;
+    let name = `${n}-${i.slotId}-${Date.now()}.jpg`;
     r.push({
       ...i,
-      url: await zt(e, i.url, t)
+      url: await zt(e, i.url, name, {
+        ...meta,
+        slotId: i.slotId
+      })
     });
   }
   return r;
@@ -3664,27 +3719,75 @@ function yn(e, t) {
   gn(n);
   return n;
 }
-async function bn(e, t) {
-  let n = await Bt(e, t.fotosEvidencia?.length ? t.fotosEvidencia : t.fotos.map((e, t) => ({
-    slotId: `foto-${t}`,
-    label: `Foto ${t + 1}`,
-    url: e
-  })), `${t.yardaId}-${t.tipo}-${t.placa}`);
+async function subirFotosMovimiento(e, t) {
+  let meta = {
+    yardaId: t.yardaId,
+    movimientoId: t.id
+  };
+  let n = await Bt(e, t.fotosEvidencia?.length ? t.fotosEvidencia : t.fotos.map((url, idx) => ({
+    slotId: `foto-${idx}`,
+    label: `Foto ${idx + 1}`,
+    url
+  })), `${t.yardaId}-${t.tipo}-${t.placa}`, meta);
   let r = t.firmaUrl;
-  if (r && !r.startsWith(`http`)) {
-    r = await zt(e, r, `${t.yardaId}-firma-${t.placa}-${Date.now()}.png`);
+  if (r && !fotoYaPublicada(r)) {
+    r = await zt(e, r, `${t.yardaId}-firma-${t.placa}-${Date.now()}.png`, {
+      ...meta,
+      slotId: `firma`
+    });
   }
-  let i = {
+  return {
     ...t,
     fotosEvidencia: n,
-    fotos: n.map(e => e.url),
+    fotos: n.map(item => item.url),
     firmaUrl: r
   };
-  // Fotos ya quedaron en Drive. Si el API acepta el movimiento, no se vuelve a agregar la fila desde el navegador.
-  let viaServer = await tryCreateMovimientoViaServer(i);
-  if (viaServer) return viaServer;
-  await an(e, i);
-  return i;
+}
+async function bn(e, t) {
+  let prepared = await subirFotosMovimiento(e, t);
+  if (sessionLikelyAvailable()) {
+    try {
+      let data = await createMovimientoServer(prepared);
+      if (data?.movimiento?.id) {
+        return data.movimiento;
+      }
+    } catch (err) {
+      err.preparedMovimiento = prepared;
+      if (!isBackendUnavailable(err) || isNetworkFailure(err)) {
+        throw err;
+      }
+    }
+  } else {
+    let viaServer = await tryCreateMovimientoViaServer(prepared);
+    if (viaServer) {
+      return viaServer;
+    }
+  }
+  try {
+    await an(e, prepared);
+  } catch (err) {
+    err.preparedMovimiento = prepared;
+    throw err;
+  }
+  return prepared;
+}
+async function flushServerOutbox(cfg, onSaved) {
+  if (!sessionLikelyAvailable()) {
+    return {
+      synced: 0,
+      failed: 0,
+      remaining: 0
+    };
+  }
+  return flushOutbox(async mov => {
+    let ready = await subirFotosMovimiento(cfg, mov);
+    let data = await createMovimientoServer(ready);
+    if (!data?.movimiento?.id) {
+      throw Error(`El servidor no confirmó el movimiento.`);
+    }
+    onSaved?.(data.movimiento);
+    return data.movimiento;
+  });
 }
 async function xn(e, t) {
   let n = hn();
@@ -3713,6 +3816,17 @@ function Sn() {
   let [d, f] = (0, l.useState)(null);
   let [p, m] = (0, l.useState)(() => navigator.onLine);
   let [h, g] = (0, l.useState)(() => hn());
+  let [ob, setOb] = (0, l.useState)(0);
+  let refreshOb = (0, l.useCallback)(async () => {
+    try {
+      setOb(await countPending());
+    } catch {
+      setOb(0);
+    }
+  }, []);
+  (0, l.useEffect)(() => {
+    void refreshOb();
+  }, [refreshOb, p]);
   (0, l.useEffect)(() => {
     M(o);
   }, [o]);
@@ -3745,23 +3859,42 @@ function Sn() {
     }
   }, [e]);
   let v = (0, l.useCallback)(async () => {
-    if (n === `workspace` && navigator.onLine && e.clientId && hn().length !== 0) {
-      u(true);
-      try {
+    if (!(n === `workspace` && navigator.onLine && e.clientId)) {
+      return;
+    }
+    let idb = 0;
+    try {
+      idb = await countPending();
+    } catch {
+      idb = 0;
+    }
+    if (idb === 0 && hn().length === 0) {
+      return;
+    }
+    u(true);
+    try {
+      await flushServerOutbox(e, saved => {
+        s(t => ({
+          ...t,
+          movimientos: t.movimientos.map(t => t.id === saved.id ? saved : t)
+        }));
+      });
+      if (hn().length !== 0) {
         let {
           remaining: t
-        } = await xn(e, e => {
+        } = await xn(e, saved => {
           s(t => ({
             ...t,
-            movimientos: t.movimientos.map(t => t.id === e.id ? e : t)
+            movimientos: t.movimientos.map(t => t.id === saved.id ? saved : t)
           }));
         });
         g(t);
-      } finally {
-        u(false);
       }
+      await refreshOb();
+    } finally {
+      u(false);
     }
-  }, [n, e]);
+  }, [n, e, refreshOb]);
   (0, l.useEffect)(() => {
     if (p && n === `workspace`) {
       v();
@@ -3819,6 +3952,13 @@ function Sn() {
         remaining: rem
       } = await xn(i);
       g(rem);
+      await flushServerOutbox(i, saved => {
+        s(state => ({
+          ...state,
+          movimientos: state.movimientos.map(m => m.id === saved.id ? saved : m)
+        }));
+      });
+      await refreshOb();
     } catch (err) {
       Nt();
       void logoutServer();
@@ -3830,7 +3970,7 @@ function Sn() {
     } finally {
       u(false);
     }
-  }, [e, _]);
+  }, [e, _, refreshOb]);
   let b = (0, l.useCallback)(() => {
     Nt();
     clearCachedIdToken();
@@ -3933,6 +4073,15 @@ function Sn() {
     });
     if (n === `workspace`) {
       if (!navigator.onLine) {
+        if (sessionLikelyAvailable()) {
+          try {
+            await enqueueMovimiento(t, `Sin conexión`);
+            await refreshOb();
+            return;
+          } catch {
+            // IndexedDB no disponible: la cola localStorage sigue cubriendo la caseta.
+          }
+        }
         g(_n(t, `Sin conexión`));
         return;
       }
@@ -3970,13 +4119,24 @@ function Sn() {
           f(n);
           throw e;
         }
+        let queued = e.preparedMovimiento || t;
+        if (sessionLikelyAvailable() && isNetworkFailure(e)) {
+          try {
+            await enqueueMovimiento(queued, n);
+            await refreshOb();
+            f(`${n} · quedó en cola offline`);
+            return;
+          } catch {
+            // Si IndexedDB falla, no perder el registro: cola legada.
+          }
+        }
         f(`${n} · quedó en cola offline`);
-        g(_n(t, n));
+        g(_n(queued, n));
       } finally {
         u(false);
       }
     }
-  }, [n, e, o.refrigeraciones, i]);
+  }, [n, e, o.refrigeraciones, i, refreshOb]);
   let te = (0, l.useCallback)(async t => {
     s(e => {
       let n = {
@@ -4012,7 +4172,7 @@ function Sn() {
     syncing: c,
     syncError: d,
     online: p,
-    queueCount: h.length,
+    queueCount: h.length + ob,
     flushQueue: v,
     guardarEquipo: S,
     guardarRefrigeracion: C,
