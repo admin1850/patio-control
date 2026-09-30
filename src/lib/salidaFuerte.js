@@ -117,10 +117,11 @@ export function evaluarDocumentos({ cartaPorteUuid, licenciaFederal } = {}) {
   const uuid = String(cartaPorteUuid ?? '').trim().toUpperCase()
   const licencia = String(licenciaFederal ?? '').trim().toUpperCase()
   const motivos = []
-  if (!uuidCartaPorteValido(uuid)) {
+  // Carta Porte es opcional: solo valida formato si el usuario escribió algo.
+  if (uuid && !uuidCartaPorteValido(uuid)) {
     motivos.push({
       codigo: 'CARTA_PORTE',
-      mensaje: 'Falta el UUID de la Carta Porte (folio fiscal del CFDI) o no tiene el formato correcto.',
+      mensaje: 'El UUID de la Carta Porte no tiene el formato correcto (déjalo vacío si no aplica).',
     })
   }
   if (!licenciaFederalValida(licencia)) {

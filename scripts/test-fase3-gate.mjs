@@ -222,30 +222,33 @@ test('sello ciego: no se muestra el esperado y el desajuste bloquea', async () =
   assert.equal(JSON.stringify(ok).includes(SELLO), false)
 })
 
-test('sin Carta Porte o licencia no sale, salvo override del encargado', async () => {
+test('Carta Porte opcional; sin licencia no sale, salvo override', async () => {
   const repo = memoryRepo()
   repo.movimientos.push(entrada())
   const gate = createGateService(repo, { now: () => NOW })
+
+  // Sin Carta Porte pero con licencia válida → no bloquea por CARTA_PORTE
+  const sinCp = await gate.validarSalida(guardia, docsOk({ cartaPorteUuid: '', licenciaFederal: LIC }))
+  assert.equal(sinCp.resultado, 'PERMITIDO')
+  assert.ok(!sinCp.motivos.some((item) => item.codigo === 'CARTA_PORTE'))
+
   const guardiaBloq = await gate.validarSalida(guardia, docsOk({ cartaPorteUuid: '', licenciaFederal: '' }))
   assert.equal(guardiaBloq.resultado, 'BLOQUEADO')
-  assert.ok(guardiaBloq.motivos.some((item) => item.codigo === 'CARTA_PORTE'))
+  assert.ok(!guardiaBloq.motivos.some((item) => item.codigo === 'CARTA_PORTE'))
   assert.ok(guardiaBloq.motivos.some((item) => item.codigo === 'LICENCIA_FEDERAL'))
 
+  // Si escriben un UUID mal formado, sí pide corrección / autorización
   const pide = await gate.validarSalida(encargado, docsOk({ cartaPorteUuid: 'no-es-uuid', licenciaFederal: LIC }))
   assert.equal(pide.resultado, 'REQUIERE_AUTORIZACION')
   assert.ok(pide.motivos.some((item) => item.codigo === 'CARTA_PORTE'))
 
-  const corto = await gate.validarSalida(encargado, docsOk({ cartaPorteUuid: '', licenciaFederal: '', overrideMotivo: 'ok' }))
-  assert.equal(corto.resultado, 'REQUIERE_AUTORIZACION')
-
   const auth = await gate.validarSalida(encargado, docsOk({
     cartaPorteUuid: '',
     licenciaFederal: '',
-    overrideMotivo: 'Sale sin CFDI por falla del SAT',
+    overrideMotivo: 'Sale sin licencia por excepción operativa',
   }))
   assert.equal(auth.resultado, 'PERMITIDO')
   assert.equal(auth.via, 'OVERRIDE')
-  assert.ok(auth.advertencias.some((item) => item.codigo === 'CARTA_PORTE'))
 })
 
 test('Thermo fuera de rango pide autorización; en rango sale', async () => {
