@@ -55,6 +55,11 @@ export function loginWithGoogleIdToken({ idToken, clave, dispositivoId }) {
   })
 }
 
+/** Correo + Clave del kardex, sin Google. */
+export function loginWithEmailClave({ email, clave, dispositivoId }) {
+  return apiFetch('/api/auth/login', { method: 'POST', json: { email, clave, dispositivoId } })
+}
+
 /** Usuario de la sesión actual o `null` si no hay sesión (401) o el backend no está disponible. */
 export async function fetchMe() {
   try {

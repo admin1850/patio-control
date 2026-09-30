@@ -21,6 +21,7 @@ import {
   assertWritable,
   hasServerSession,
   indexEstadosUnidad,
+  isAuthenticated,
   isLocalReadOnly,
   loadMovimientosRefresh,
   movimientoWriteMode,
@@ -76,6 +77,16 @@ const serverUser = {
   rol: 'guardia',
   permisos: { entrada: true },
 }
+
+test('isAuthenticated exige correo y rol del kardex', () => {
+  assert.equal(isAuthenticated(null), false)
+  assert.equal(isAuthenticated({}), false)
+  assert.equal(isAuthenticated({ email: 'a@b.com' }), false)
+  assert.equal(isAuthenticated({ rol: 'guardia' }), false)
+  assert.equal(isAuthenticated({ email: '  ', rol: 'guardia' }), false)
+  assert.equal(isAuthenticated({ email: 'a@b.com', rol: 'guardia', sesionServidor: false }), true)
+  assert.equal(isAuthenticated(serverUser), true)
+})
 
 test('Local sin sesión de servidor es solo lectura', () => {
   assert.equal(LOCAL_READONLY_BANNER, 'Conecta Cloud con tu cuenta autorizada para registrar')

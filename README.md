@@ -29,12 +29,18 @@ Base para que el navegador deje de hablar directo con Sheets/Drive. **Modo dual*
 
 | Endpoint | Función |
 |----------|---------|
-| `POST /api/auth/login` `{ idToken, clave, dispositivoId }` | Google ID token → kardex Autorizados → cookie `patio_session` |
+| `POST /api/auth/login` `{ email, clave, dispositivoId? }` o `{ idToken, clave, dispositivoId? }` | Correo + Clave del kardex (camino principal) o Google ID token → cookie `patio_session` |
 | `GET /api/auth/me` | Usuario de la sesión (cookie o `Authorization: Bearer`) o 401 |
 | `POST /api/auth/logout` | Borra la cookie |
 | `GET /api/movimientos?limit=500` | Lista movimientos (sesión). Solo lectura, más reciente primero. Con sesión de servidor el refresh del patio usa esta lista |
 | `GET /api/estado-unidades` | Filas de `EstadoUnidad` (sesión) para los chips del patio |
-| `POST /api/movimientos` | Alta **append-only** (sesión + permiso del `tipo`). Idempotente por `id`. Audita `crear_movimiento` |
+| `POST /api/movimientos` | Alta **append-only** (sesión + permiso del `tipo`). Idempotente por `id`. Audita `crear_movimiento`. Si no es idempotente, actualiza el horómetro del Thermo cuando hay coincidencia |
+| `GET /api/equipos` | Catálogo de unidades (sesión o `X-Patio-Key`) |
+| `POST /api/equipos` | Alta o cambio **por id** (sesión). No reescribe la pestaña. Audita `crear_equipo` / `actualizar_equipo` |
+| `DELETE /api/equipos?id=` | Deja en blanco esa fila (permiso `equipos`). Audita `eliminar_equipo` |
+| `GET /api/refrigeracion` | Catálogo Thermo (sesión o `X-Patio-Key`) |
+| `POST /api/refrigeracion` | Alta o cambio **por id** (sesión). Audita `crear_refrigeracion` / `actualizar_refrigeracion` |
+| `DELETE /api/refrigeracion?id=` | Deja en blanco esa fila (permiso `equipos`). Audita `eliminar_refrigeracion` |
 | `POST /api/media/upload` | Sube JPEG/PNG **privado** a Drive (sesión). 120/min por email. Devuelve `{ fileId, viewPath }` |
 | `GET /api/media?id=<fileId>` | Sirve esa evidencia con la cuenta de servicio (sesión). También `GET /api/media/<fileId>` |
 
@@ -52,12 +58,18 @@ Variables de entorno en Netlify (Site settings → Environment variables):
 | `PATIO_SESSION_TTL_SEC` | no | Duración de sesión, default `43200` (12 h) |
 | `PATIO_DRIVE_FOLDER_ID` | no | Carpeta de evidencias. Default `1Usz_zTK3kqO-Pah3seSdPpMQPMfLHDJh`. Compártela con la cuenta de servicio como **Content manager** o Editor |
 
-Flujo de conexión (pantalla Workspace): clave del kardex → **ID token de Google** (Google Identity
+**Acceso forzado:** la app no se abre sin sesión. La pantalla de acceso pide correo y la Clave del
+kardex Autorizados (`POST /api/auth/login` con `{ email, clave }`). No es la contraseña de Gmail.
+Google queda en la página Workspace, para reconectar Sheets. Si el servidor responde 503 (falta
+`PATIO_SESSION_SECRET`) y hay Client ID, se usa el ID token de Google y ese correo tiene que ser el
+mismo que se escribió.
+
+Flujo legado (pantalla Workspace, admin): clave del kardex → **ID token de Google** (Google Identity
 Services, `google.accounts.id.prompt`) → token OAuth de Sheets/Drive (sincronización legada, igual que
 antes) → `POST /api/auth/login`. Si el backend responde 503 (variables faltantes) o no existe
 (`npm run dev` sin `netlify dev`), la app valida el kardex en el navegador como antes. 401/403 del
-backend sí bloquean la conexión. Al abrir la app, `GET /api/auth/me` recupera rol/permisos si hay sesión
-(sin forzar modo nube). Desconectar también llama a `/api/auth/logout`.
+backend sí bloquean la conexión. Al abrir la app, `GET /api/auth/me` recupera rol/permisos si hay sesión.
+Desconectar también llama a `/api/auth/logout` y regresa a la pantalla de acceso.
 
 Movimientos (`/api/movimientos`): con sesión de servidor la caseta intenta subir cada foto a
 `POST /api/media/upload` (cuenta de servicio, archivo **privado**, sin permiso "anyone") y guarda en la
@@ -75,7 +87,9 @@ línea. Sin sesión de servidor, la cola sigue siendo `localStorage` (`patio-con
 cliente no puede pisarlos. El servidor no limpia la hoja.
 
 Con `sesionServidor`, Actualizar datos y la recuperación de sesión leen `GET /api/movimientos` (y
-`GET /api/estado-unidades` para los chips). Equipos y refrigeración siguen en Sheets. Si ese GET no está
+`GET /api/estado-unidades` para los chips). Equipos y refrigeración, con sesión de servidor, se leen y
+escriben por `/api/equipos` y `/api/refrigeracion`: el alta y el cambio van por id estable y la baja
+deja solo esa fila en blanco (no se limpia `A2:I`). Si ese GET no está
 (503/404), la lista de movimientos vuelve a Sheets para no trabar la caseta. Workspace **sin** sesión de
 servidor —solo OAuth de Sheets, antes de que Netlify tenga las variables— mantiene ese híbrido.
 **Modo Local sin sesión de servidor es solo lectura**: se ve el dashboard y el historial desde la caché

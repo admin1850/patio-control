@@ -1482,3 +1482,37 @@ html.kiosk .grok-dudas {
     grid-template-columns: 1fr;
   }
 }
+.login-gate {
+  min-height: 100vh;
+  max-width: 440px;
+  margin: 0 auto;
+  padding: max(32px, env(safe-area-inset-top)) 20px 48px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 28px;
+}
+.login-gate .brand {
+  font-size: clamp(2.8rem, 9vw, 3.8rem);
+}
+.login-gate h1 {
+  font-family: var(--font-display);
+  color: var(--navy);
+  margin: 8px 0 0;
+  font-size: clamp(1.7rem, 4vw, 2.15rem);
+  font-weight: 600;
+  line-height: 1;
+}
+.login-gate .form-panel {
+  display: grid;
+  gap: 14px;
+}
+.login-gate .hint {
+  margin: 0;
+  line-height: 1.45;
+}
+.login-gate .login-status {
+  color: var(--muted);
+  margin: 0;
+  font-size: 1rem;
+}
