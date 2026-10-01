@@ -3,7 +3,8 @@
  *   { email, clave, dispositivoId? }   — correo + Clave del kardex (sin Google)
  *   { idToken, clave, dispositivoId? } — Google ID token + Clave del kardex
  * Si llegan los dos, manda el idToken y el correo de Google tiene que ser el mismo.
- * Env: PATIO_SESSION_SECRET, GOOGLE_SERVICE_ACCOUNT_*, PATIO_SPREADSHEET_ID,
+ * Env: PATIO_SESSION_SECRET, PATIO_SPREADSHEET_ID y backend de Sheets
+ * (GOOGLE_SERVICE_ACCOUNT_* o PATIO_APPS_SCRIPT_URL + PATIO_APPS_SCRIPT_SECRET),
  *      PATIO_GOOGLE_CLIENT_ID (solo ruta Google), PATIO_GOOGLE_HOSTED_DOMAIN (opcional),
  *      PATIO_SESSION_TTL_SEC (opcional, default 43200).
  */

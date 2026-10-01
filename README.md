@@ -51,12 +51,28 @@ Variables de entorno en Netlify (Site settings → Environment variables):
 | `PATIO_SESSION_SECRET` | sí (login) | Secreto HMAC de sesiones, ≥32 caracteres aleatorios (`openssl rand -base64 48`). **Al definirla, `/api/ocr-placa` y `/api/patio-grok` exigen sesión** (ver nota). |
 | `PATIO_GOOGLE_CLIENT_ID` | sí (login) | OAuth Client ID web (el mismo de la pantalla Workspace); acepta varios separados por coma |
 | `PATIO_GOOGLE_HOSTED_DOMAIN` | recomendado | p. ej. `camircapital.com`: solo cuentas de ese dominio |
-| `GOOGLE_SERVICE_ACCOUNT_EMAIL` | sí (login) | Cuenta de servicio con acceso **Editor** al Sheet |
-| `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` | sí (login) | `private_key` del JSON de la cuenta de servicio (los `\n` literales se convierten) |
+| `GOOGLE_SERVICE_ACCOUNT_EMAIL` | una de las dos vías | Cuenta de servicio con acceso **Editor** al Sheet |
+| `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` | una de las dos vías | `private_key` del JSON (los `\n` literales se convierten). No hace falta si usas Apps Script |
 | `PATIO_SPREADSHEET_ID` | sí (login) | `1yH8vAbXoMFvHdKEt8XMvXWDOc0R1VjVdp1Y3MtCGLp0` |
+| `PATIO_APPS_SCRIPT_URL` | la otra vía | URL `/exec` del Web App (ver `apps-script/README.md`) |
+| `PATIO_APPS_SCRIPT_SECRET` | la otra vía | El mismo valor que la propiedad de script `PATIO_SECRET` |
 | `PATIO_ALLOWED_ORIGIN` | recomendado | `https://patiocontrol.netlify.app` (lista por comas). Sin ella CORS responde `*` |
 | `PATIO_SESSION_TTL_SEC` | no | Duración de sesión, default `43200` (12 h) |
-| `PATIO_DRIVE_FOLDER_ID` | no | Carpeta de evidencias. Default `1Usz_zTK3kqO-Pah3seSdPpMQPMfLHDJh`. Compártela con la cuenta de servicio como **Content manager** o Editor |
+| `PATIO_DRIVE_FOLDER_ID` | no | Carpeta de evidencias. Default `1Usz_zTK3kqO-Pah3seSdPpMQPMfLHDJh`. Compártela con la cuenta de servicio (Content manager) o con la cuenta que desplegó el script |
+
+## Modo Apps Script (sin JSON) vs cuenta de servicio
+
+El backend necesita **una** de las dos vías. Si las dos están definidas, se usa la cuenta de servicio y el puente no se toca.
+
+| | Cuenta de servicio | Apps Script |
+|--|--------------------|-------------|
+| Credencial | JSON (`GOOGLE_SERVICE_ACCOUNT_EMAIL` + `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY`) | Web App (`PATIO_APPS_SCRIPT_URL` + `PATIO_APPS_SCRIPT_SECRET`) |
+| Sheet | Compartido como Editor con el email de la cuenta | Lo abre el script con `PATIO_SPREADSHEET_ID` (cuenta que desplegó el script) |
+| Fotos | Drive API privada | `uploadJpeg` / `downloadJpeg` en el mismo puente. El archivo no se comparte con «cualquiera» |
+
+Pasos del script: `apps-script/README.md`. En Netlify van la URL `/exec` y el mismo secreto que la propiedad `PATIO_SECRET`. `PATIO_SPREADSHEET_ID` sigue haciendo falta.
+
+Si el puente responde 502/503, la tablet sigue el camino de siempre: el upload de fotos cae al Drive del navegador y, sin sesión de servidor usable, el movimiento puede ir directo a Sheets.
 
 **Acceso forzado:** la app no se abre sin sesión. La pantalla de acceso pide correo y la Clave del
 kardex Autorizados (`POST /api/auth/login` con `{ email, clave }`). No es la contraseña de Gmail.
@@ -117,7 +133,7 @@ Migración del Sheet (solo agrega columnas/pestañas; no borra datos):
 npm run migrate:fase0 -- --dry-run      # ver cambios
 npm run migrate:fase0                   # aplicar (dry-run automático sin credenciales)
 npm run migrate:fase0 -- --hash-claves  # además llena ClaveHash desde Clave
-npm run test:fase0                      # auth + movimientos + Drive privado + outbox + cierre (Local solo lectura)
+npm run test:fase0                      # auth + movimientos + Drive privado + outbox + cierre + puente Apps Script
 npm run migrate:fase1 -- --dry-run      # pestañas OT reales + EstadoUnidad
 npm run migrate:fase1
 npm run test:fase1                      # OT, ETR, semáforo, bloqueo de salida

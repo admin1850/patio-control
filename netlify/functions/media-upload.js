@@ -1,7 +1,7 @@
 /**
  * POST /api/media/upload
  * Body: { fileName, dataUrl | base64, yardaId, movimientoId, slotId }
- * Sube un JPEG/PNG privado a Drive (cuenta de servicio) y devuelve { fileId, viewPath }.
+ * Sube un JPEG/PNG privado a Drive (cuenta de servicio o Apps Script) y devuelve { fileId, viewPath }.
  * Requiere sesión. 120/min por email.
  */
 
