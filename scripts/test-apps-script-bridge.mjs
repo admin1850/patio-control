@@ -101,21 +101,22 @@ test('sheetsGet y sheetsAppend pasan por el puente y mandan el secreto', async (
   assert.equal(calls.some((call) => call.url.includes('sheets.googleapis.com')), false)
 })
 
-test('el 302 del Web App se vuelve a postear con el mismo secreto', async () => {
+test('el 302 del Web App se lee con GET en el Location (echo)', async () => {
   let hops = 0
   const repo = createSheetsRepo({
     env: appsEnv(),
     fetch: async (url, init = {}) => {
       hops += 1
-      const body = parseBody(init)
-      assert.equal(body.secret, SECRET)
-      assert.equal(init.method, 'POST')
       if (hops === 1) {
+        const body = parseBody(init)
+        assert.equal(body.secret, SECRET)
+        assert.equal(init.method, 'POST')
         return new Response('', {
           status: 302,
           headers: { Location: 'https://script.googleusercontent.com/macros/echo?user=me' },
         })
       }
+      assert.equal(init.method, 'GET')
       assert.match(String(url), /script\.googleusercontent\.com/)
       return jsonResponse({ ok: true, values: [[1]] })
     },
