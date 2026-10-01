@@ -98,62 +98,74 @@ export function createAppsScriptTransport(env = process.env, opts = {}) {
     }
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), timeoutMs)
-    let current = url
+    // Apps Script responde 302 a script.googleusercontent.com/macros/echo.
+    // El POST se procesa en el primer hop; el resultado se lee con GET en el Location.
     try {
-      for (let hop = 0; hop < 5; hop++) {
-        let res
+      let res
+      try {
+        res = await fetchImpl(url, {
+          method: 'POST',
+          redirect: 'manual',
+          signal: controller.signal,
+          headers: {
+            Authorization: `Bearer ${secret}`,
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+          body: JSON.stringify(payload),
+        })
+      } catch (err) {
+        if (err?.name === 'AbortError' || err?.name === 'TimeoutError') {
+          throw scriptError('Apps Script no respondió a tiempo.', 503, 'TIMEOUT')
+        }
+        throw scriptError(redact(`No se pudo contactar el puente Apps Script. ${err?.message || ''}`.trim(), secret), 503, 'NETWORK')
+      }
+
+      if (res.status >= 300 && res.status < 400) {
+        const loc = res.headers.get('location')
+        if (!loc) throw scriptError('Apps Script redirigió sin destino.', 502, 'REDIRECT')
+        const echoUrl = new URL(loc, url).href
         try {
-          res = await fetchImpl(current, {
-            method: 'POST',
-            redirect: 'manual',
+          res = await fetchImpl(echoUrl, {
+            method: 'GET',
+            redirect: 'follow',
             signal: controller.signal,
-            headers: {
-              Authorization: `Bearer ${secret}`,
-              'Content-Type': 'application/json',
-              Accept: 'application/json',
-            },
-            body: JSON.stringify(payload),
+            headers: { Accept: 'application/json' },
           })
         } catch (err) {
           if (err?.name === 'AbortError' || err?.name === 'TimeoutError') {
             throw scriptError('Apps Script no respondió a tiempo.', 503, 'TIMEOUT')
           }
-          throw scriptError(redact(`No se pudo contactar el puente Apps Script. ${err?.message || ''}`.trim(), secret), 503, 'NETWORK')
+          throw scriptError(redact(`No se pudo leer la respuesta de Apps Script. ${err?.message || ''}`.trim(), secret), 503, 'NETWORK')
         }
-        if (res.status >= 300 && res.status < 400) {
-          const loc = res.headers.get('location')
-          if (!loc) throw scriptError('Apps Script redirigió sin destino.', 502, 'REDIRECT')
-          current = new URL(loc, current).href
-          continue
-        }
-        const text = await res.text().catch(() => '')
-        if (res.status === 401 || res.status === 403 || res.status === 404) {
-          throw scriptError(
-            'Apps Script no está publicado como aplicación web (acceso: Cualquiera) o la URL no es /exec.',
-            503,
-            'APPS_SCRIPT_HTTP',
-          )
-        }
-        let data
-        try {
-          data = JSON.parse(text)
-        } catch {
-          throw scriptError(
-            redact(`Apps Script no devolvió JSON (${res.status}). ${snippet(text)}`.trim(), secret),
-            502,
-            'APPS_SCRIPT_BAD_RESPONSE',
-          )
-        }
-        if (!data || typeof data !== 'object') {
-          throw scriptError('Apps Script devolvió una respuesta vacía.', 502, 'APPS_SCRIPT_BAD_RESPONSE')
-        }
-        if (data.ok === false) {
-          const status = statusFor(data)
-          throw scriptError(redact(data.error || 'Apps Script rechazó la operación.', secret), status, data.code || 'APPS_SCRIPT')
-        }
-        return data
       }
-      throw scriptError('Apps Script redirigió demasiadas veces.', 502, 'REDIRECT')
+
+      const text = await res.text().catch(() => '')
+      if (res.status === 401 || res.status === 403 || res.status === 404) {
+        throw scriptError(
+          'Apps Script no está publicado como aplicación web (acceso: Cualquiera) o la URL no es /exec.',
+          503,
+          'APPS_SCRIPT_HTTP',
+        )
+      }
+      let data
+      try {
+        data = JSON.parse(text)
+      } catch {
+        throw scriptError(
+          redact(`Apps Script no devolvió JSON (${res.status}). ${snippet(text)}`.trim(), secret),
+          502,
+          'APPS_SCRIPT_BAD_RESPONSE',
+        )
+      }
+      if (!data || typeof data !== 'object') {
+        throw scriptError('Apps Script devolvió una respuesta vacía.', 502, 'APPS_SCRIPT_BAD_RESPONSE')
+      }
+      if (data.ok === false) {
+        const status = statusFor(data)
+        throw scriptError(redact(data.error || 'Apps Script rechazó la operación.', secret), status, data.code || 'APPS_SCRIPT')
+      }
+      return data
     } finally {
       clearTimeout(timer)
     }
