@@ -1,7 +1,7 @@
 /**
  * GET /api/media?id=<fileId>  y  GET /api/media/<fileId>
- * Requiere sesión. Entrega la imagen con el token de la cuenta de servicio
- * (alt=media). No redirige a un enlace público de Drive.
+ * Requiere sesión. Entrega la imagen con la cuenta de servicio (alt=media)
+ * o con el puente Apps Script. No redirige a un enlace público de Drive.
  */
 
 import { corsHeaders, json, preflight, requireSession } from './lib/http.js'

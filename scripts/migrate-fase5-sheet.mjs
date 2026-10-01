@@ -20,11 +20,11 @@ import {
   LLEGADAS_ESPERADAS_SHEET,
   columnLetter,
   createSheetsRepo,
-  hasServiceAccountEnv,
+  hasSheetsBackendEnv,
 } from '../netlify/functions/lib/sheetsRepo.js'
 
 const args = new Set(process.argv.slice(2))
-const hasCreds = hasServiceAccountEnv()
+const hasCreds = hasSheetsBackendEnv()
 const DRY = args.has('--dry-run') || !hasCreds
 
 const VIAJE_INDEX = 35
@@ -53,8 +53,8 @@ function headerRange(title, headers) {
 async function main() {
   log('PatioControl · migración Fase 5 (App Chofer, viajeId)')
   if (!hasCreds) {
-    log('Sin credenciales de cuenta de servicio → modo dry-run (no se escribe nada).')
-    log('Define GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY y PATIO_SPREADSHEET_ID para aplicar.\n')
+    log('Sin credenciales de cuenta de servicio ni puente Apps Script → modo dry-run (no se escribe nada).')
+    log('Define la cuenta de servicio (GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY, PATIO_SPREADSHEET_ID) o el puente Apps Script (PATIO_APPS_SCRIPT_URL, PATIO_APPS_SCRIPT_SECRET, PATIO_SPREADSHEET_ID) para aplicar.\n')
     dryRunWithoutSheet()
     printReversal()
     return

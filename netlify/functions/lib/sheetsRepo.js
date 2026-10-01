@@ -1,14 +1,18 @@
 /**
- * Repositorio de Google Sheets vía cuenta de servicio (servidor).
- * Env: GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY, PATIO_SPREADSHEET_ID
- * La hoja debe estar compartida (Editor) con GOOGLE_SERVICE_ACCOUNT_EMAIL.
+ * Repositorio de Google Sheets.
+ * Dos vías. Si las dos están definidas, gana la cuenta de servicio:
+ *   1. GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY, PATIO_SPREADSHEET_ID
+ *   2. Puente Apps Script (sin JSON): PATIO_APPS_SCRIPT_URL, PATIO_APPS_SCRIPT_SECRET, PATIO_SPREADSHEET_ID
+ * La hoja se comparte (Editor) con la cuenta de servicio, o el script corre como el dueño de la hoja.
  *
  * Reglas: nunca se limpian pestañas; Auditoria es solo append.
  * Escrituras con valueInputOption=RAW para que un texto tipo "=FORMULA" no se evalúe.
+ * En modo Apps Script, setValues escribe el texto tal cual (un "=" inicial se guarda como texto).
  */
 
 import { SignJWT, importPKCS8 } from 'jose'
 import { v4 as uuidv4 } from 'uuid'
+import { createAppsScriptTransport, hasAppsScriptEnv, readAppsScriptEnv } from './appsScriptTransport.js'
 import { parseAutorizadoRow } from './permisos.js'
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token'
@@ -290,6 +294,11 @@ export function readServiceAccountEnv(env = process.env) {
 export function hasServiceAccountEnv(env = process.env) {
   const c = readServiceAccountEnv(env)
   return Boolean(c.email && c.privateKey && c.spreadsheetId)
+}
+
+/** Hay backend de Sheets: cuenta de servicio o puente Apps Script. */
+export function hasSheetsBackendEnv(env = process.env) {
+  return hasServiceAccountEnv(env) || hasAppsScriptEnv(env)
 }
 
 function repoError(message, status, code = 'SHEETS') {
@@ -1081,28 +1090,46 @@ export function findOpenEntradaIn(movimientos, equipoId) {
 }
 
 /**
- * @param {{ email?: string, privateKey?: string, spreadsheetId?: string, fetch?: typeof fetch }} [opts]
+ * @param {{ email?: string, privateKey?: string, spreadsheetId?: string, fetch?: typeof fetch, env?: NodeJS.ProcessEnv, appsScriptUrl?: string, appsScriptSecret?: string, timeoutMs?: number }} [opts]
  */
 export function createSheetsRepo(opts = {}) {
-  const env = readServiceAccountEnv()
+  const envSource = opts.env ?? process.env
+  const env = readServiceAccountEnv(envSource)
   const email = opts.email ?? env.email
   const privateKey = opts.privateKey != null ? normalizePrivateKey(opts.privateKey) : env.privateKey
-  const spreadsheetId = opts.spreadsheetId ?? env.spreadsheetId
+  const spreadsheetId = String(opts.spreadsheetId ?? env.spreadsheetId ?? '').trim()
   const fetchImpl = opts.fetch ?? globalThis.fetch
+  const appsEnv = readAppsScriptEnv(envSource)
+  const appsUrl = String(opts.appsScriptUrl ?? appsEnv.url ?? '').trim()
+  const appsSecret = String(opts.appsScriptSecret ?? appsEnv.secret ?? '').trim()
+  // La cuenta de servicio gana si email, llave y spreadsheet están completos.
+  const saReady = Boolean(email && privateKey && spreadsheetId)
+  const appsReady = !saReady && Boolean(appsUrl && appsSecret && spreadsheetId)
+  const appsTransport = appsReady
+    ? createAppsScriptTransport(envSource, {
+        fetch: fetchImpl,
+        url: appsUrl,
+        secret: appsSecret,
+        spreadsheetId,
+        timeoutMs: opts.timeoutMs,
+      })
+    : null
 
   let cached = { token: '', exp: 0 }
 
   function assertConfig() {
-    if (!email || !privateKey || !spreadsheetId) {
-      throw repoError(
-        'Backend Sheets no configurado (GOOGLE_SERVICE_ACCOUNT_EMAIL / GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY / PATIO_SPREADSHEET_ID)',
-        503,
-        'NO_CONFIG',
-      )
-    }
+    if (saReady || appsReady) return
+    throw repoError(
+      'Backend Sheets no configurado. Cuenta de servicio: GOOGLE_SERVICE_ACCOUNT_EMAIL / GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY / PATIO_SPREADSHEET_ID. O puente Apps Script (sin JSON): PATIO_APPS_SCRIPT_URL / PATIO_APPS_SCRIPT_SECRET / PATIO_SPREADSHEET_ID.',
+      503,
+      'NO_CONFIG',
+    )
   }
 
   async function getAccessToken() {
+    if (appsReady) {
+      throw repoError('Apps Script mode: esta ruta no usa token de cuenta de servicio.', 501, 'APPS_SCRIPT')
+    }
     assertConfig()
     const now = Math.floor(Date.now() / 1000)
     if (cached.token && cached.exp - 60 > now) return cached.token
@@ -1149,32 +1176,39 @@ export function createSheetsRepo(opts = {}) {
 
   /** @param {string} range A1 (p. ej. `Autorizados!A2:S`) */
   async function sheetsGet(range) {
+    if (appsReady) return appsTransport.sheetsGet(range)
     const data = await request(`/values/${encodeURIComponent(range)}`)
     return data.values ?? []
   }
 
   /** @param {string} range @param {unknown[][]} values */
   async function sheetsAppend(range, values) {
+    const grid = values.map((r) => r.map(toCell))
+    if (appsReady) return appsTransport.sheetsAppend(range, grid)
     return request(
       `/values/${encodeURIComponent(range)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
-      { method: 'POST', body: JSON.stringify({ values: values.map((r) => r.map(toCell)) }) },
+      { method: 'POST', body: JSON.stringify({ values: grid }) },
     )
   }
 
   /** @param {string} range @param {unknown[][]} values */
   async function sheetsUpdate(range, values) {
+    const grid = values.map((r) => r.map(toCell))
+    if (appsReady) return appsTransport.sheetsUpdate(range, grid)
     return request(`/values/${encodeURIComponent(range)}?valueInputOption=RAW`, {
       method: 'PUT',
-      body: JSON.stringify({ values: values.map((r) => r.map(toCell)) }),
+      body: JSON.stringify({ values: grid }),
     })
   }
 
   async function getSpreadsheetMeta() {
+    if (appsReady) return appsTransport.getSpreadsheetMeta()
     return request(`?fields=${encodeURIComponent('sheets(properties(sheetId,title,gridProperties))')}`)
   }
 
   /** @param {object[]} requests */
   async function batchUpdate(requests) {
+    if (appsReady) return appsTransport.batchUpdate(requests)
     return request(':batchUpdate', { method: 'POST', body: JSON.stringify({ requests }) })
   }
 

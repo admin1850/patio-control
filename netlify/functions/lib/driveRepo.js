@@ -1,14 +1,19 @@
 /**
- * Google Drive con la cuenta de servicio (servidor).
- * Env: GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
- *      PATIO_DRIVE_FOLDER_ID (default: carpeta Evidencias).
+ * Google Drive en el servidor.
+ * Cuenta de servicio: GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
+ * PATIO_DRIVE_FOLDER_ID (default: carpeta Evidencias).
+ * Sin JSON: el mismo puente Apps Script (uploadJpeg / downloadJpeg), si hay
+ * PATIO_APPS_SCRIPT_URL, PATIO_APPS_SCRIPT_SECRET y PATIO_SPREADSHEET_ID.
+ * Si las dos vías están definidas, gana la cuenta de servicio.
  *
- * La carpeta debe compartirse con la cuenta de servicio como Content manager o Editor.
+ * La carpeta se comparte con la cuenta de servicio como Content manager o Editor,
+ * o es accesible para la cuenta que desplegó el script.
  * Los archivos se crean privados: no se llama a permissions.create con type "anyone".
  * La vista es same-origin (`/api/media?id=`) con la sesión de PatioControl.
  */
 
 import { SignJWT, importPKCS8 } from 'jose'
+import { createAppsScriptTransport, hasAppsScriptEnv } from './appsScriptTransport.js'
 import { normalizePrivateKey, readServiceAccountEnv } from './sheetsRepo.js'
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token'
@@ -35,7 +40,8 @@ export function readDriveEnv(env = process.env) {
 
 export function hasDriveEnv(env = process.env) {
   const c = readDriveEnv(env)
-  return Boolean(c.email && c.privateKey && c.folderId)
+  if (c.email && c.privateKey && c.folderId) return true
+  return hasAppsScriptEnv(env)
 }
 
 function driveError(message, status, code = 'DRIVE') {
@@ -129,20 +135,110 @@ function multipartRelated(metadata, buffer, mimeType) {
 }
 
 /**
- * @param {{ email?: string, privateKey?: string, folderId?: string, fetch?: typeof fetch }} [opts]
+ * Repo de Drive por el puente Apps Script. Misma forma que el de cuenta de servicio.
+ * @param {{ env: NodeJS.ProcessEnv, folderId: string, fetch: typeof fetch, appsScriptUrl?: string, appsScriptSecret?: string, timeoutMs?: number }} opts
+ */
+function createAppsScriptDriveRepo(opts) {
+  const folderId = opts.folderId
+  const transport = createAppsScriptTransport(opts.env, {
+    fetch: opts.fetch,
+    url: opts.appsScriptUrl,
+    secret: opts.appsScriptSecret,
+    timeoutMs: opts.timeoutMs,
+    folderId,
+  })
+
+  async function uploadPrivateJpeg(input = {}) {
+    const parents = (Array.isArray(input.parents) && input.parents.length ? input.parents : [folderId]).map((id) =>
+      assertDriveId(id, 'carpeta'),
+    )
+    let buffer = input.buffer
+    let mimeType = input.mimeType || 'image/jpeg'
+    if (buffer == null && input.bytesBase64) {
+      const decoded = decodeImageBytes(input.bytesBase64)
+      buffer = decoded.buffer
+      mimeType = input.mimeType || decoded.mimeType
+    }
+    if (!buffer || !buffer.length) throw driveError('Falta la imagen.', 400, 'NO_IMAGE')
+    if (buffer.length > MAX_IMAGE_BYTES) throw driveError('La imagen es demasiado grande.', 413, 'TOO_BIG')
+    if (mimeType === 'image/jpg') mimeType = 'image/jpeg'
+    if (mimeType !== 'image/jpeg' && mimeType !== 'image/png') {
+      throw driveError('Solo se aceptan fotos JPEG o PNG.', 400, 'MIME')
+    }
+    const name = safeFileName(input.name, mimeType === 'image/png' ? 'evidencia.png' : 'evidencia.jpg')
+    const data = await transport.uploadJpeg({
+      name,
+      mimeType,
+      bytesBase64: Buffer.from(buffer).toString('base64'),
+      folderId: parents[0],
+      appProperties: input.appProperties,
+    })
+    const id = String(data.fileId || data.id || '').trim()
+    if (!FILE_ID_RE.test(id)) throw driveError('Drive no devolvió el id del archivo.', 502, 'NO_ID')
+    return { id, name: data.name || name, mimeType: data.mimeType || mimeType }
+  }
+
+  async function getFileMeta(fileId) {
+    const id = assertDriveId(fileId)
+    const data = await transport.fileMeta({ fileId: id, folderId })
+    return {
+      id: String(data.id || id),
+      name: data.name,
+      mimeType: data.mimeType,
+      parents: Array.isArray(data.parents) ? data.parents : [],
+    }
+  }
+
+  async function downloadPrivateFile(fileId) {
+    const id = assertDriveId(fileId)
+    const data = await transport.downloadJpeg({ fileId: id, folderId })
+    const mimeType = String(data.mimeType || '')
+    if (!mimeType.startsWith('image/')) throw driveError('El archivo no es una imagen.', 415, 'MIME')
+    const bytes = Buffer.from(String(data.bytesBase64 || ''), 'base64')
+    if (!bytes.length) throw driveError('La imagen está vacía.', 502, 'NO_IMAGE')
+    if (bytes.length > MAX_DOWNLOAD_BYTES) throw driveError('La imagen es demasiado grande.', 413, 'TOO_BIG')
+    return { id, mimeType, bytes, name: String(data.name || id) }
+  }
+
+  return {
+    folderId,
+    async getAccessToken() {
+      throw driveError('Apps Script mode: esta ruta no usa token de cuenta de servicio.', 501, 'APPS_SCRIPT')
+    },
+    uploadPrivateJpeg,
+    getFileMeta,
+    downloadPrivateFile,
+    createSignedViewUrl,
+  }
+}
+
+/**
+ * @param {{ email?: string, privateKey?: string, folderId?: string, fetch?: typeof fetch, env?: NodeJS.ProcessEnv, appsScriptUrl?: string, appsScriptSecret?: string, timeoutMs?: number }} [opts]
  */
 export function createDriveRepo(opts = {}) {
-  const env = readDriveEnv()
+  const envSource = opts.env ?? process.env
+  const env = readDriveEnv(envSource)
   const email = opts.email ?? env.email
   const privateKey = opts.privateKey != null ? normalizePrivateKey(opts.privateKey) : env.privateKey
   const folderId = String(opts.folderId ?? env.folderId).trim() || DEFAULT_DRIVE_FOLDER_ID
   const fetchImpl = opts.fetch ?? globalThis.fetch
+  const saReady = Boolean(email && privateKey)
+  if (!saReady && hasAppsScriptEnv(envSource)) {
+    return createAppsScriptDriveRepo({
+      env: envSource,
+      folderId,
+      fetch: fetchImpl,
+      appsScriptUrl: opts.appsScriptUrl,
+      appsScriptSecret: opts.appsScriptSecret,
+      timeoutMs: opts.timeoutMs,
+    })
+  }
   let cached = { token: '', exp: 0 }
 
   function assertConfig() {
     if (!email || !privateKey || !folderId) {
       throw driveError(
-        'Drive no configurado (GOOGLE_SERVICE_ACCOUNT_EMAIL / GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY / PATIO_DRIVE_FOLDER_ID).',
+        'Drive no configurado. Cuenta de servicio: GOOGLE_SERVICE_ACCOUNT_EMAIL / GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY / PATIO_DRIVE_FOLDER_ID. O puente Apps Script: PATIO_APPS_SCRIPT_URL / PATIO_APPS_SCRIPT_SECRET / PATIO_SPREADSHEET_ID.',
         503,
         'NO_CONFIG',
       )
