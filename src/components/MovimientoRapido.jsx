@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { v4 as uuid } from 'uuid'
 import { normalizePlacaMX } from '../lib/placaOcr.js'
+import PlacaQuickOcr, { PLACA_HINT } from './PlacaQuickOcr.jsx'
 import {
   MOTIVOS_RAPIDO,
   detalleMotivoRapidoDe,
@@ -17,10 +18,15 @@ function vigente(movimientos, equipoId) {
   return (movimientos || []).find((mov) => mov?.equipoId === equipoId) || null
 }
 
+function matchChipByPlaca(chips, placa) {
+  const norm = normalizePlacaMX(placa)
+  if (!norm) return null
+  return chips.find((row) => normalizePlacaMX(row.equipo.placa) === norm) || null
+}
+
 /**
- * Salida o retorno de un momento. Sin carta porte, licencia, sello, thermo, daños, firma ni fotos.
- * Salida: solo placa + motivo (Otros pide detalle).
- * Retorno: solo pool de placas con salida rápida abierta.
+ * Salida o retorno de un momento. Sin carta porte, licencia, sello, thermo, daños ni firma.
+ * Placa por foto (Plate Recognizer). Salida: placa + motivo. Retorno: pool de salida rápida.
  * @param {'salida'|'retorno'} modo
  */
 export default function MovimientoRapidoForm({
@@ -42,6 +48,8 @@ export default function MovimientoRapidoForm({
   const [yardaId, setYardaId] = useState(yardaInicial)
   const [empresaId, setEmpresaId] = useState(empresaInicial)
   const [selectedId, setSelectedId] = useState(null)
+  const [placaText, setPlacaText] = useState(() => normalizePlacaMX(initialPlaca))
+  const [fotoPlaca, setFotoPlaca] = useState(null)
   const [motivo, setMotivo] = useState('')
   const [detalle, setDetalle] = useState('')
   const [abiertoEn] = useState(() => new Date().toISOString())
@@ -70,11 +78,46 @@ export default function MovimientoRapidoForm({
   const chips = salida ? enPatio : fuera
   const yardaNombre = yardas.find((y) => y.id === yardaId)?.nombre || ''
 
+  function aplicarPlaca(raw, { fromOcr = false } = {}) {
+    const placa = normalizePlacaMX(raw)
+    setPlacaText(placa)
+    setOkMsg(null)
+    if (!placa) {
+      setSelectedId(null)
+      setError(null)
+      return
+    }
+    const hit = matchChipByPlaca(chips, placa)
+    if (hit) {
+      setSelectedId(hit.equipo.id)
+      setError(null)
+      return
+    }
+    setSelectedId(null)
+    setError(
+      salida
+        ? `La placa ${placa} no tiene entrada abierta en esta yarda`
+        : `La placa ${placa} no está en el pool de salida rápida`,
+    )
+    if (!fromOcr) return
+  }
+
   useEffect(() => {
     if (!initialPlaca.trim() || selectedId) return
-    const hit = chips.find((row) => normalizePlacaMX(row.equipo.placa) === normalizePlacaMX(initialPlaca))
-    if (hit) setSelectedId(hit.equipo.id)
-  }, [initialPlaca, chips, selectedId])
+    aplicarPlaca(initialPlaca)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- solo al montar / initialPlaca
+  }, [initialPlaca])
+
+  useEffect(() => {
+    if (!placaText) return
+    const hit = matchChipByPlaca(chips, placaText)
+    if (hit) {
+      if (selectedId !== hit.equipo.id) setSelectedId(hit.equipo.id)
+      setError(null)
+    } else if (selectedId && !chips.some((row) => row.equipo.id === selectedId)) {
+      setSelectedId(null)
+    }
+  }, [chips, placaText, selectedId])
 
   const selChip = chips.find((row) => row.equipo.id === selectedId) || null
   const equipo = selChip?.equipo || null
@@ -92,6 +135,7 @@ export default function MovimientoRapidoForm({
     onRememberEmpresa?.(id)
     setSelectedId(null)
     setError(null)
+    setOkMsg(null)
   }
 
   function cambiarYarda(id) {
@@ -99,10 +143,14 @@ export default function MovimientoRapidoForm({
     onRememberYarda?.(id)
     setSelectedId(null)
     setError(null)
+    setOkMsg(null)
   }
 
   function elegir(id) {
+    const row = chips.find((item) => item.equipo.id === id)
+    if (!row) return
     setSelectedId(id)
+    setPlacaText(normalizePlacaMX(row.equipo.placa))
     setError(null)
     setOkMsg(null)
   }
@@ -117,8 +165,16 @@ export default function MovimientoRapidoForm({
     ev.preventDefault()
     setError(null)
     setOkMsg(null)
+    if (!fotoPlaca) {
+      setError('Toma la foto de la placa con Plate Recognizer')
+      return
+    }
     if (!equipo) {
-      setError(salida ? 'Elige la placa que sale' : 'Elige una placa del pool de salida rápida')
+      setError(
+        salida
+          ? 'La placa leída no tiene entrada abierta en esta yarda'
+          : 'La placa leída no está en el pool de salida rápida',
+      )
       return
     }
     if (salida && !motivoRapidoValido(motivo)) {
@@ -145,6 +201,14 @@ export default function MovimientoRapidoForm({
     const detalleFinal = salida
       ? detalle.trim()
       : selChip?.detalle || detalleMotivoRapidoDe(selChip?.salida) || detalle.trim()
+    const evidencia = [
+      {
+        slotId: 'placa-rapido',
+        label: 'Placa (rápido)',
+        url: fotoPlaca,
+        required: true,
+      },
+    ]
 
     setBusy(true)
     try {
@@ -166,8 +230,8 @@ export default function MovimientoRapidoForm({
         observaciones: observacionesRapidas('', motivoFinal, detalleFinal),
         condicionGeneral: 'buena',
         checklist: [],
-        fotos: [],
-        fotosEvidencia: [],
+        fotos: [fotoPlaca],
+        fotosEvidencia: evidencia,
         cumplimiento: {
           rapido: true,
           motivoRapido: motivoFinal,
@@ -201,8 +265,8 @@ export default function MovimientoRapidoForm({
 
   const titulo = salida ? 'Salida rápida' : 'Retorno rápido'
   const lede = salida
-    ? 'Solo placa y motivo (lavado, llantas u otros). Sin fotos ni documentos.'
-    : 'Elige una placa del pool que salió en salida rápida.'
+    ? 'Toma foto de la placa (Plate Recognizer), elige motivo. Sin documentos.'
+    : 'Toma foto de la placa: solo acepta el pool de salida rápida pendiente.'
   const guardar = salida ? 'Guardar salida rápida' : 'Guardar retorno rápido'
   const motivoChip = selChip?.motivo || (motivo ? etiquetaMotivoRapido(motivo) : '')
 
@@ -255,8 +319,34 @@ export default function MovimientoRapidoForm({
           ))}
         </div>
       </fieldset>
+      <fieldset className="fieldset">
+        <legend>Placa *</legend>
+        <label className="field">
+          <span>Placa leída</span>
+          <input
+            className="input"
+            value={placaText}
+            onChange={(ev) => aplicarPlaca(ev.target.value)}
+            placeholder="Placa sin guiones"
+            autoComplete="off"
+            inputMode="text"
+            required
+          />
+        </label>
+        <PlacaQuickOcr
+          slotId="placa-rapido"
+          label="Tomar foto y leer placa"
+          showHint
+          onPhoto={(_slot, dataUrl) => {
+            setFotoPlaca(dataUrl)
+            setError(null)
+          }}
+          onPlaca={(placa) => aplicarPlaca(placa, { fromOcr: true })}
+        />
+        <p className="hint">{PLACA_HINT}. Usa Plate Recognizer (token en Cloud) o Vision.</p>
+      </fieldset>
       <div className="quick-picks">
-        <p className="label">{salida ? `Placa en patio · ${yardaNombre}` : `Pool salida rápida · ${yardaNombre}`}</p>
+        <p className="label">{salida ? `En patio · ${yardaNombre}` : `Pool salida rápida · ${yardaNombre}`}</p>
         {chips.length === 0 ? (
           <p className="empty">
             {salida
@@ -288,6 +378,7 @@ export default function MovimientoRapidoForm({
           {selChip?.salida ? ` · salió ${formatCuando(selChip.salida.fechaHora)}` : ''}
           {motivoChip ? ` · ${motivoChip}` : ''}
           {selChip?.detalle ? ` · ${selChip.detalle}` : ''}
+          {fotoPlaca ? ' · foto OK' : ''}
         </div>
       )}
       <div className="field" style={{ marginTop: 12 }}>
@@ -320,7 +411,6 @@ export default function MovimientoRapidoForm({
                 onChange={(ev) => setDetalle(ev.target.value)}
                 placeholder="Escribe el otro motivo de salida"
                 required
-                autoFocus
               />
             </label>
           )}
