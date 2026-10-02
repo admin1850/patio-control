@@ -2724,6 +2724,7 @@ function _Component5({
   let [C, w] = (0, l.useState)(`espera-carga`);
   let [te, T] = (0, l.useState)(``);
   let [O, re] = (0, l.useState)(yt());
+  let [desdeNoSe, setDesdeNoSe] = (0, l.useState)(false);
   let [ae, k] = (0, l.useState)(`buena`);
   let [ce, le] = (0, l.useState)(``);
   let [ue, de] = (0, l.useState)(``);
@@ -2810,7 +2811,7 @@ function _Component5({
         label: e.label,
         url: ve[e.id]
       }));
-      let s = new Date(`${O}T12:00:00`).toISOString();
+      let s = desdeNoSe ? null : new Date(`${O}T12:00:00`).toISOString();
       let l = {
         id: ee(),
         tipo: `parado`,
@@ -2830,7 +2831,8 @@ function _Component5({
         observaciones: me.trim() || undefined,
         motivoParo: C,
         motivoParoOtro: C === `otro` && te.trim() || undefined,
-        paradoDesde: s,
+        paradoDesde: s || undefined,
+        paradoDesdeDesconocido: desdeNoSe ? true : undefined,
         fechaEstimadaSalida: !(C === `taller` || C === `thermo`) && !sinFechaSalida && fechaEstimadaSalida
           ? new Date(`${fechaEstimadaSalida}T12:00:00`).toISOString()
           : undefined,
@@ -2990,7 +2992,18 @@ function _Component5({
             let on = e.target.checked;
             setSinFechaSalida(on);
             if (on) setFechaEstimadaSalida(``);
-          }} />{`No tiene fecha de salida`}</label></div>}</Component479><Component501 className={`fieldset`}><Component480>{`Detalle`}</Component480><Component497 className={`grid-2`}><Component483 className={`field`}><Component481>{`Desde cuándo está ahí *`}</Component481><Component482 className={`input`} type={`date`} value={O} onChange={e => re(e.target.value)} required={true} /></Component483><Component487 className={`field`}><Component484 className={`label`}>{`Condición *`}</Component484><Component486 className={`seg wrap`} style={{
+          }} />{`No tiene fecha de salida`}</label></div>}</Component479><Component501 className={`fieldset`}><Component480>{`Detalle`}</Component480><Component497 className={`grid-2`}><Component483 className={`field`}><Component481>{desdeNoSe ? `Desde cuándo está ahí` : `Desde cuándo está ahí *`}</Component481><Component482 className={`input`} type={`date`} value={O} onChange={e => {
+            re(e.target.value);
+            if (e.target.value) setDesdeNoSe(false);
+          }} required={!desdeNoSe} disabled={desdeNoSe} /><label className={`check-inline`} style={{
+            marginTop: 10,
+            display: `flex`
+          }}><input type={`checkbox`} checked={desdeNoSe} onChange={e => {
+              let on = e.target.checked;
+              setDesdeNoSe(on);
+              if (on) re(``);
+              else re(yt());
+            }} />{`No lo sé`}</label></Component483><Component487 className={`field`}><Component484 className={`label`}>{`Condición *`}</Component484><Component486 className={`seg wrap`} style={{
             marginTop: 6
           }}>{[`buena`, `regular`, `mala`].map(e => <Component485 type={`button`} className={ae === e ? `seg-btn ${e === `buena` ? `on-ok` : e === `regular` ? `on-warn` : `on-bad`}` : `seg-btn`} onClick={() => k(e)} key={e}>{e === `buena` ? `Buena` : e === `regular` ? `Regular` : `Mala`}</Component485>)}</Component486></Component487><Component490 className={`field`}><Component488>{`Quién inventaría (caseta) *`}</Component488><Component489 className={`input`} value={ce} onChange={e => le(e.target.value)} placeholder={`Nombre`} required={true} /></Component490>{zonaSlotCap.node}<Component493 className={`field`}><Component491>{`Zona o slot`}</Component491><Component492 className={`input`} value={ue} onChange={e => de(e.target.value)} placeholder={`Andén 2, fondo norte…`} /></Component493><Component496 className={`field`}><Component494>{`Sello actual`}</Component494><Component495 className={`input`} value={fe} onChange={e => pe(e.target.value.toUpperCase())} placeholder={`Opcional`} /></Component496></Component497><Component500 className={`field`} style={{
         marginTop: 12
