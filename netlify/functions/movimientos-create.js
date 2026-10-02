@@ -12,6 +12,7 @@ import { createMovimientosService } from './lib/movimientosService.js'
 import { marcarLlegadaRecibida } from './lib/llegadasService.js'
 import { lecturaDeMovimiento, createPreventivoService } from './lib/preventivoService.js'
 import { getSheetsRepo } from './lib/sheetsRepo.js'
+import { esMovimientoRapido } from '../../src/lib/movimientoRapido.js'
 
 function sheets(deps) {
   return deps?.repo ?? getSheetsRepo()
@@ -29,6 +30,10 @@ function movimientoFromBody(body) {
  */
 async function gateSalida(event, session, mov, repo, headers) {
   if (String(mov?.tipo ?? '').trim().toLowerCase() !== 'salida') return null
+  if (esMovimientoRapido(mov)) {
+    aplicarCumplimientoServidor(mov, { resultado: 'RAPIDO', validacionServidor: true })
+    return null
+  }
   if (typeof repo?.listEstadoUnidad !== 'function' || typeof repo?.listOrdenesTrabajo !== 'function') {
     aplicarCumplimientoServidor(mov, { validacionServidor: false, resultado: 'SIN_VALIDACION' })
     return null
