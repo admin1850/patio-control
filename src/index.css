@@ -319,6 +319,34 @@ html.kiosk .btn-back-fixed {
   font-weight: 600;
   line-height: 1.35;
 }
+.hero-ot-taller {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  margin-top: 2px;
+  padding: 14px 20px;
+  font-size: 1.08rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  background: var(--accent);
+  color: var(--accent-ink);
+  border: 0;
+  box-shadow: 0 10px 22px #e6a8173d;
+}
+.hero-ot-taller .btn-sub {
+  opacity: 0.88;
+  margin-top: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.hero-ot-taller:active {
+  transform: translateY(1px);
+  box-shadow: 0 4px 12px #e6a81733;
+}
 .hero-hint strong {
   color: var(--accent);
   font-weight: 700;
