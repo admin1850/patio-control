@@ -189,9 +189,20 @@ function withEnv(vars, fn) {
 test('columnas Fase 1 y round-trip de OT, evento y estado', () => {
   assert.equal(OT_COLUMNS.length, 35)
   assert.equal(columnLetter(OT_COLUMNS.length - 1), 'AI')
-  assert.equal(columnLetter(OT_EVENTO_COLUMNS.length - 1), 'H')
+  assert.equal(columnLetter(OT_EVENTO_COLUMNS.length - 1), 'J')
   assert.equal(columnLetter(ESTADO_UNIDAD_COLUMNS.length - 1), 'N')
-  assert.deepEqual(OT_EVENTO_COLUMNS, ['id', 'otId', 'tipoEvento', 'valorAnterior', 'valorNuevo', 'motivo', 'usuarioEmail', 'horaServidor'])
+  assert.deepEqual(OT_EVENTO_COLUMNS, [
+    'id',
+    'otId',
+    'tipoEvento',
+    'valorAnterior',
+    'valorNuevo',
+    'motivo',
+    'usuarioEmail',
+    'horaServidor',
+    'rol',
+    'dispositivoId',
+  ])
   assert.deepEqual(ESTADO_UNIDAD_COLUMNS, [
     'unidadId', 'tipo', 'yarda', 'zona', 'slot', 'ubicacion', 'estatusOperativo', 'estatusCarga', 'desde', 'otAbiertaId', 'actualizadoEn',
     'clienteCarga', 'folioCarga', 'enganchadaA',
@@ -235,10 +246,21 @@ test('columnas Fase 1 y round-trip de OT, evento y estado', () => {
   assert.equal(rowToOt(otToRow({ id: 'x', activo: 'NO' })).activo, 'NO')
 
   const ev = rowToOtEvento(otEventoToRow({
-    id: 'ev-1', otId: 'ot-1', tipoEvento: 'ETR', valorAnterior: 'a', valorNuevo: 'b', motivo: 'porque', usuarioEmail: 'a@b.com', horaServidor: NOW.toISOString(),
+    id: 'ev-1',
+    otId: 'ot-1',
+    tipoEvento: 'ETR',
+    valorAnterior: 'a',
+    valorNuevo: 'b',
+    motivo: 'porque',
+    usuarioEmail: 'a@b.com',
+    horaServidor: NOW.toISOString(),
+    rol: 'encargado_yarda',
+    dispositivoId: 'ipad-1',
   }))
   assert.equal(ev.tipoEvento, 'ETR')
   assert.equal(ev.motivo, 'porque')
+  assert.equal(ev.rol, 'encargado_yarda')
+  assert.equal(ev.dispositivoId, 'ipad-1')
 
   const est = rowToEstadoUnidad(estadoUnidadToRow({
     unidadId: 'eq-1', tipo: 'camion', yarda: 'calera', zona: 'N', slot: '3', ubicacion: 'andén 2',
@@ -325,10 +347,19 @@ test('transiciones de estatus, LISTA y cierre a disponible', async () => {
   assert.equal(sinFotos.status, 400)
   assert.match(sinFotos.message, /fotos/)
 
+  const sinNota = await svc.updateEstatus(admin, ot.id, {
+    estatus: 'CERRADA',
+    fotosDespuesJson: ['https://despues/1.jpg', 'https://despues/2.jpg'],
+    kmSalida: 1200,
+  }).catch((err) => err)
+  assert.equal(sinNota.status, 400)
+  assert.match(sinNota.message, /nota|hizo/i)
+
   const cerrada = await svc.updateEstatus(admin, ot.id, {
     estatus: 'CERRADA',
     fotosDespuesJson: ['https://despues/1.jpg', 'https://despues/2.jpg'],
     notas: 'Cambio de balatas',
+    kmSalida: 1200,
   })
   assert.equal(cerrada.ot.fechaLiberada, NOW.toISOString())
   assert.equal(cerrada.ot.fotosDespuesJson.length, 2)

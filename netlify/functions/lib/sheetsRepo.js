@@ -131,6 +131,8 @@ export const OT_EVENTO_COLUMNS = [
   'motivo',
   'usuarioEmail',
   'horaServidor',
+  'rol',
+  'dispositivoId',
 ]
 
 export const ESTADO_UNIDAD_COLUMNS = [
@@ -472,6 +474,8 @@ export function otEventoToRow(ev) {
     textCell(o.motivo),
     textCell(o.usuarioEmail),
     textCell(o.horaServidor),
+    textCell(o.rol),
+    textCell(o.dispositivoId),
   ]
 }
 
@@ -487,6 +491,8 @@ export function rowToOtEvento(e) {
     motivo: String(e[5] ?? ''),
     usuarioEmail: String(e[6] ?? ''),
     horaServidor: String(e[7] ?? ''),
+    rol: String(e[8] ?? ''),
+    dispositivoId: String(e[9] ?? ''),
   }
 }
 

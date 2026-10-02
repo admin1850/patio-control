@@ -231,27 +231,103 @@ export async function countPending() {
 }
 
 /**
+ * Encola foto de OT (dataUrl) hasta ACK del servidor.
+ * @param {{ dataUrl: string, fileName?: string, slotId?: string, otId?: string, field?: 'fotosAntesJson'|'fotosDespuesJson', yardaId?: string }} payload
+ */
+export function enqueueMediaOt(payload) {
+  const id = newId()
+  return enqueueOutbox({
+    id,
+    type: 'media',
+    tipo: 'media',
+    payload: {
+      dataUrl: payload.dataUrl,
+      fileName: payload.fileName || `ot-${Date.now()}.jpg`,
+      slotId: payload.slotId || 'ot',
+      otId: payload.otId || '',
+      field: payload.field || 'fotosAntesJson',
+      yardaId: payload.yardaId || '',
+    },
+    queuedAt: new Date().toISOString(),
+  }).then(() => id)
+}
+
+/**
+ * Encola alta de OT cuando no hay red (fotos aún en dataUrl).
+ * @param {{ orden: Record<string, unknown>, fotosAntes: string[], preventivo?: boolean }} payload
+ */
+export function enqueueOtCreate(payload) {
+  const id = String(payload?.orden?.id || newId())
+  return enqueueOutbox({
+    id,
+    type: 'ot-create',
+    tipo: 'ot-create',
+    payload: {
+      orden: payload.orden,
+      fotosAntes: payload.fotosAntes || [],
+      preventivo: Boolean(payload.preventivo),
+      servicioId: payload.servicioId || '',
+    },
+    queuedAt: new Date().toISOString(),
+  }).then(() => id)
+}
+
+/**
  * Reintenta cada pendiente o fallido, del más antiguo al más reciente.
- * `createFn` recibe el movimiento con Blobs rehidratados.
- * @param {(movimiento: any, rec: any) => Promise<unknown>} createFn
+ * `createFn` recibe el movimiento (legacy) o un mapa de handlers:
+ * `{ movimiento?, media?, otCreate? }`.
+ * @param {((movimiento: any, rec: any) => Promise<unknown>) | { movimiento?: Function, media?: Function, otCreate?: Function }} createFnOrHandlers
  * @returns {Promise<{ synced: number, failed: number, remaining: number }>}
  */
-export async function flushOutbox(createFn) {
-  if (typeof createFn !== 'function') throw new Error('flushOutbox requiere createFn')
+export async function flushOutbox(createFnOrHandlers) {
+  const handlers =
+    typeof createFnOrHandlers === 'function'
+      ? { movimiento: createFnOrHandlers }
+      : createFnOrHandlers && typeof createFnOrHandlers === 'object'
+        ? createFnOrHandlers
+        : null
+  if (!handlers) throw new Error('flushOutbox requiere createFn o handlers')
   const pending = await listPending()
   let synced = 0
   let failed = 0
   for (const rec of pending) {
     const event = rehydrateEvent(rec.event)
-    const movimiento = event?.movimiento ?? event?.payload
     const type = event?.type || event?.tipo || rec.type
-    if (!movimiento || type !== 'movimiento') {
-      await markFailed(rec.id, 'Evento de outbox sin movimiento')
-      failed++
-      continue
-    }
     try {
-      await createFn(movimiento, rec)
+      if (type === 'media') {
+        if (typeof handlers.media !== 'function') {
+          await markFailed(rec.id, 'Sin handler de media')
+          failed++
+          continue
+        }
+        await handlers.media(event?.payload || event, rec)
+        await markSynced(rec.id)
+        synced++
+        continue
+      }
+      if (type === 'ot-create') {
+        if (typeof handlers.otCreate !== 'function') {
+          await markFailed(rec.id, 'Sin handler de OT')
+          failed++
+          continue
+        }
+        await handlers.otCreate(event?.payload || event, rec)
+        await markSynced(rec.id)
+        synced++
+        continue
+      }
+      const movimiento = event?.movimiento ?? event?.payload
+      if (!movimiento || (type && type !== 'movimiento')) {
+        await markFailed(rec.id, 'Evento de outbox sin movimiento')
+        failed++
+        continue
+      }
+      if (typeof handlers.movimiento !== 'function') {
+        await markFailed(rec.id, 'Sin handler de movimiento')
+        failed++
+        continue
+      }
+      await handlers.movimiento(movimiento, rec)
       await markSynced(rec.id)
       synced++
     } catch (err) {

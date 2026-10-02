@@ -36,6 +36,8 @@ import {
   sessionLikelyAvailable,
   tryCreateMovimientoViaServer,
   crearOrdenServidor,
+  abrirOtPreventivo,
+  actualizarOrdenServidor,
   isGateUnavailable,
   ubicarTrasMovimiento,
   uploadMediaServer,
@@ -2850,7 +2852,7 @@ function _Component5({
       let yardaNombre = _e.find(e => e.id === o)?.nombre ?? o;
       let pideOt = C === `taller` || C === `thermo`;
       if (pideOt) {
-        let fotosOt = n.map(item => item.url).filter(url => /^https?:\/\//i.test(url) || String(url).startsWith(`/api/`));
+        let fotosOt = n.map(item => item.url).filter(Boolean);
         setOtPrompt({
           unidadId: t.id,
           placa: t.placa,
@@ -4094,20 +4096,80 @@ async function flushServerOutbox(cfg, onSaved) {
       remaining: 0
     };
   }
-  return flushOutbox(async mov => {
-    let ready = await subirFotosMovimiento(cfg, mov);
-    let data = await createMovimientoServer(ready);
-    if (!data?.movimiento?.id) {
-      throw Error(`El servidor no confirmó el movimiento.`);
+  return flushOutbox({
+    movimiento: async mov => {
+      let ready = await subirFotosMovimiento(cfg, mov);
+      let data = await createMovimientoServer(ready);
+      if (!data?.movimiento?.id) {
+        throw Error(`El servidor no confirmó el movimiento.`);
+      }
+      onSaved?.(data.movimiento);
+      await ubicarTrasMovimiento({
+        ...mov,
+        id: data.movimiento.id || mov.id,
+        equipoId: data.movimiento.equipoId || mov.equipoId,
+        placa: data.movimiento.placa || mov.placa
+      });
+      return data.movimiento;
+    },
+    media: async payload => {
+      const dataUrl = payload?.dataUrl;
+      if (!dataUrl) throw Error(`Foto en bandeja sin datos`);
+      const up = await uploadMediaServer({
+        fileName: payload.fileName || `ot-${Date.now()}.jpg`,
+        dataUrl,
+        yardaId: payload.yardaId,
+        slotId: payload.slotId || `ot`,
+        movimientoId: payload.otId || ``
+      });
+      const url = up?.viewPath || up?.url;
+      if (!url) throw Error(`Sin URL de foto`);
+      if (payload.otId) {
+        const patch = payload.field === `fotosDespuesJson`
+          ? { fotosDespuesJson: [url], accion: `actualizar` }
+          : { fotosAntesJson: [url], accion: `actualizar` };
+        await actualizarOrdenServidor(payload.otId, patch);
+      }
+      return url;
+    },
+    otCreate: async payload => {
+      const fotos = [];
+      for (const dataUrl of payload?.fotosAntes || []) {
+        if (typeof dataUrl === `string` && dataUrl.startsWith(`data:`)) {
+          const up = await uploadMediaServer({
+            fileName: `ot-antes-${Date.now()}.jpg`,
+            dataUrl,
+            yardaId: payload?.orden?.yarda,
+            slotId: `ot-antes`
+          });
+          const url = up?.viewPath || up?.url;
+          if (!url) throw Error(`Sin URL de foto OT`);
+          fotos.push(url);
+        } else if (dataUrl) {
+          fotos.push(dataUrl);
+        }
+      }
+      if (fotos.length < 2) throw Error(`La OT en bandeja necesita al menos 2 fotos`);
+      if (payload?.preventivo && payload?.servicioId) {
+        const data = await abrirOtPreventivo({
+          servicioId: payload.servicioId,
+          yarda: payload.orden?.yarda,
+          etr: payload.orden?.etr,
+          motivo: payload.orden?.motivo,
+          kmEntrada: payload.orden?.kmEntrada,
+          horometroEntrada: payload.orden?.horometroEntrada,
+          fotosAntesJson: fotos
+        });
+        if (!data?.orden?.id) throw Error(`El servidor no confirmó la OT preventiva`);
+        return data.orden;
+      }
+      const data = await crearOrdenServidor({
+        ...payload.orden,
+        fotosAntesJson: fotos
+      });
+      if (!data?.orden?.id) throw Error(`El servidor no confirmó la OT`);
+      return data.orden;
     }
-    onSaved?.(data.movimiento);
-    await ubicarTrasMovimiento({
-      ...mov,
-      id: data.movimiento.id || mov.id,
-      equipoId: data.movimiento.equipoId || mov.equipoId,
-      placa: data.movimiento.placa || mov.placa
-    });
-    return data.movimiento;
   });
 }
 async function xn(e, t) {
