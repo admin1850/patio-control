@@ -5366,7 +5366,8 @@ function Mn({
   onDelete: n,
   onSaveRefrigeracion: r,
   onDeleteRefrigeracion: i,
-  readOnly = false
+  readOnly = false,
+  initialPlaca = ``
 }) {
   let [a, o] = (0, l.useState)(`unidades`);
   const Component582 = `h1`;
@@ -5380,16 +5381,17 @@ function Mn({
       marginBottom: 14
     }}><Component585 type={`button`} className={a === `unidades` ? `seg-btn on-ok` : `seg-btn`} onClick={() => o(`unidades`)}>{`Unidades (camión / caja)`}</Component585><Component586 type={`button`} className={a === `refrigeracion` ? `seg-btn on-ok` : `seg-btn`} onClick={() => o(`refrigeracion`)}>{`Refrigeración`}</Component586></Component587>{readOnly && <p className={`banner warn`} style={{
       marginBottom: 12
-    }}>{LOCAL_READONLY_BANNER}</p>}{a === `unidades` ? <Nn state={e} onSave={t} onDelete={n} readOnly={readOnly} /> : <Pn state={e} onSave={r} onDelete={i} readOnly={readOnly} />}</Component588>;
+    }}>{LOCAL_READONLY_BANNER}</p>}{a === `unidades` ? <Nn state={e} onSave={t} onDelete={n} readOnly={readOnly} initialPlaca={initialPlaca} /> : <Pn state={e} onSave={r} onDelete={i} readOnly={readOnly} />}</Component588>;
 }
 function Nn({
   state: e,
   onSave: t,
   onDelete: n,
-  readOnly = false
+  readOnly = false,
+  initialPlaca = ``
 }) {
   let [r, i] = (0, l.useState)(`camion`);
-  let [a, o] = (0, l.useState)(``);
+  let [a, o] = (0, l.useState)(() => normalizePlacaMX(initialPlaca));
   let [s, c] = (0, l.useState)(``);
   let [u, d] = (0, l.useState)(``);
   let [f, p] = (0, l.useState)(``);
@@ -5397,6 +5399,10 @@ function Nn({
   let [g, _] = (0, l.useState)(``);
   let [equipoBusca, setEquipoBusca] = (0, l.useState)(``);
   let [histEquipoId, setHistEquipoId] = (0, l.useState)(null);
+  (0, l.useEffect)(() => {
+    let placa = normalizePlacaMX(initialPlaca);
+    if (placa) o(placa);
+  }, [initialPlaca]);
   function v(e) {
     e.preventDefault();
     if (readOnly) {
@@ -5464,7 +5470,9 @@ function Nn({
   const Component621 = `button`;
   const Component622 = `li`;
   const Component623 = `ul`;
-  return <l.Fragment><Component616 className={`form-panel compact`} onSubmit={v}><Component611 className={`grid-2`}><Component595 className={`field`}><Component589>{`Tipo`}</Component589><Component594 className={`input`} value={r} onChange={e => i(e.target.value)}><Component590 value={`camion`}>{`Camión`}</Component590><Component591 value={`caja`}>{`Caja / remolque`}</Component591><Component592 value={`dolly`}>{`Dolly`}</Component592><Component593 value={`otro`}>{`Otro`}</Component593></Component594></Component595><Component598 className={`field`}><Component596>{`Placa`}</Component596><Component597 className={`input`} value={a} onChange={e => o(normalizePlacaMX(e.target.value))} placeholder={`Placa sin guiones`} required={true} /><PlacaQuickOcr slotId={`placa`} label={`Tomar foto y leer placa`} onPlaca={placa => o(normalizePlacaMX(placa))} /></Component598><Component601 className={`field`}><Component599>{`No. económico`}</Component599><Component600 className={`input`} value={s} onChange={e => c(e.target.value)} /></Component601><Component604 className={`field`}><Component602>{`Marca`}</Component602><Component603 className={`input`} value={u} onChange={e => d(e.target.value)} /></Component604><Component607 className={`field`}><Component605>{`Modelo`}</Component605><Component606 className={`input`} value={f} onChange={e => p(e.target.value)} /></Component607><Component610 className={`field`}><Component608>{`Notas`}</Component608><Component609 className={`input`} value={g} onChange={e => _(e.target.value)} /></Component610></Component611><Component614 className={`field`} style={{
+  return <l.Fragment><Component616 className={`form-panel compact`} onSubmit={v}>{normalizePlacaMX(initialPlaca) && <p className={`banner info`} style={{
+      marginBottom: 12
+    }}>{`Alta desde Taller · placa `}{normalizePlacaMX(initialPlaca)}{`. Completa económico y tipo, guarda, y regresa a Mantenimiento para abrir la OT.`}</p>}<Component611 className={`grid-2`}><Component595 className={`field`}><Component589>{`Tipo`}</Component589><Component594 className={`input`} value={r} onChange={e => i(e.target.value)}><Component590 value={`camion`}>{`Camión`}</Component590><Component591 value={`caja`}>{`Caja / remolque`}</Component591><Component592 value={`dolly`}>{`Dolly`}</Component592><Component593 value={`otro`}>{`Otro`}</Component593></Component594></Component595><Component598 className={`field`}><Component596>{`Placa`}</Component596><Component597 className={`input`} value={a} onChange={e => o(normalizePlacaMX(e.target.value))} placeholder={`Placa sin guiones`} required={true} /><PlacaQuickOcr slotId={`placa`} label={`Tomar foto y leer placa`} onPlaca={placa => o(normalizePlacaMX(placa))} /></Component598><Component601 className={`field`}><Component599>{`No. económico`}</Component599><Component600 className={`input`} value={s} onChange={e => c(e.target.value)} /></Component601><Component604 className={`field`}><Component602>{`Marca`}</Component602><Component603 className={`input`} value={u} onChange={e => d(e.target.value)} /></Component604><Component607 className={`field`}><Component605>{`Modelo`}</Component605><Component606 className={`input`} value={f} onChange={e => p(e.target.value)} /></Component607><Component610 className={`field`}><Component608>{`Notas`}</Component608><Component609 className={`input`} value={g} onChange={e => _(e.target.value)} /></Component610></Component611><Component614 className={`field`} style={{
         marginTop: 12
       }}><Component612>{`Nombre operador/chofer asignado a este camión o unidad:`}</Component612><Component613 className={`input`} value={m} onChange={e => h(e.target.value)} placeholder={`Ej. Luis Pérez`} /></Component614><Component615 type={`submit`} className={`btn primary`} disabled={readOnly}>{`Agregar equipo`}</Component615></Component616><p className={`hint`} style={{
       margin: `12px 0 8px`
@@ -6602,14 +6610,14 @@ function Un() {
       await guardSubmit(`salida-rapida`, mov);
     }} onDone={() => u(`dashboard`)} key={`salida-rapida-${i}`} />}{e === `retorno-rapido` && puedeMovimiento(c.user, `retorno-rapido`) && <MovimientoRapidoForm modo={`retorno`} initialPlaca={o} equipos={c.state.equipos} movimientos={c.state.movimientos} estadosUnidad={c.estadosUnidad} user={c.user} empresas={ie} yardas={_e} yardaInicial={be()} empresaInicial={oe()} onRememberYarda={A} onRememberEmpresa={se} formatCuando={kn} onSubmit={async mov => {
       await guardSubmit(`retorno-rapido`, mov);
-    }} onDone={() => u(`dashboard`)} key={`retorno-rapido-${i}`} />}{e === `mantenimiento` && <Mantenimiento user={c.user} draft={otDraft} equipos={c.state.equipos} movimientos={c.state.movimientos} estadosUnidad={c.estadosUnidad} key={`mant-${i}`} />}{e === `inventario` && <Inventario user={c.user} key={`inv-${i}`} />}{e === `parado` && puedeMovimiento(c.user, `parado`) && <_Component5 initialPlaca={o} equipos={c.state.equipos} movimientos={c.state.movimientos} onSaveEquipo={e => void c.guardarEquipo(e)} onPromptOt={draft => {
+    }} onDone={() => u(`dashboard`)} key={`retorno-rapido-${i}`} />}{e === `mantenimiento` && <Mantenimiento user={c.user} draft={otDraft} equipos={c.state.equipos} movimientos={c.state.movimientos} estadosUnidad={c.estadosUnidad} onAltaCatalogo={placa => u(`equipos`, placa)} key={`mant-${i}`} />}{e === `inventario` && <Inventario user={c.user} key={`inv-${i}`} />}{e === `parado` && puedeMovimiento(c.user, `parado`) && <_Component5 initialPlaca={o} equipos={c.state.equipos} movimientos={c.state.movimientos} onSaveEquipo={e => void c.guardarEquipo(e)} onPromptOt={draft => {
       setOtDraft(draft);
       u(`mantenimiento`);
     }} onSubmit={async e => {
       await guardSubmit(`parado`, e);
     }} onDone={() => u(`dashboard`)} key={`parado-${i}`} />}{e === `baja` && puedeMovimiento(c.user, `baja`) && <Ne initialPlaca={o} equipos={c.state.equipos} movimientos={c.state.movimientos} onSubmit={async e => {
       await guardSubmit(`baja`, e);
-    }} onDone={() => u(`dashboard`)} key={`baja-${i}`} />}{e === `historial` && puedeMovimiento(c.user, `historial`) && <_Component6 state={c.state} />}{e === `kpis` && puedeMovimiento(c.user, `kpis`) && <Bn state={c.state} />}{e === `equipos` && puedeMovimiento(c.user, `equipos`) && <Mn readOnly={c.localReadOnly} state={c.state} onSave={e => void c.guardarEquipo(e)} onDelete={e => void c.eliminarEquipo(e)} onSaveRefrigeracion={e => void c.guardarRefrigeracion(e)} onDeleteRefrigeracion={e => void c.eliminarRefrigeracion(e)} />}{e === `workspace` && puedeMovimiento(c.user, `workspace`) && <Vn config={c.config} mode={c.mode} user={c.user} syncing={c.syncing} syncError={c.syncError} queueCount={c.queueCount} online={c.online} onSaveConfig={c.updateConfig} onConnect={c.connectWorkspace} onDisconnect={c.disconnectWorkspace} onRefresh={c.refreshFromWorkspace} onFlushQueue={c.flushQueue} onLimpiarDatos={c.limpiarDatos} />}</_Component7>;
+    }} onDone={() => u(`dashboard`)} key={`baja-${i}`} />}{e === `historial` && puedeMovimiento(c.user, `historial`) && <_Component6 state={c.state} />}{e === `kpis` && puedeMovimiento(c.user, `kpis`) && <Bn state={c.state} />}{e === `equipos` && puedeMovimiento(c.user, `equipos`) && <Mn readOnly={c.localReadOnly} state={c.state} initialPlaca={o} onSave={e => void c.guardarEquipo(e)} onDelete={e => void c.eliminarEquipo(e)} onSaveRefrigeracion={e => void c.guardarRefrigeracion(e)} onDeleteRefrigeracion={e => void c.eliminarRefrigeracion(e)} key={`equipos-${i}`} />}{e === `workspace` && puedeMovimiento(c.user, `workspace`) && <Vn config={c.config} mode={c.mode} user={c.user} syncing={c.syncing} syncError={c.syncError} queueCount={c.queueCount} online={c.online} onSaveConfig={c.updateConfig} onConnect={c.connectWorkspace} onDisconnect={c.disconnectWorkspace} onRefresh={c.refreshFromWorkspace} onFlushQueue={c.flushQueue} onLimpiarDatos={c.limpiarDatos} />}</_Component7>;
 }
 
 export default function App() {
