@@ -925,6 +925,9 @@ export function movimientoToRow(mov) {
     ...(m.cumplimiento && typeof m.cumplimiento === 'object' && !Array.isArray(m.cumplimiento) ? m.cumplimiento : {}),
   }
   delete cumplimiento.selloCoincideEntrada
+  if (m.rapido === true || cumplimiento.rapido === true) cumplimiento.rapido = true
+  const motivoRapido = String(m.motivoRapido || cumplimiento.motivoRapido || '').trim()
+  if (motivoRapido) cumplimiento.motivoRapido = motivoRapido
   const row = Array(MOVIMIENTO_COLUMNS.length).fill('')
   row[0] = textCell(m.id)
   row[1] = textCell(m.tipo)
@@ -978,7 +981,7 @@ export function rowToMovimiento(e) {
   const evidencia = parseEvidencia(e[23], fotosPipe)
   const ref = parseRefrigerada(e[28])
   const checklist = parseJsonCell(e[13])
-  return {
+  const mov = {
     id: String(e[0]),
     tipo: String(e[1]),
     equipoId: e[2] == null ? '' : String(e[2]),
@@ -1012,6 +1015,9 @@ export function rowToMovimiento(e) {
     ...parseFase0(e),
     ...(e[35] ? { viajeId: String(e[35]) } : {}),
   }
+  if (mov.cumplimiento?.rapido === true) mov.rapido = true
+  if (mov.cumplimiento?.motivoRapido) mov.motivoRapido = String(mov.cumplimiento.motivoRapido)
+  return mov
 }
 
 /**

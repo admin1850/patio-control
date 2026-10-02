@@ -434,6 +434,92 @@ test('HTTP: el gate no revela el sello y el servidor no cree validadoGate', asyn
   })
 })
 
+test('salida rápida omite carta porte y licencia vacías', async () => {
+  const { observacionesRapidas, tituloMovimiento, esMovimientoRapido } = await import('../src/lib/movimientoRapido.js')
+  assert.equal(observacionesRapidas('', 'lavado'), 'Rápido · Lavado')
+  assert.equal(observacionesRapidas('nota', 'combustible'), 'nota')
+  assert.equal(tituloMovimiento({ tipo: 'salida', rapido: true }), 'Salida rápida')
+  assert.equal(tituloMovimiento({ tipo: 'entrada', cumplimiento: { rapido: true } }), 'Retorno rápido')
+  assert.equal(esMovimientoRapido({ cumplimiento: { rapido: true } }), true)
+
+  await withEnv({ PATIO_SESSION_SECRET: SECRET }, async () => {
+    const repo = memoryRepo()
+    repo.movimientos.push(entrada())
+    const vacio = {
+      tipo: 'salida',
+      equipoId: 'eq-libre',
+      placa: 'LIBRE1',
+      selloNumero: SELLO,
+      selloCapturado: SELLO,
+      kilometros: 1200,
+      cartaPorteUuid: '',
+      licenciaFederal: '',
+    }
+    const bloqueada = await createMovimientoHandler(httpEvent('POST', {
+      cookie: cookieFor(guardia),
+      body: { ...vacio, id: 'sal-sin-docs' },
+    }), { repo })
+    assert.equal(bloqueada.statusCode, 409, bloqueada.body)
+    const motivos = JSON.parse(bloqueada.body).motivos || []
+    assert.ok(motivos.some((item) => item.codigo === 'LICENCIA_FEDERAL'))
+    assert.ok(!motivos.some((item) => item.codigo === 'CARTA_PORTE'))
+
+    const malaCp = await createMovimientoHandler(httpEvent('POST', {
+      cookie: cookieFor(guardia),
+      body: { ...vacio, id: 'sal-cp-mala', cartaPorteUuid: 'NO-ES-UUID' },
+    }), { repo })
+    assert.equal(malaCp.statusCode, 409, malaCp.body)
+    const motivosCp = JSON.parse(malaCp.body).motivos || []
+    assert.ok(motivosCp.some((item) => item.codigo === 'CARTA_PORTE'))
+    assert.ok(motivosCp.some((item) => item.codigo === 'LICENCIA_FEDERAL'))
+
+    const rapida = await createMovimientoHandler(httpEvent('POST', {
+      cookie: cookieFor(guardia),
+      body: {
+        ...vacio,
+        id: 'sal-rapida',
+        rapido: true,
+        motivoRapido: 'lavado',
+        cartaPorteUuid: 'NO-ES-UUID',
+        licenciaFederal: '',
+        cumplimiento: { rapido: true, motivoRapido: 'lavado', validadoGate: false },
+      },
+    }), { repo })
+    assert.equal(rapida.statusCode, 200, rapida.body)
+    assert.equal(rapida.body.includes('CARTA_PORTE'), false)
+    assert.equal(rapida.body.includes('LICENCIA_FEDERAL'), false)
+    const mov = JSON.parse(rapida.body).movimiento
+    assert.equal(mov.tipo, 'salida')
+    assert.equal(mov.rapido, true)
+    assert.equal(mov.motivoRapido, 'lavado')
+    assert.equal(mov.cumplimiento.rapido, true)
+    assert.equal(mov.cumplimiento.motivoRapido, 'lavado')
+    assert.equal(mov.cumplimiento.validadoGate, true)
+    assert.equal(mov.cumplimiento.resultado, 'RAPIDO')
+    assert.notEqual(mov.cumplimiento.salidaFuerte, true)
+    assert.equal(await repo.findOpenEntrada('eq-libre'), null)
+
+    const soloCumplimiento = await createMovimientoHandler(httpEvent('POST', {
+      cookie: cookieFor(guardia),
+      body: {
+        id: 'ent-retorno',
+        tipo: 'entrada',
+        equipoId: 'eq-libre',
+        placa: 'LIBRE1',
+        motivoRapido: 'tramite',
+        cumplimiento: { rapido: true, motivoRapido: 'tramite', validadoGate: true },
+      },
+    }), { repo })
+    assert.equal(soloCumplimiento.statusCode, 200, soloCumplimiento.body)
+    const retorno = JSON.parse(soloCumplimiento.body).movimiento
+    assert.equal(retorno.tipo, 'entrada')
+    assert.equal(retorno.rapido, true)
+    assert.equal(retorno.motivoRapido, 'tramite')
+    assert.equal(retorno.cumplimiento.validadoGate, true)
+    assert.equal((await repo.findOpenEntrada('eq-libre')).id, 'ent-retorno')
+  })
+})
+
 test('la salida corta no enseña el sello ni precarga km', () => {
   const src = readFileSync(fileURLToPath(new URL('../src/App.jsx', import.meta.url)), 'utf8')
   const start = src.indexOf('var SALIDA_CORTA_SLOTS')

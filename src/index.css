@@ -290,6 +290,14 @@ html.kiosk .btn-back-fixed {
   background: var(--warn-soft);
   color: var(--warn);
 }
+.badge.rapido {
+  margin-left: 6px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: #1a4f8c;
+  background: #e3eefc;
+  vertical-align: middle;
+}
 .hero-actions {
   grid-template-columns: 1fr 1fr;
   gap: 10px;

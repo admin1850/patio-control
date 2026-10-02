@@ -44,6 +44,20 @@ export function aplicarCumplimientoServidor(mov, gate) {
   const prev = mov.cumplimiento && typeof mov.cumplimiento === 'object' && !Array.isArray(mov.cumplimiento)
     ? { ...mov.cumplimiento }
     : {}
+  if (gate?.resultado === 'RAPIDO') {
+    const motivo = String(mov.motivoRapido || prev.motivoRapido || '').trim()
+    mov.rapido = true
+    if (motivo) mov.motivoRapido = motivo
+    mov.cumplimiento = {
+      ...prev,
+      rapido: true,
+      ...(motivo ? { motivoRapido: motivo } : {}),
+      validacionServidor: true,
+      validadoGate: true,
+      resultado: 'RAPIDO',
+    }
+    return mov
+  }
   delete prev.validadoGate
   const validacionServidor = gate?.validacionServidor === true
   const flags = gate?.cumplimiento && typeof gate.cumplimiento === 'object' ? gate.cumplimiento : {}
