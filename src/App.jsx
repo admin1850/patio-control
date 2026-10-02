@@ -6104,6 +6104,7 @@ function SalidaCortaForm({
   let [yardaId, setYardaId] = l.useState(() => be());
   let [empresaId, setEmpresaId] = l.useState(() => oe());
   let [selectedId, setSelectedId] = l.useState(null);
+  let [placaText, setPlacaText] = l.useState(() => normalizePlacaMX(initialPlaca));
   let [operador, setOperador] = l.useState(``);
   let [abiertoEnSalida] = l.useState(() => new Date().toISOString());
   let [capturaTardiaSalida, setCapturaTardiaSalida] = l.useState(false);
@@ -6154,6 +6155,7 @@ function SalidaCortaForm({
   function pickUnit(row) {
     let limpio = precargaKmDiesel();
     setSelectedId(row.equipo.id);
+    setPlacaText(normalizePlacaMX(row.equipo.placa));
     setSelloSalida(``);
     setKm(limpio.km);
     setDieselPct(limpio.dieselPct);
@@ -6175,15 +6177,39 @@ function SalidaCortaForm({
     setOverrideMotivo(``);
     setTrasladoExterno(false);
   }
+  function aplicarPlacaSalida(raw) {
+    let placa = normalizePlacaMX(raw);
+    setPlacaText(placa);
+    setOkMsg(null);
+    if (!placa) {
+      setSelectedId(null);
+      setError(null);
+      return;
+    }
+    let hit = enPatio.find(e => normalizePlacaMX(e.equipo.placa) === placa);
+    if (hit) {
+      pickUnit(hit);
+      return;
+    }
+    setSelectedId(null);
+    setError(`La placa ${placa} no tiene entrada abierta en esta yarda. Registra primero una entrada o elige otra yarda/empresa.`);
+  }
   l.useEffect(() => {
     if (!initialPlaca.trim() || selectedId) {
       return;
     }
-    let hit = enPatio.find(e => normalizePlacaMX(e.equipo.placa) === normalizePlacaMX(initialPlaca));
-    if (hit) {
-      pickUnit(hit);
-    }
+    aplicarPlacaSalida(initialPlaca);
   }, [initialPlaca, enPatio, selectedId]);
+  l.useEffect(() => {
+    if (!placaText) return;
+    let hit = enPatio.find(e => normalizePlacaMX(e.equipo.placa) === normalizePlacaMX(placaText));
+    if (hit) {
+      if (selectedId !== hit.equipo.id) pickUnit(hit);
+      setError(null);
+    } else if (selectedId && !enPatio.some(row => row.equipo.id === selectedId)) {
+      setSelectedId(null);
+    }
+  }, [enPatio, placaText, selectedId]);
   let sel = enPatio.find(e => e.equipo.id === selectedId) || null;
   let refrigerada = Boolean(sel?.entrada.llevaRefrigerada);
   let slots = slotsSalidaCorta(refrigerada);
@@ -6482,13 +6508,17 @@ function SalidaCortaForm({
         setEmpresaId(emp.id);
         se(emp.id);
         setSelectedId(null);
+        setPlacaText(``);
+        setError(null);
       }} key={emp.id}>{emp.nombre}</button>)}</div></fieldset><fieldset className={`fieldset`}><legend>{`Yarda`}</legend><div className={`seg big wrap`}>{_e.map(y => <button type={`button`} className={yardaId === y.id ? `seg-btn on-ok` : `seg-btn`} onClick={() => {
         setYardaId(y.id);
         A(y.id);
         setSelectedId(null);
-      }} key={y.id}>{y.nombre}</button>)}</div></fieldset><div className={`quick-picks`}><p className={`label`}>{`Unidades en patio · `}{_e.find(y => y.id === yardaId)?.nombre}</p>{enPatio.length === 0 ? <p className={`empty`}>{`No hay unidades en ciclo/parado en esta yarda. Registra primero una entrada.`}</p> : <div className={`chip-row`}>{enPatio.map(row => <button type={`button`} className={selectedId === row.equipo.id ? `chip on` : `chip`} onClick={() => pickUnit(row)} key={row.equipo.id}>{row.equipo.placa}{` · `}{row.equipo.numeroEconomico}</button>)}</div>}</div>{sel && <div className={`banner info`} style={{
+        setPlacaText(``);
+        setError(null);
+      }} key={y.id}>{y.nombre}</button>)}</div></fieldset><fieldset className={`fieldset`}><legend>{`Placa *`}</legend><label className={`field`}><span>{`Placa de la unidad`}</span><input className={`input`} value={placaText} onChange={e => aplicarPlacaSalida(e.target.value)} placeholder={`Placa sin guiones`} autoComplete={`off`} required={true} /><PlacaQuickOcr slotId={`salida-placa`} label={`Tomar foto y leer placa`} onPlaca={placa => aplicarPlacaSalida(placa)} /></label><p className={`hint`}>{`Toma la foto de la placa (Plate Recognizer / Vision) o elige una unidad en patio.`}</p></fieldset><div className={`quick-picks`}><p className={`label`}>{`Unidades en patio · `}{_e.find(y => y.id === yardaId)?.nombre}</p>{enPatio.length === 0 ? <p className={`empty`}>{`No hay unidades en ciclo/parado en esta yarda. Registra primero una entrada.`}</p> : <div className={`chip-row`}>{enPatio.map(row => <button type={`button`} className={selectedId === row.equipo.id ? `chip on` : `chip`} onClick={() => pickUnit(row)} key={row.equipo.id}>{row.equipo.placa}{row.equipo.numeroEconomico ? ` · ${row.equipo.numeroEconomico}` : ``}</button>)}</div>}</div>{sel && <div className={`banner info`} style={{
       marginTop: 12
-    }}><strong>{sel.equipo.placa}</strong>{` · eco `}{sel.equipo.numeroEconomico}{sel.entrada.chofer ? ` · chofer ${sel.entrada.chofer}` : ``}{` · llegó `}{kn(sel.entrada.fechaHora)}{refrigerada ? ` · caja refrigerada` : ``}</div>}<fieldset className={`fieldset`}><legend>{`Caseta`}</legend><label className={`field`}><span>{`Operador de patio *`}</span><input className={`input`} value={operador} onChange={e => setOperador(e.target.value)} placeholder={`Quién registra la salida`} required={true} /></label><div className={`field`}><span>{`Fecha y hora`}</span><p className={`hint`} data-field={`fecha-hora`}>{kn(abiertoEnSalida)}</p></div>{puedeCapturaTardia(user) && <div className={`field`} data-field={`captura-tardia`}><label className={`check-inline`}><input type={`checkbox`} checked={capturaTardiaSalida} onChange={ev => setCapturaTardiaSalida(ev.target.checked)} />{`Captura tardía`}</label>{capturaTardiaSalida && <l.Fragment><label className={`field`}><span>{`Fecha y hora reales`}</span><input className={`input`} type={`datetime-local`} value={fechaTardia} onChange={ev => setFechaTardia(ev.target.value)} /></label><label className={`field`}><span>{`Motivo *`}</span><textarea className={`input textarea`} rows={2} value={motivoCapturaTardiaSalida} onChange={ev => setMotivoCapturaTardiaSalida(ev.target.value)} placeholder={`Por qué se registra después`} /></label></l.Fragment>}</div>}</fieldset>{sel && <fieldset className={`fieldset`}><legend>{`Sello ciego`}</legend><p className={`hint`}>{textoAyudaSelloCiego()}</p><label className={`field`}><span>{`Sello de salida`}{pideSello ? ` *` : ``}</span><input className={`input`} name={`sello-captura-salida`} autoComplete={`off`} value={selloSalida} onChange={e => setSelloSalida(e.target.value.toUpperCase())} placeholder={`Lee el sello en la puerta`} /></label></fieldset>}{sel && <fieldset className={`fieldset`}><legend>{`Documentos de salida`}</legend><div className={`grid-2`}><label className={`field`}><span>{`Carta Porte UUID (opcional)`}</span><input className={`input`} value={cartaPorte} onChange={e => setCartaPorte(e.target.value.toUpperCase())} placeholder={`XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX`} autoComplete={`off`} /></label><label className={`field`}><span>{`Licencia federal *`}</span><input className={`input`} value={licencia} onChange={e => setLicencia(e.target.value.toUpperCase())} placeholder={`Número de licencia SCT/SICT`} autoComplete={`off`} required={true} /></label></div>{cartaPorte && !uuidCartaPorteValido(cartaPorte) && <p className={`field-error`}>{`El UUID no tiene formato de folio fiscal.`}</p>}{licencia && !licenciaFederalValida(licencia) && <p className={`field-error`}>{`La licencia debe tener de 8 a 20 caracteres.`}</p>}</fieldset>}{sel && <fieldset className={`fieldset`}><legend>{`Kilómetros y diésel`}</legend><p className={`hint`}>{`No se copian de la entrada. Si capturas kilómetros, no pueden ser menores al último registro.`}{sel.entrada.kilometros != null ? ` Último km: ${sel.entrada.kilometros}.` : ``}</p><div className={`grid-3`}><label className={`field`}><span>{`Kilómetros`}</span><input className={`input`} type={`number`} min={0} value={km} onChange={e => setKm(e.target.value)} placeholder={`Km al salir`} autoComplete={`off`} /></label><label className={`field`}><span>{`Diésel %`}</span><input className={`input`} type={`number`} min={0} max={100} value={dieselPct} onChange={e => setDieselPct(e.target.value)} placeholder={`%`} autoComplete={`off`} /></label><label className={`field`}><span>{`Diésel litros`}</span><input className={`input`} type={`number`} min={0} step={0.1} value={dieselL} onChange={e => setDieselL(e.target.value)} placeholder={`L`} autoComplete={`off`} /></label></div>{dieselDelta != null && dieselDelta <= -15 && <p className={`banner warn`} style={{
+    }}><strong>{sel.equipo.placa}</strong>{sel.equipo.numeroEconomico ? ` · eco ${sel.equipo.numeroEconomico}` : ``}{sel.entrada.chofer ? ` · chofer ${sel.entrada.chofer}` : ``}{` · llegó `}{kn(sel.entrada.fechaHora)}{refrigerada ? ` · caja refrigerada` : ``}</div>}{placaText && !sel && <p className={`banner warn`}>{`La placa ${placaText} no tiene entrada abierta en ${_e.find(y => y.id === yardaId)?.nombre || yardaId}.`}</p>}<fieldset className={`fieldset`}><legend>{`Caseta`}</legend><label className={`field`}><span>{`Operador de patio *`}</span><input className={`input`} value={operador} onChange={e => setOperador(e.target.value)} placeholder={`Quién registra la salida`} required={true} /></label><div className={`field`}><span>{`Fecha y hora`}</span><p className={`hint`} data-field={`fecha-hora`}>{kn(abiertoEnSalida)}</p></div>{puedeCapturaTardia(user) && <div className={`field`} data-field={`captura-tardia`}><label className={`check-inline`}><input type={`checkbox`} checked={capturaTardiaSalida} onChange={ev => setCapturaTardiaSalida(ev.target.checked)} />{`Captura tardía`}</label>{capturaTardiaSalida && <l.Fragment><label className={`field`}><span>{`Fecha y hora reales`}</span><input className={`input`} type={`datetime-local`} value={fechaTardia} onChange={ev => setFechaTardia(ev.target.value)} /></label><label className={`field`}><span>{`Motivo *`}</span><textarea className={`input textarea`} rows={2} value={motivoCapturaTardiaSalida} onChange={ev => setMotivoCapturaTardiaSalida(ev.target.value)} placeholder={`Por qué se registra después`} /></label></l.Fragment>}</div>}</fieldset>{sel && <fieldset className={`fieldset`}><legend>{`Sello ciego`}</legend><p className={`hint`}>{textoAyudaSelloCiego()}</p><label className={`field`}><span>{`Sello de salida`}{pideSello ? ` *` : ``}</span><input className={`input`} name={`sello-captura-salida`} autoComplete={`off`} value={selloSalida} onChange={e => setSelloSalida(e.target.value.toUpperCase())} placeholder={`Lee el sello en la puerta`} /></label></fieldset>}{sel && <fieldset className={`fieldset`}><legend>{`Documentos de salida`}</legend><div className={`grid-2`}><label className={`field`}><span>{`Carta Porte UUID (opcional)`}</span><input className={`input`} value={cartaPorte} onChange={e => setCartaPorte(e.target.value.toUpperCase())} placeholder={`XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX`} autoComplete={`off`} /></label><label className={`field`}><span>{`Licencia federal *`}</span><input className={`input`} value={licencia} onChange={e => setLicencia(e.target.value.toUpperCase())} placeholder={`Número de licencia SCT/SICT`} autoComplete={`off`} required={true} /></label></div>{cartaPorte && !uuidCartaPorteValido(cartaPorte) && <p className={`field-error`}>{`El UUID no tiene formato de folio fiscal.`}</p>}{licencia && !licenciaFederalValida(licencia) && <p className={`field-error`}>{`La licencia debe tener de 8 a 20 caracteres.`}</p>}</fieldset>}{sel && <fieldset className={`fieldset`}><legend>{`Kilómetros y diésel`}</legend><p className={`hint`}>{`No se copian de la entrada. Si capturas kilómetros, no pueden ser menores al último registro.`}{sel.entrada.kilometros != null ? ` Último km: ${sel.entrada.kilometros}.` : ``}</p><div className={`grid-3`}><label className={`field`}><span>{`Kilómetros`}</span><input className={`input`} type={`number`} min={0} value={km} onChange={e => setKm(e.target.value)} placeholder={`Km al salir`} autoComplete={`off`} /></label><label className={`field`}><span>{`Diésel %`}</span><input className={`input`} type={`number`} min={0} max={100} value={dieselPct} onChange={e => setDieselPct(e.target.value)} placeholder={`%`} autoComplete={`off`} /></label><label className={`field`}><span>{`Diésel litros`}</span><input className={`input`} type={`number`} min={0} step={0.1} value={dieselL} onChange={e => setDieselL(e.target.value)} placeholder={`L`} autoComplete={`off`} /></label></div>{dieselDelta != null && dieselDelta <= -15 && <p className={`banner warn`} style={{
           marginTop: 10
         }}>{`Merma de diésel: ${dieselDelta.toFixed(0)}% vs entrada (${sel.entrada.dieselPorcentaje}% → ${dieselPct}%).`}</p>}</fieldset>}{refrigerada && <fieldset className={`fieldset`}><legend>{`Thermo / caja refrigerada`}</legend><div className={`grid-2`}><label className={`field`}><span>{`Set point (°C) *`}</span><input className={`input`} type={`number`} step={0.1} value={setPoint} onChange={e => setSetPoint(e.target.value)} placeholder={`Ej. 2`} required={true} /></label><label className={`field`}><span>{`Temperatura real (°C) *`}</span><input className={`input`} type={`number`} step={0.1} value={tempReal} onChange={e => setTempReal(e.target.value)} placeholder={`Display`} required={true} /></label><label className={`field`}><span>{`Diésel Thermo (%) *`}</span><input className={`input`} type={`number`} min={0} max={100} step={1} value={dieselThermo} onChange={e => setDieselThermo(e.target.value)} placeholder={`0 a 100`} required={true} /></label><label className={`field`}><span>{`Horómetro *`}</span><input className={`input`} type={`number`} min={0} step={0.1} value={horometro} onChange={e => setHorometro(e.target.value)} placeholder={`Horas`} required={true} /></label></div>{thermoAviso && <p className={`banner warn`} style={{
         marginTop: 10
