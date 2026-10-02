@@ -435,12 +435,39 @@ test('HTTP: el gate no revela el sello y el servidor no cree validadoGate', asyn
 })
 
 test('salida rápida omite carta porte y licencia vacías', async () => {
-  const { observacionesRapidas, tituloMovimiento, esMovimientoRapido } = await import('../src/lib/movimientoRapido.js')
+  const {
+    MOTIVOS_RAPIDO,
+    observacionesRapidas,
+    tituloMovimiento,
+    esMovimientoRapido,
+    motivoRapidoRequiereDetalle,
+    poolSalidaRapidaAbierta,
+  } = await import('../src/lib/movimientoRapido.js')
+  assert.deepEqual(MOTIVOS_RAPIDO.map((item) => item.id), ['lavado', 'llantas', 'otros'])
+  assert.equal(motivoRapidoRequiereDetalle('otros'), true)
+  assert.equal(motivoRapidoRequiereDetalle('lavado'), false)
   assert.equal(observacionesRapidas('', 'lavado'), 'Rápido · Lavado')
-  assert.equal(observacionesRapidas('nota', 'combustible'), 'nota')
+  assert.equal(observacionesRapidas('', 'llantas'), 'Rápido · Llantas')
+  assert.equal(observacionesRapidas('', 'otros', 'cambio de filtro'), 'Rápido · Otros: cambio de filtro')
+  assert.equal(observacionesRapidas('nota', 'llantas'), 'nota')
   assert.equal(tituloMovimiento({ tipo: 'salida', rapido: true }), 'Salida rápida')
   assert.equal(tituloMovimiento({ tipo: 'entrada', cumplimiento: { rapido: true } }), 'Retorno rápido')
   assert.equal(esMovimientoRapido({ cumplimiento: { rapido: true } }), true)
+  assert.equal(
+    poolSalidaRapidaAbierta(
+      [
+        { id: 'e1', tipo: 'entrada', equipoId: 'eq-a', placa: 'AAA111', fechaHora: '2026-01-01T10:00:00.000Z', empresaId: 'api', yardaId: 'chihuahua' },
+        { id: 's1', tipo: 'salida', equipoId: 'eq-a', placa: 'AAA111', fechaHora: '2026-01-01T11:00:00.000Z', rapido: true, motivoRapido: 'llantas', empresaId: 'api', yardaId: 'chihuahua' },
+        { id: 's2', tipo: 'salida', equipoId: 'eq-b', placa: 'BBB222', fechaHora: '2026-01-01T12:00:00.000Z', empresaId: 'api', yardaId: 'chihuahua' },
+      ],
+      [
+        { id: 'eq-a', placa: 'AAA111', numeroEconomico: '100' },
+        { id: 'eq-b', placa: 'BBB222', numeroEconomico: '200' },
+      ],
+      { yardaId: 'chihuahua', empresaId: 'api' },
+    ).map((row) => row.equipo.placa).join(','),
+    'AAA111',
+  )
 
   await withEnv({ PATIO_SESSION_SECRET: SECRET }, async () => {
     const repo = memoryRepo()
@@ -506,17 +533,41 @@ test('salida rápida omite carta porte y licencia vacías', async () => {
         tipo: 'entrada',
         equipoId: 'eq-libre',
         placa: 'LIBRE1',
-        motivoRapido: 'tramite',
-        cumplimiento: { rapido: true, motivoRapido: 'tramite', validadoGate: true },
+        motivoRapido: 'llantas',
+        cumplimiento: { rapido: true, motivoRapido: 'llantas', validadoGate: true },
       },
     }), { repo })
     assert.equal(soloCumplimiento.statusCode, 200, soloCumplimiento.body)
     const retorno = JSON.parse(soloCumplimiento.body).movimiento
     assert.equal(retorno.tipo, 'entrada')
     assert.equal(retorno.rapido, true)
-    assert.equal(retorno.motivoRapido, 'tramite')
+    assert.equal(retorno.motivoRapido, 'llantas')
     assert.equal(retorno.cumplimiento.validadoGate, true)
     assert.equal((await repo.findOpenEntrada('eq-libre')).id, 'ent-retorno')
+
+    const otros = await createMovimientoHandler(httpEvent('POST', {
+      cookie: cookieFor(guardia),
+      body: {
+        id: 'sal-otros',
+        tipo: 'salida',
+        equipoId: 'eq-libre',
+        placa: 'LIBRE1',
+        rapido: true,
+        motivoRapido: 'otros',
+        motivoRapidoDetalle: 'recoger refacción',
+        cumplimiento: {
+          rapido: true,
+          motivoRapido: 'otros',
+          motivoRapidoDetalle: 'recoger refacción',
+          validadoGate: false,
+        },
+      },
+    }), { repo })
+    assert.equal(otros.statusCode, 200, otros.body)
+    const movOtros = JSON.parse(otros.body).movimiento
+    assert.equal(movOtros.motivoRapido, 'otros')
+    assert.equal(movOtros.motivoRapidoDetalle, 'recoger refacción')
+    assert.equal(movOtros.cumplimiento.motivoRapidoDetalle, 'recoger refacción')
   })
 })
 

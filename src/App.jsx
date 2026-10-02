@@ -558,6 +558,7 @@ function Se(e) {
   }));
   let rapido = e.rapido === true || e.cumplimiento?.rapido === true;
   let motivoRapido = e.motivoRapido || e.cumplimiento?.motivoRapido;
+  let motivoRapidoDetalle = e.motivoRapidoDetalle || e.cumplimiento?.motivoRapidoDetalle;
   return {
     ...e,
     yardaId: e.yardaId ?? `chihuahua`,
@@ -569,6 +570,9 @@ function Se(e) {
     } : {}),
     ...(motivoRapido ? {
       motivoRapido: String(motivoRapido)
+    } : {}),
+    ...(motivoRapidoDetalle ? {
+      motivoRapidoDetalle: String(motivoRapidoDetalle)
     } : {})
   };
 }
@@ -3661,6 +3665,9 @@ function Yt(e) {
         } : {}),
         ...(t.cumplimiento?.motivoRapido ? {
           motivoRapido: String(t.cumplimiento.motivoRapido)
+        } : {}),
+        ...(t.cumplimiento?.motivoRapidoDetalle ? {
+          motivoRapidoDetalle: String(t.cumplimiento.motivoRapidoDetalle)
         } : {})
       };
     })(),
@@ -3742,6 +3749,7 @@ function Zt(e) {
 }
 function Qt(e) {
   let motivoRapido = e.motivoRapido || e.cumplimiento?.motivoRapido;
+  let motivoRapidoDetalle = e.motivoRapidoDetalle || e.cumplimiento?.motivoRapidoDetalle;
   return [e.id, e.tipo, e.equipoId, e.placa, e.numeroEconomico, e.equipoTipo, e.fechaHora, e.operador, e.chofer ?? ``, Kt(e), e.kilometros, e.dieselPorcentaje, e.dieselLitros, JSON.stringify(e.checklist ?? []), (e.fotos ?? []).join(`|`), e.condicionGeneral, e.observaciones ?? ``, e.creadoEn, e.yardaId, e.selloNumero ?? ``, e.firmaNombre ?? ``, e.firmaUrl ?? ``, e.geoLat ?? ``, JSON.stringify(e.fotosEvidencia ?? []), e.geoLng ?? ``, JSON.stringify({
     ...(e.cumplimiento ?? {}),
     ...(e.rapido === true || e.cumplimiento?.rapido === true ? {
@@ -3749,6 +3757,9 @@ function Qt(e) {
     } : {}),
     ...(motivoRapido ? {
       motivoRapido: String(motivoRapido)
+    } : {}),
+    ...(motivoRapidoDetalle ? {
+      motivoRapidoDetalle: String(motivoRapidoDetalle)
     } : {}),
     selloCoincideEntrada: e.selloCoincideEntrada ?? null
   }), L(e), e.empresaId ?? `api`, e.llevaRefrigerada && e.refrigerada ? JSON.stringify(e.refrigerada) : ``, e.whatsapp ?? ``, ...movimientoFase0Cells(e), e.viajeId ?? ``];

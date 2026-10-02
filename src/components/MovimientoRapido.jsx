@@ -4,27 +4,14 @@ import { v4 as uuid } from 'uuid'
 import { normalizePlacaMX } from '../lib/placaOcr.js'
 import {
   MOTIVOS_RAPIDO,
-  esMovimientoRapido,
+  detalleMotivoRapidoDe,
   etiquetaMotivoRapido,
   motivoRapidoDe,
+  motivoRapidoRequiereDetalle,
   motivoRapidoValido,
   observacionesRapidas,
+  poolSalidaRapidaAbierta,
 } from '../lib/movimientoRapido.js'
-
-function ultimoDeEquipo(movimientos, equipoId) {
-  let best = null
-  let bestT = -1
-  for (const mov of movimientos || []) {
-    if (!mov || mov.equipoId !== equipoId) continue
-    const parsed = Date.parse(mov.fechaHora || mov.horaServidor || mov.creadoEn || '')
-    const time = Number.isFinite(parsed) ? parsed : 0
-    if (!best || time > bestT) {
-      best = mov
-      bestT = time
-    }
-  }
-  return best
-}
 
 function vigente(movimientos, equipoId) {
   return (movimientos || []).find((mov) => mov?.equipoId === equipoId) || null
@@ -32,6 +19,8 @@ function vigente(movimientos, equipoId) {
 
 /**
  * Salida o retorno de un momento. Sin carta porte, licencia, sello, thermo, daños, firma ni fotos.
+ * Salida: solo placa + motivo (Otros pide detalle).
+ * Retorno: solo pool de placas con salida rápida abierta.
  * @param {'salida'|'retorno'} modo
  */
 export default function MovimientoRapidoForm({
@@ -53,10 +42,8 @@ export default function MovimientoRapidoForm({
   const [yardaId, setYardaId] = useState(yardaInicial)
   const [empresaId, setEmpresaId] = useState(empresaInicial)
   const [selectedId, setSelectedId] = useState(null)
-  const [operador, setOperador] = useState('')
   const [motivo, setMotivo] = useState('')
-  const [obs, setObs] = useState('')
-  const [busca, setBusca] = useState('')
+  const [detalle, setDetalle] = useState('')
   const [abiertoEn] = useState(() => new Date().toISOString())
   const [error, setError] = useState(null)
   const [okMsg, setOkMsg] = useState(null)
@@ -77,37 +64,11 @@ export default function MovimientoRapidoForm({
 
   const fuera = useMemo(() => {
     if (salida) return []
-    return equipos
-      .map((eq) => {
-        const mov = ultimoDeEquipo(movimientos, eq.id)
-        if (!mov || String(mov.tipo || '').toLowerCase() !== 'salida') return null
-        if (!esMovimientoRapido(mov)) return null
-        if (mov.yardaId && mov.yardaId !== yardaId) return null
-        if ((mov.empresaId ?? 'api') !== empresaId) return null
-        return { equipo: eq, salida: mov, motivo: etiquetaMotivoRapido(motivoRapidoDe(mov)) }
-      })
-      .filter(Boolean)
+    return poolSalidaRapidaAbierta(movimientos, equipos, { yardaId, empresaId })
   }, [salida, equipos, movimientos, yardaId, empresaId])
 
   const chips = salida ? enPatio : fuera
   const yardaNombre = yardas.find((y) => y.id === yardaId)?.nombre || ''
-
-  const hits = useMemo(() => {
-    if (salida) return []
-    const q = busca.trim()
-    if (!q) return []
-    const placa = normalizePlacaMX(q)
-    const upper = q.toUpperCase()
-    return equipos
-      .filter((eq) => {
-        if (fuera.some((row) => row.equipo.id === eq.id)) return false
-        return (
-          normalizePlacaMX(eq.placa).includes(placa) ||
-          String(eq.numeroEconomico || '').toUpperCase().includes(upper)
-        )
-      })
-      .slice(0, 8)
-  }, [salida, busca, equipos, fuera])
 
   useEffect(() => {
     if (!initialPlaca.trim() || selectedId) return
@@ -116,8 +77,15 @@ export default function MovimientoRapidoForm({
   }, [initialPlaca, chips, selectedId])
 
   const selChip = chips.find((row) => row.equipo.id === selectedId) || null
-  const selCatalogo = !salida ? equipos.find((eq) => eq.id === selectedId) || null : null
-  const equipo = selChip?.equipo || selCatalogo || null
+  const equipo = selChip?.equipo || null
+
+  useEffect(() => {
+    if (salida || !selChip) return
+    const id = selChip.motivoId || motivoRapidoDe(selChip.salida)
+    if (id && motivoRapidoValido(id)) setMotivo(id)
+    const extra = selChip.detalle || detalleMotivoRapidoDe(selChip.salida)
+    setDetalle(extra)
+  }, [salida, selChip])
 
   function cambiarEmpresa(id) {
     setEmpresaId(id)
@@ -139,20 +107,26 @@ export default function MovimientoRapidoForm({
     setOkMsg(null)
   }
 
+  function elegirMotivo(id) {
+    setMotivo(id)
+    if (!motivoRapidoRequiereDetalle(id)) setDetalle('')
+    setError(null)
+  }
+
   async function onSave(ev) {
     ev.preventDefault()
     setError(null)
     setOkMsg(null)
     if (!equipo) {
-      setError(salida ? 'Elige una unidad que esté en patio' : 'Elige la unidad que regresa')
+      setError(salida ? 'Elige la placa que sale' : 'Elige una placa del pool de salida rápida')
       return
     }
-    if (!operador.trim()) {
-      setError('Indica el operador de patio')
+    if (salida && !motivoRapidoValido(motivo)) {
+      setError('Elige el motivo: lavado, llantas u otros')
       return
     }
-    if (!motivoRapidoValido(motivo)) {
-      setError('Elige el motivo: lavado, combustible o trámite')
+    if (salida && motivoRapidoRequiereDetalle(motivo) && !detalle.trim()) {
+      setError('En Otros escribe el detalle o descripción')
       return
     }
     if (salida && !enPatio.some((row) => row.equipo.id === equipo.id)) {
@@ -160,13 +134,17 @@ export default function MovimientoRapidoForm({
       return
     }
     if (!salida) {
-      const ultimo = ultimoDeEquipo(movimientos, equipo.id)
-      const tipo = String(ultimo?.tipo || '').toLowerCase()
-      if (tipo === 'entrada' || tipo === 'parado') {
-        setError('Esta unidad sigue en patio. El retorno es para quien ya salió.')
+      const enPool = fuera.some((row) => row.equipo.id === equipo.id)
+      if (!enPool) {
+        setError('Solo puedes regresar placas que salieron en salida rápida')
         return
       }
     }
+
+    const motivoFinal = salida ? motivo : selChip?.motivoId || motivoRapidoDe(selChip?.salida) || motivo
+    const detalleFinal = salida
+      ? detalle.trim()
+      : selChip?.detalle || detalleMotivoRapidoDe(selChip?.salida) || detalle.trim()
 
     setBusy(true)
     try {
@@ -175,7 +153,8 @@ export default function MovimientoRapidoForm({
         id: uuid(),
         tipo: salida ? 'salida' : 'entrada',
         rapido: true,
-        motivoRapido: motivo,
+        motivoRapido: motivoFinal,
+        ...(detalleFinal ? { motivoRapidoDetalle: detalleFinal } : {}),
         yardaId,
         empresaId,
         equipoId: equipo.id,
@@ -183,15 +162,16 @@ export default function MovimientoRapidoForm({
         numeroEconomico: equipo.numeroEconomico || equipo.placa,
         equipoTipo: equipo.tipo || 'camion',
         fechaHora: abiertoEn,
-        operador: operador.trim(),
-        observaciones: observacionesRapidas(obs, motivo),
+        operador: '',
+        observaciones: observacionesRapidas('', motivoFinal, detalleFinal),
         condicionGeneral: 'buena',
         checklist: [],
         fotos: [],
         fotosEvidencia: [],
         cumplimiento: {
           rapido: true,
-          motivoRapido: motivo,
+          motivoRapido: motivoFinal,
+          ...(detalleFinal ? { motivoRapidoDetalle: detalleFinal } : {}),
           validadoGate: true,
         },
         creadoEn: new Date().toISOString(),
@@ -221,9 +201,10 @@ export default function MovimientoRapidoForm({
 
   const titulo = salida ? 'Salida rápida' : 'Retorno rápido'
   const lede = salida
-    ? 'Sale un momento del patio (lavado, combustible o trámite).'
-    : 'Regresa de una salida rápida.'
+    ? 'Solo placa y motivo (lavado, llantas u otros). Sin fotos ni documentos.'
+    : 'Elige una placa del pool que salió en salida rápida.'
   const guardar = salida ? 'Guardar salida rápida' : 'Guardar retorno rápido'
+  const motivoChip = selChip?.motivo || (motivo ? etiquetaMotivoRapido(motivo) : '')
 
   return (
     <form className="form-panel" id="movimiento-rapido-form" data-form="movimiento-rapido" data-modo={modo} onSubmit={(ev) => void onSave(ev)}>
@@ -275,12 +256,12 @@ export default function MovimientoRapidoForm({
         </div>
       </fieldset>
       <div className="quick-picks">
-        <p className="label">{salida ? `En patio · ${yardaNombre}` : `Fuera por salida rápida · ${yardaNombre}`}</p>
+        <p className="label">{salida ? `Placa en patio · ${yardaNombre}` : `Pool salida rápida · ${yardaNombre}`}</p>
         {chips.length === 0 ? (
           <p className="empty">
             {salida
               ? 'No hay unidades con entrada abierta en esta yarda.'
-              : 'No hay unidades fuera por una salida rápida.'}
+              : 'No hay placas en el pool: nadie tiene una salida rápida pendiente de retorno.'}
           </p>
         ) : (
           <div className="chip-row">
@@ -292,98 +273,64 @@ export default function MovimientoRapidoForm({
                 key={row.equipo.id}
               >
                 {row.equipo.placa}
-                {` · `}
-                {row.equipo.numeroEconomico}
+                {row.equipo.numeroEconomico ? ` · ${row.equipo.numeroEconomico}` : ''}
                 {row.motivo ? ` · ${row.motivo}` : ''}
               </button>
             ))}
           </div>
         )}
       </div>
-      {!salida && (
-        <label className="field" style={{ marginTop: 12 }}>
-          <span>{chips.length === 0 ? 'Buscar placa en el catálogo' : 'Otra placa del catálogo'}</span>
-          <input
-            className="input"
-            value={busca}
-            onChange={(ev) => setBusca(ev.target.value)}
-            placeholder="Placa o económico"
-            autoComplete="off"
-          />
-        </label>
-      )}
-      {!salida && hits.length > 0 && (
-        <div className="chip-row" style={{ marginTop: 8 }}>
-          {hits.map((eq) => (
-            <button
-              type="button"
-              className={selectedId === eq.id ? 'chip on' : 'chip'}
-              onClick={() => elegir(eq.id)}
-              key={eq.id}
-            >
-              {eq.placa}
-              {` · `}
-              {eq.numeroEconomico}
-            </button>
-          ))}
-        </div>
-      )}
-      {!salida && busca.trim() && hits.length === 0 && !selCatalogo && (
-        <p className="empty">Esa placa no está en el catálogo.</p>
-      )}
       {equipo && (
         <div className="banner info" style={{ marginTop: 12 }}>
           <strong>{equipo.placa}</strong>
-          {` · eco `}
-          {equipo.numeroEconomico}
+          {equipo.numeroEconomico ? ` · eco ${equipo.numeroEconomico}` : ''}
           {selChip?.entrada ? ` · llegó ${formatCuando(selChip.entrada.fechaHora)}` : ''}
           {selChip?.salida ? ` · salió ${formatCuando(selChip.salida.fechaHora)}` : ''}
-          {selChip?.motivo ? ` · ${selChip.motivo}` : ''}
+          {motivoChip ? ` · ${motivoChip}` : ''}
+          {selChip?.detalle ? ` · ${selChip.detalle}` : ''}
         </div>
       )}
-      <fieldset className="fieldset">
-        <legend>Caseta</legend>
-        <label className="field">
-          <span>Operador de patio *</span>
-          <input
-            className="input"
-            value={operador}
-            onChange={(ev) => setOperador(ev.target.value)}
-            placeholder="Quién registra"
-            required
-          />
-        </label>
-        <div className="field">
-          <span>Fecha y hora</span>
-          <p className="hint" data-field="fecha-hora">{formatCuando(abiertoEn)}</p>
-        </div>
-      </fieldset>
-      <fieldset className="fieldset">
-        <legend>Motivo *</legend>
-        <div className="seg big" role="group" aria-label="Motivo del viaje corto">
-          {MOTIVOS_RAPIDO.map((item) => (
-            <button
-              type="button"
-              className={motivo === item.id ? 'seg-btn on-ok' : 'seg-btn'}
-              onClick={() => setMotivo(item.id)}
-              key={item.id}
-              aria-pressed={motivo === item.id}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-      </fieldset>
-      <fieldset className="fieldset">
-        <legend>Observaciones</legend>
-        <textarea
-          className="input textarea"
-          rows={2}
-          value={obs}
-          onChange={(ev) => setObs(ev.target.value)}
-          placeholder="Opcional"
-        />
-      </fieldset>
+      <div className="field" style={{ marginTop: 12 }}>
+        <span className="label">Fecha y hora</span>
+        <p className="hint" data-field="fecha-hora">{formatCuando(abiertoEn)}</p>
+      </div>
+      {salida && (
+        <fieldset className="fieldset">
+          <legend>Motivo *</legend>
+          <div className="seg big" role="group" aria-label="Motivo del viaje corto">
+            {MOTIVOS_RAPIDO.map((item) => (
+              <button
+                type="button"
+                className={motivo === item.id ? 'seg-btn on-ok' : 'seg-btn'}
+                onClick={() => elegirMotivo(item.id)}
+                key={item.id}
+                aria-pressed={motivo === item.id}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+          {motivoRapidoRequiereDetalle(motivo) && (
+            <label className="field" style={{ marginTop: 12 }}>
+              <span>Detalles / descripción *</span>
+              <textarea
+                className="input textarea"
+                rows={3}
+                value={detalle}
+                onChange={(ev) => setDetalle(ev.target.value)}
+                placeholder="Describe el motivo"
+                required
+              />
+            </label>
+          )}
+        </fieldset>
+      )}
+      {!salida && equipo && motivoChip && (
+        <p className="hint" style={{ marginTop: 8 }}>
+          Motivo de la salida: {motivoChip}
+          {detalle ? ` — ${detalle}` : ''}
+        </p>
+      )}
       {error && <p className="banner error">{error}</p>}
       {okMsg && <p className="banner success">{okMsg}</p>}
       <button type="submit" className="btn primary wide" disabled={busy}>
