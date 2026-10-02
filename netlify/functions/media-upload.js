@@ -1,10 +1,11 @@
 /**
  * POST /api/media/upload
  * Body: { fileName, dataUrl | base64, yardaId, movimientoId, slotId }
- * Sube un JPEG/PNG privado a Drive (cuenta de servicio o Apps Script) y devuelve { fileId, viewPath }.
+ * Sube un JPEG/PNG privado a Drive (cuenta de servicio o Apps Script) y devuelve { fileId, viewPath, hash }.
  * Requiere sesión. 120/min por email.
  */
 
+import { createHash } from 'node:crypto'
 import { enforceRateLimit, json, parseJsonBody, preflight, requireSession } from './lib/http.js'
 import { decodeImageBytes, getDriveRepo, mediaViewPath, safeFileName } from './lib/driveRepo.js'
 
@@ -30,6 +31,7 @@ export async function handler(event, deps) {
 
   try {
     const decoded = decodeImageBytes(body.dataUrl || body.base64 || body.bytesBase64 || '')
+    const hash = createHash('sha256').update(decoded.buffer).digest('hex')
     const repo = drive(deps)
     const slot = String(body.slotId || 'foto').replace(/[^\w.-]+/g, '-').slice(0, 60)
     const yarda = String(body.yardaId || 'yarda').replace(/[^\w.-]+/g, '-').slice(0, 40)
@@ -45,13 +47,14 @@ export async function handler(event, deps) {
         movimientoId: body.movimientoId || '',
         slotId: body.slotId || '',
         uploadedBy: auth.session.email,
+        contentHash: hash,
       },
     })
     const viewPath = mediaViewPath(uploaded.id)
     return json(
       event,
       200,
-      { fileId: uploaded.id, viewPath },
+      { fileId: uploaded.id, viewPath, hash },
       { ...auth.headers, 'Cache-Control': 'no-store' },
     )
   } catch (err) {

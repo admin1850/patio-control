@@ -86,10 +86,16 @@ export function metricasOt(ot, now = new Date()) {
     Number.isFinite(entrada) && Number.isFinite(lista) ? (lista - entrada) / 36e5 : null
   const etrCumplida =
     Number.isFinite(lista) && Number.isFinite(etrOrig) ? lista <= etrOrig : null
+  const etrActual = Date.parse(ot?.etr || '')
+  const etrDiasExtra =
+    Number.isFinite(etrOrig) && Number.isFinite(etrActual)
+      ? Math.round(((etrActual - etrOrig) / 864e5) * 10) / 10
+      : 0
   return {
     diasEnTaller: diasEnTaller == null ? null : Math.round(diasEnTaller * 10) / 10,
     downtimeHoras: downtimeHoras == null ? null : Math.round(downtimeHoras * 10) / 10,
     etrCumplida,
+    etrDiasExtra,
   }
 }
 
@@ -342,8 +348,12 @@ export function createOtService(repo, options = {}) {
     return rowToEstadoUnidad(row)
   }
 
-  async function escribirEvento(evento) {
-    const row = otEventoToRow(evento)
+  async function escribirEvento(evento, session) {
+    const row = otEventoToRow({
+      ...evento,
+      rol: evento.rol ?? session?.rol ?? '',
+      dispositivoId: evento.dispositivoId ?? session?.dispositivoId ?? '',
+    })
     await repo.appendOtEvento(row)
     return row
   }
@@ -402,7 +412,7 @@ export function createOtService(repo, options = {}) {
         motivo: motivo || '',
         usuarioEmail: emailOf(session),
         horaServidor: ahora,
-      })
+      }, session)
       await auditar({
         usuarioEmail: emailOf(session),
         rol: session?.rol || '',
@@ -560,7 +570,7 @@ export function createOtService(repo, options = {}) {
       ubicacionTaller: String(input.ubicacionTaller || '').trim(),
       responsableEmail: String(input.responsableEmail || '').trim().toLowerCase(),
       reportadoPor: emailOf(session),
-      fechaEntradaTaller: parseFecha(input.fechaEntradaTaller, 'Fecha de entrada a taller') || ahora,
+      fechaEntradaTaller: ahora,
       etr,
       fechaLista: '',
       fechaLiberada: '',
@@ -594,7 +604,7 @@ export function createOtService(repo, options = {}) {
       motivo,
       usuarioEmail: emailOf(session),
       horaServidor: ahora,
-    })
+    }, session)
     const detalle = {
       [norm(unidadId)]: {
         tipo: String(input.equipoTipo || input.tipoUnidad || '').trim(),
@@ -670,6 +680,18 @@ export function createOtService(repo, options = {}) {
       if (despues.length < 2) {
         throw new OtError('Para cerrar la OT toma al menos 2 fotos de después.', 400, 'FOTOS')
       }
+      const notaCierre = String(input.notas ?? '').trim()
+      if (notaCierre.length < MIN_MOTIVO) {
+        throw new OtError('Para cerrar indica qué se hizo (nota de cierre).', 400, 'NOTAS')
+      }
+      const kmOk = input.kmSalida != null && input.kmSalida !== '' && Number.isFinite(Number(input.kmSalida))
+      const horOk =
+        input.horometroSalida != null &&
+        input.horometroSalida !== '' &&
+        Number.isFinite(Number(input.horometroSalida))
+      if (!kmOk && !horOk) {
+        throw new OtError('Para cerrar captura km u horómetro de salida.', 400, 'LECTURA')
+      }
     }
     const ahora = clockOf(options).toISOString()
     const next = {
@@ -701,7 +723,7 @@ export function createOtService(repo, options = {}) {
       motivo,
       usuarioEmail: emailOf(session),
       horaServidor: ahora,
-    })
+    }, session)
     let estados = []
     if (hacia === 'LISTA' || ESTATUS_OT_CIERRE.includes(hacia)) {
       estados = await syncPorOt(session, guardada, {
@@ -803,7 +825,7 @@ export function createOtService(repo, options = {}) {
       motivo: String(input.motivo || 'actualizacion').trim() || 'actualizacion',
       usuarioEmail: emailOf(session),
       horaServidor: ahora,
-    })
+    }, session)
     return { ot: guardada, unchanged: false }
   }
 
@@ -834,7 +856,7 @@ export function createOtService(repo, options = {}) {
       motivo,
       usuarioEmail: emailOf(session),
       horaServidor: ahora,
-    })
+    }, session)
     await auditar({
       usuarioEmail: emailOf(session),
       rol: session.rol || '',
@@ -942,7 +964,7 @@ export function createOtService(repo, options = {}) {
         motivo,
         usuarioEmail: email,
         horaServidor: ahora,
-      })
+      }, session)
       wrote = true
     }
     if (!wrote) return

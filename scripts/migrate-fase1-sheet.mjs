@@ -5,7 +5,7 @@
  *
  *  - OrdenesTrabajo  → esquema OT (id … activo). Si la pestaña tiene los encabezados
  *    provisionales de Fase 0 y no hay filas de datos, se reemplaza SOLO la fila 1.
- *  - OT_Eventos      → id, otId, tipoEvento, valorAnterior, valorNuevo, motivo, usuarioEmail, horaServidor
+ *  - OT_Eventos      → id, otId, tipoEvento, valorAnterior, valorNuevo, motivo, usuarioEmail, horaServidor, rol, dispositivoId
  *  - EstadoUnidad    → unidadId, tipo, yarda, zona, slot, ubicacion, estatusOperativo, estatusCarga, desde, otAbiertaId, actualizadoEn
  *
  * Uso:

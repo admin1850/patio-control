@@ -249,6 +249,9 @@ textarea {
   display: flex;
   position: fixed;
 }
+.sticky-save-bar .sticky-save {
+  pointer-events: auto;
+}
 .btn-back-fixed {
   left: max(12px, env(safe-area-inset-left, 0px));
   bottom: calc(72px + env(safe-area-inset-bottom, 0px));
