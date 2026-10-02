@@ -1,6 +1,6 @@
 /**
  * OCR de placas MX — sin guiones.
- * Orden: Plate Recognizer API → Netlify Vision function.
+ * Orden: Netlify (Vision / servidor) → Plate Recognizer local (token opcional en Cloud).
  * Flujo UI: capture=environment → compress JPEG → OCR → campo.
  */
 
@@ -15,6 +15,7 @@ export const PLACA_SLOT_FIELDS = /** @type {Record<string, PlacaField>} */ ({
   'placa-caja-2-trasera': 'placaCaja2',
   'placa-refrigerada': 'placaRefrigerada',
   'parado-placa': 'placa',
+  'placa-rapido': 'placa',
 })
 
 /** Quita guiones/espacios → ABC123A */
@@ -148,12 +149,27 @@ async function ocrWithPlateRecognizer(dataUrl) {
 }
 
 async function ocrWithNetlifyFunction(dataUrl) {
-  const res = await fetch('/.netlify/functions/ocr-placa', {
+  const res = await fetch('/api/ocr-placa', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ dataUrl }),
   })
-  if (!res.ok) return null
+  if (res.status === 401) {
+    throw new Error('Sesión expirada. Vuelve a entrar con correo y clave, luego reintenta la foto.')
+  }
+  if (!res.ok) {
+    let msg = ''
+    try {
+      const j = await res.json()
+      msg = String(j.error || j.message || '')
+      if (j.needsManual && !msg) msg = 'OCR no disponible; escribe la placa a mano.'
+    } catch {
+      /* ignore */
+    }
+    if (msg) throw new Error(msg)
+    return null
+  }
   const j = await res.json()
   const placa = normalizePlacaMX(j.placa || j.rawText || '')
   if (!placa) return null
@@ -170,24 +186,30 @@ async function ocrWithNetlifyFunction(dataUrl) {
  * @returns {Promise<{ placa: string, confidence: number, engine: string, rawText?: string }>}
  */
 export async function readPlacaFromDataUrl(dataUrl) {
-  try {
-    const pr = await ocrWithPlateRecognizer(dataUrl)
-    if (pr?.placa && pr.confidence >= 0.5) {
-      return { ...pr, placa: normalizePlacaMX(pr.placa) }
-    }
-  } catch {
-    /* siguiente motor */
-  }
+  let lastErr = null
+  // 1) Servidor (Vision en Netlify) — no requiere token en la tablet
   try {
     const nv = await ocrWithNetlifyFunction(dataUrl)
     if (nv?.placa && nv.confidence >= 0.45) {
       return { ...nv, placa: normalizePlacaMX(nv.placa) }
     }
-  } catch {
-    /* manual */
+  } catch (err) {
+    lastErr = err
+  }
+  // 2) Plate Recognizer opcional (token en Cloud de este dispositivo)
+  try {
+    const pr = await ocrWithPlateRecognizer(dataUrl)
+    if (pr?.placa && pr.confidence >= 0.5) {
+      return { ...pr, placa: normalizePlacaMX(pr.placa) }
+    }
+  } catch (err) {
+    lastErr = err
+  }
+  if (lastErr instanceof Error && /sesión|login|expirad/i.test(lastErr.message)) {
+    throw lastErr
   }
   throw new Error(
-    'No se pudo leer la placa. Acerca más, con buena luz, o escribe a mano. En Cloud configura Plate Recognizer o Workspace (Vision).',
+    'No se pudo leer la placa. Acerca más, con buena luz, o escribe a mano.',
   )
 }
 

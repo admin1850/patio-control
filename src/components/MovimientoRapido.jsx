@@ -166,7 +166,7 @@ export default function MovimientoRapidoForm({
     setError(null)
     setOkMsg(null)
     if (!fotoPlaca) {
-      setError('Toma la foto de la placa con Plate Recognizer')
+      setError('Toma la foto de la placa')
       return
     }
     if (!equipo) {
@@ -265,7 +265,7 @@ export default function MovimientoRapidoForm({
 
   const titulo = salida ? 'Salida rápida' : 'Retorno rápido'
   const lede = salida
-    ? 'Toma foto de la placa (Plate Recognizer), elige motivo. Sin documentos.'
+    ? 'Toma foto de la placa, elige motivo. Sin documentos.'
     : 'Toma foto de la placa: solo acepta el pool de salida rápida pendiente.'
   const guardar = salida ? 'Guardar salida rápida' : 'Guardar retorno rápido'
   const motivoChip = selChip?.motivo || (motivo ? etiquetaMotivoRapido(motivo) : '')
@@ -343,7 +343,7 @@ export default function MovimientoRapidoForm({
           }}
           onPlaca={(placa) => aplicarPlaca(placa, { fromOcr: true })}
         />
-        <p className="hint">{PLACA_HINT}. Usa Plate Recognizer (token en Cloud) o Vision.</p>
+        <p className="hint">{PLACA_HINT}. La lectura va por el servidor (Vision); opcionalmente Plate Recognizer en Cloud.</p>
       </fieldset>
       <div className="quick-picks">
         <p className="label">{salida ? `En patio · ${yardaNombre}` : `Pool salida rápida · ${yardaNombre}`}</p>

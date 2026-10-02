@@ -5,6 +5,7 @@
  *
  * Sin key → 503 con { needsManual: true } (mismo espíritu que Carta Porte).
  * Con PATIO_SESSION_SECRET → requiere sesión (cookie patio_session / Bearer); sin él, compat.
+ * Vision (GOOGLE_VISION_API_KEY) es el motor de servidor; Plate Recognizer en la tablet es opcional.
  */
 
 import { clientIp, corsHeaders, enforceRateLimit, requireSession } from './lib/http.js'

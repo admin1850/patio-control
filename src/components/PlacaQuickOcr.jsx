@@ -45,7 +45,7 @@ export default function PlacaQuickOcr({
         setMsg(
           `Lectura débil (${Math.round((result.confidence || 0) * 100)}% · ${result.engine}${
             placa ? `: ${placa}` : ''
-          }). No se llenó el campo. Acerca más o teclea a mano. Configura Plate Recognizer en Cloud si hace falta.`,
+          }). No se llenó el campo. Acerca más o teclea a mano.`,
         )
       }
     } catch (e) {
