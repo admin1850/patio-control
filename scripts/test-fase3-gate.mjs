@@ -571,14 +571,21 @@ test('salida rápida omite carta porte y licencia vacías', async () => {
   })
 })
 
-test('salida/retorno rápido usan foto de placa con Plate Recognizer', () => {
+test('salida/retorno rápido usan foto de placa con OCR', () => {
   const src = readFileSync(fileURLToPath(new URL('../src/components/MovimientoRapido.jsx', import.meta.url)), 'utf8')
   assert.match(src, /PlacaQuickOcr/)
   assert.match(src, /Tomar foto y leer placa/)
   assert.match(src, /placa-rapido/)
-  assert.match(src, /Toma la foto de la placa con Plate Recognizer/)
+  assert.match(src, /Toma la foto de la placa/)
   assert.match(src, /fotosEvidencia/)
   assert.doesNotMatch(src, /combustible|tramite/)
+  const ocr = readFileSync(fileURLToPath(new URL('../src/lib/placaOcr.js', import.meta.url)), 'utf8')
+  assert.match(ocr, /\/api\/ocr-placa/)
+  assert.match(ocr, /credentials:\s*'include'/)
+  const fnStart = ocr.indexOf('export async function readPlacaFromDataUrl')
+  assert.ok(fnStart > 0)
+  const body = ocr.slice(fnStart, fnStart + 900)
+  assert.ok(body.indexOf('ocrWithNetlifyFunction') < body.indexOf('ocrWithPlateRecognizer'))
 })
 
 test('la salida corta no enseña el sello ni precarga km', () => {
