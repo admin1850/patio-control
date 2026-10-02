@@ -1,10 +1,17 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   actualizarOrdenServidor,
+  abrirOtPreventivo,
   crearOrdenServidor,
+  fetchOrdenDetalle,
+  fetchPreventivoOpcional,
   fetchTableroOpcional,
   isGateUnavailable,
+  isNetworkFailure,
+  listOrdenesServidor,
+  uploadMediaServer,
 } from '../lib/serverApi.js'
+import { compressImageFile, normalizePlacaMX } from '../lib/placaOcr.js'
 import PreventivoSection from './Preventivo.jsx'
 
 const YARDAS = [
@@ -23,6 +30,13 @@ const TIPOS = [
   ['OTRO', 'Otro'],
 ]
 
+const PRIORIDADES = [
+  ['BAJA', 'Baja'],
+  ['MEDIA', 'Media'],
+  ['ALTA', 'Alta'],
+  ['UNIDAD_PARADA', 'Unidad parada'],
+]
+
 const ESTATUS = [
   ['ABIERTA', 'Abierta'],
   ['DIAGNOSTICO', 'Diagnóstico'],
@@ -32,6 +46,16 @@ const ESTATUS = [
   ['CERRADA', 'Cerrada'],
   ['CANCELADA', 'Cancelada'],
 ]
+
+const TRANSICIONES = {
+  ABIERTA: ['DIAGNOSTICO', 'ESPERA_REFACCION', 'EN_REPARACION', 'LISTA', 'CANCELADA'],
+  DIAGNOSTICO: ['ESPERA_REFACCION', 'EN_REPARACION', 'LISTA', 'CANCELADA'],
+  ESPERA_REFACCION: ['EN_REPARACION', 'LISTA', 'CANCELADA'],
+  EN_REPARACION: ['ESPERA_REFACCION', 'LISTA', 'CANCELADA'],
+  LISTA: ['EN_REPARACION', 'CERRADA', 'CANCELADA'],
+  CERRADA: [],
+  CANCELADA: [],
+}
 
 const ETIQUETA_OPERATIVO = {
   DISPONIBLE: 'Disponible',
@@ -88,6 +112,10 @@ function etiquetaEstatus(id) {
   return ESTATUS.find((t) => t[0] === id)?.[1] || id
 }
 
+function etiquetaPrioridad(id) {
+  return PRIORIDADES.find((t) => t[0] === id)?.[1] || id || 'Media'
+}
+
 function fmt(iso) {
   if (!iso) return '—'
   const date = new Date(iso)
@@ -106,11 +134,27 @@ function textoHoras(horas) {
   return horas <= 24 ? `vence en ${Math.round(horas)} h` : `en tiempo · ${Math.round(horas)} h`
 }
 
-function urlsDe(texto) {
-  return String(texto || '')
-    .split(/\s+/)
-    .map((item) => item.trim())
-    .filter(Boolean)
+function diasEnTallerDe(ot) {
+  if (ot?.metricas?.diasEnTaller != null) return ot.metricas.diasEnTaller
+  const entrada = Date.parse(ot?.fechaEntradaTaller || '')
+  if (!Number.isFinite(entrada)) return null
+  return Math.round(((Date.now() - entrada) / 864e5) * 10) / 10
+}
+
+function ultimoKm(movimientos, equipoId) {
+  let best = null
+  let bestT = -1
+  for (const mov of movimientos || []) {
+    if (!mov || mov.equipoId !== equipoId) continue
+    const km = Number(mov.kilometros)
+    if (!Number.isFinite(km)) continue
+    const t = Date.parse(mov.fechaHora || mov.creadoEn || '') || 0
+    if (t >= bestT) {
+      bestT = t
+      best = km
+    }
+  }
+  return best
 }
 
 function Semaforo({ semaforo }) {
@@ -199,143 +243,541 @@ export function MantenimientoBoard({ onOpen, compact = false }) {
   )
 }
 
-function OrdenEditable({ ot, user, onChanged }) {
-  const [estatus, setEstatus] = useState(ot.estatus)
-  const [etr, setEtr] = useState('')
-  const [motivoEtr, setMotivoEtr] = useState('')
+function FotosCamara({ label, fotos, onChange, min = 2, slotPrefix = 'ot' }) {
+  const inputRef = useRef(null)
   const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState(null)
   const [err, setErr] = useState(null)
-  const puedeEditar = puedeAbrirOtCliente(user)
-  const puedeEtr = puedeMoverEtrCliente(user)
+  const [pendientes, setPendientes] = useState(0)
 
-  async function aplicarEstatus(ev) {
-    ev.preventDefault()
-    setErr(null)
-    setMsg(null)
-    setBusy(true)
-    try {
-      await actualizarOrdenServidor(ot.id, { estatus })
-      setMsg('Estatus actualizado.')
-      onChanged?.()
-    } catch (error) {
-      setErr(error instanceof Error ? error.message : 'No se pudo cambiar el estatus')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function moverEtr(ev) {
-    ev.preventDefault()
-    setErr(null)
-    setMsg(null)
-    if (!motivoEtr.trim()) {
-      setErr('Mover el ETR exige un motivo.')
+  async function onFile(file) {
+    if (!file || !file.type.startsWith('image/')) {
+      setErr('Solo fotos de la cámara')
       return
     }
     setBusy(true)
-    try {
-      await actualizarOrdenServidor(ot.id, { etr: new Date(etr).toISOString(), motivo: motivoEtr.trim() })
-      setMsg('ETR actualizado.')
-      setMotivoEtr('')
-      onChanged?.()
-    } catch (error) {
-      setErr(error instanceof Error ? error.message : 'No se pudo mover el ETR')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function cerrar() {
     setErr(null)
-    setMsg(null)
-    setBusy(true)
     try {
-      await actualizarOrdenServidor(ot.id, { cerrar: true, motivo: 'Cierre desde tablero' })
-      setMsg('OT cerrada. Si no hay otra orden abierta, la unidad vuelve a disponible.')
-      onChanged?.()
+      const dataUrl = await compressImageFile(file, 1600, 0.72)
+      try {
+        const up = await uploadMediaServer({
+          fileName: `${slotPrefix}-${Date.now()}.jpg`,
+          dataUrl,
+          slotId: slotPrefix,
+        })
+        const url = up?.viewPath || up?.url
+        if (!url) throw new Error('Sin URL de foto')
+        onChange([...(fotos || []), url])
+      } catch (error) {
+        if (isNetworkFailure(error) || isGateUnavailable(error)) {
+          setPendientes((n) => n + 1)
+          onChange([...(fotos || []), dataUrl])
+          setErr('Sin red: la foto quedó en bandeja local. Al volver la señal, súbela o reintenta.')
+        } else {
+          throw error
+        }
+      }
     } catch (error) {
-      setErr(error instanceof Error ? error.message : 'No se pudo cerrar')
+      setErr(error instanceof Error ? error.message : 'No se pudo guardar la foto')
     } finally {
       setBusy(false)
     }
   }
 
   return (
-    <li className={`ot-card ${ot.semaforo?.nivel || 'rojo'}`}>
-      <p className="unit-placa">
-        {ot.folio} · {ot.unidadId}
-      </p>
-      <Semaforo semaforo={ot.semaforo} />
-      <p className="unit-meta">
-        {nombreYarda(ot.yarda)} · {etiquetaTipo(ot.tipo)} · {ot.motivo}
-        {ot.etrOriginal ? ` · ETR original ${fmt(ot.etrOriginal)}` : ''}
-        {ot.etrMovimientosCount ? ` · ${ot.etrMovimientosCount} movimiento(s) de ETR` : ''}
-      </p>
-      <p className="unit-meta">ETR {fmt(ot.etr)}</p>
-      {err && <p className="banner error">{err}</p>}
-      {msg && <p className="banner success">{msg}</p>}
-      {puedeEditar && (
-        <form className="ot-actions" onSubmit={(ev) => void aplicarEstatus(ev)}>
-          <label className="field">
-            <span>Estatus</span>
-            <select className="input" value={estatus} onChange={(ev) => setEstatus(ev.target.value)}>
-              {ESTATUS.map(([id, label]) => (
-                <option value={id} key={id}>{label}</option>
-              ))}
-            </select>
-          </label>
-          <button type="submit" className="btn soft" disabled={busy || estatus === ot.estatus}>
-            Actualizar
+    <div className="ot-fotos">
+      <p className="label">{label} (mín. {min})</p>
+      <button type="button" className="btn soft wide" disabled={busy} onClick={() => inputRef.current?.click()}>
+        {busy ? 'Subiendo…' : 'Tomar foto'}
+      </button>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        hidden
+        onChange={(ev) => {
+          void onFile(ev.target.files?.[0])
+          ev.target.value = ''
+        }}
+      />
+      <div className="chip-row" style={{ marginTop: 8 }}>
+        {(fotos || []).map((url, idx) => (
+          <button
+            type="button"
+            className="chip"
+            key={`${url}-${idx}`}
+            onClick={() => onChange((fotos || []).filter((_, i) => i !== idx))}
+            title="Quitar"
+          >
+            Foto {idx + 1} ✕
           </button>
-          <button type="button" className="btn soft" disabled={busy} onClick={() => void cerrar()}>
-            Cerrar OT
-          </button>
-        </form>
+        ))}
+      </div>
+      {(fotos || []).length > 0 && (
+        <div className="photo-grid labeled" style={{ marginTop: 8 }}>
+          {(fotos || []).slice(0, 6).map((url, idx) => (
+            <img src={url} alt={`Foto ${idx + 1}`} key={`${idx}-${url.slice(0, 24)}`} />
+          ))}
+        </div>
       )}
-      {puedeEtr && (
-        <form className="ot-actions" onSubmit={(ev) => void moverEtr(ev)}>
-          <label className="field">
-            <span>Nuevo ETR</span>
-            <input className="input" type="datetime-local" value={etr} onChange={(ev) => setEtr(ev.target.value)} required />
-          </label>
-          <label className="field">
-            <span>Motivo del cambio *</span>
-            <input className="input" value={motivoEtr} onChange={(ev) => setMotivoEtr(ev.target.value)} placeholder="Por qué se mueve el ETR" required />
-          </label>
-          <button type="submit" className="btn soft" disabled={busy}>
-            Mover ETR
-          </button>
-        </form>
-      )}
-    </li>
+      {pendientes > 0 && <p className="hint">{pendientes} foto(s) pendientes de subir a la nube.</p>}
+      {err && <p className="banner warn">{err}</p>}
+    </div>
   )
 }
 
-export default function Mantenimiento({ user = null, draft = null }) {
+function totalRefacciones(rows) {
+  return (rows || []).reduce((sum, row) => sum + (Number(row.cantidad) || 0) * (Number(row.costo) || 0), 0)
+}
+
+/** Historial de mantenimiento de una unidad (solo lectura). */
+export function HistorialMantenimientoUnidad({ unidadId, placa }) {
+  const [ordenes, setOrdenes] = useState(null)
+  const [proximo, setProximo] = useState(null)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    let cancel = false
+    const key = unidadId || placa
+    if (!key) return undefined
+    Promise.all([
+      listOrdenesServidor({ unidadId: key, inactivas: '1' }),
+      fetchPreventivoOpcional('todas').catch(() => null),
+    ])
+      .then(([data, prev]) => {
+        if (cancel) return
+        setOrdenes(data?.ordenes || data?.ots || [])
+        const servicios = prev?.servicios || []
+        const match = servicios.find(
+          (item) =>
+            item.unidadId === key ||
+            String(item.unidadId || '').toUpperCase() === normalizePlacaMX(placa || ''),
+        )
+        setProximo(match || null)
+      })
+      .catch((err) => {
+        if (!cancel) setError(err instanceof Error ? err.message : 'No se pudo cargar')
+      })
+    return () => {
+      cancel = true
+    }
+  }, [unidadId, placa])
+
+  if (error) return <p className="banner warn">{error}</p>
+  if (!ordenes) return <p className="hint">Cargando mantenimiento…</p>
+  if (ordenes.length === 0 && !proximo) return <p className="empty">Sin OT para esta unidad.</p>
+  const cerradas = ordenes.filter((ot) => ot.estatus === 'CERRADA')
+  const ultima = cerradas[0] || ordenes[0]
+  const hace90 = Date.now() - 90 * 24 * 60 * 60 * 1000
+  const diasParada90 = ordenes.reduce((sum, ot) => {
+    const desde = Date.parse(ot.fechaEntradaTaller || ot.creadoEn || '')
+    if (!Number.isFinite(desde) || desde < hace90) return sum
+    const hasta = Date.parse(ot.fechaLista || ot.fechaLiberada || '') || Date.now()
+    const horas = Math.max(0, (hasta - Math.max(desde, hace90)) / 36e5)
+    return sum + horas / 24
+  }, 0)
+  return (
+    <div className="ot-historial">
+      <p className="hint">
+        Último servicio: {ultima ? `${ultima.folio || ultima.id} · ${etiquetaEstatus(ultima.estatus)} · ${fmt(ultima.fechaLiberada || ultima.fechaLista || ultima.etr)}` : '—'}
+      </p>
+      <p className="hint">
+        Próximo preventivo:{' '}
+        {proximo
+          ? `${proximo.semaforo?.etiqueta || proximo.estatus || 'pendiente'} · km ${proximo.proximoKm ?? '—'} · ${fmt(proximo.proximaFecha)}`
+          : 'Sin plan calculado'}
+      </p>
+      <p className="hint">Días parada (90 d): {diasParada90.toFixed(1)}</p>
+      <ul className="ot-list">
+        {ordenes.slice(0, 20).map((ot) => (
+          <li className="ot-card" key={ot.id}>
+            <p className="unit-placa">{ot.folio || ot.id}</p>
+            <p className="unit-meta">
+              {etiquetaTipo(ot.tipo)} · {etiquetaEstatus(ot.estatus)} · {etiquetaPrioridad(ot.prioridad)} · ETR {fmt(ot.etr)}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function OtDetalle({ otId, user, onBack, onChanged }) {
+  const [payload, setPayload] = useState(null)
+  const [error, setError] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState(null)
+  const [etr, setEtr] = useState('')
+  const [motivoEtr, setMotivoEtr] = useState('')
+  const [motivoCancel, setMotivoCancel] = useState('')
+  const [fotosDespues, setFotosDespues] = useState([])
+  const [kmSalida, setKmSalida] = useState('')
+  const [horometroSalida, setHorometroSalida] = useState('')
+  const [notaCierre, setNotaCierre] = useState('')
+  const [refs, setRefs] = useState([{ descripcion: '', cantidad: 1, costo: 0 }])
+  const puedeEditar = puedeAbrirOtCliente(user)
+  const puedeEtr = puedeMoverEtrCliente(user)
+
+  async function reload() {
+    const data = await fetchOrdenDetalle(otId)
+    setPayload(data)
+    setFotosDespues(Array.isArray(data?.ot?.fotosDespuesJson) ? data.ot.fotosDespuesJson : [])
+    setKmSalida(data?.ot?.kmSalida != null ? String(data.ot.kmSalida) : '')
+    setHorometroSalida(data?.ot?.horometroSalida != null ? String(data.ot.horometroSalida) : '')
+    setRefs(
+      Array.isArray(data?.ot?.refaccionesJson) && data.ot.refaccionesJson.length
+        ? data.ot.refaccionesJson
+        : [{ descripcion: '', cantidad: 1, costo: 0 }],
+    )
+  }
+
+  useEffect(() => {
+    let cancel = false
+    reload()
+      .catch((err) => {
+        if (!cancel) setError(err instanceof Error ? err.message : 'No se pudo cargar la OT')
+      })
+    return () => {
+      cancel = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [otId])
+
+  const ot = payload?.ot
+  const eventos = payload?.eventos || []
+  const siguientes = ot ? TRANSICIONES[ot.estatus] || [] : []
+
+  async function run(fn) {
+    setBusy(true)
+    setError(null)
+    setMsg(null)
+    try {
+      await fn()
+      await reload()
+      onChanged?.()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo guardar')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (error && !ot) {
+    return (
+      <div className="panel">
+        <p className="banner error">{error}</p>
+        <button type="button" className="btn soft" onClick={onBack}>Volver</button>
+      </div>
+    )
+  }
+  if (!ot) return <p className="hint">Cargando OT…</p>
+
+  const dias = diasEnTallerDe(ot)
+
+  return (
+    <section className="panel ot-detalle">
+      <div className="panel-head">
+        <h2>{ot.folio || ot.id}</h2>
+        <button type="button" className="text-btn" onClick={onBack}>Volver a la lista</button>
+      </div>
+      <p className="unit-placa">{ot.unidadId}</p>
+      <p className="unit-meta">
+        {etiquetaTipo(ot.tipo)} · {etiquetaPrioridad(ot.prioridad)} · {ot.tallerTipo === 'EXTERNO' ? 'Taller externo' : 'Taller interno'}
+        {' · '}{etiquetaEstatus(ot.estatus)} · ETR {fmt(ot.etr)}
+        {dias != null ? ` · ${dias} días en taller` : ''}
+      </p>
+      <p className="unit-meta">{ot.motivo}</p>
+      {ot.estatus === 'LISTA' && <p className="banner success">Unidad lista</p>}
+      {ot.metricas?.downtimeHoras != null && (
+        <p className="hint">
+          Downtime {ot.metricas.downtimeHoras} h
+          {ot.metricas.etrCumplida == null ? '' : ot.metricas.etrCumplida ? ' · ETR cumplida' : ' · ETR no cumplida'}
+        </p>
+      )}
+      {ot.etrMovimientosCount ? <p className="hint">ETR movida {ot.etrMovimientosCount} vez(ces)</p> : null}
+      {error && <p className="banner error">{error}</p>}
+      {msg && <p className="banner success">{msg}</p>}
+
+      <h3 className="subhead">Línea de tiempo</h3>
+      <ul className="ot-timeline">
+        {eventos.length === 0 ? (
+          <li className="empty">Sin eventos aún.</li>
+        ) : (
+          [...eventos].reverse().map((ev) => (
+            <li key={ev.id}>
+              <strong>{ev.tipoEvento}</strong>
+              {` · ${fmt(ev.horaServidor)} · ${ev.usuarioEmail || '—'}`}
+              <br />
+              <span className="hint">
+                {ev.valorAnterior || '—'} → {ev.valorNuevo || '—'}
+                {ev.motivo ? ` · ${ev.motivo}` : ''}
+              </span>
+            </li>
+          ))
+        )}
+      </ul>
+
+      {puedeEditar && siguientes.length > 0 && (
+        <fieldset className="fieldset">
+          <legend>Estatus</legend>
+          <div className="seg wrap">
+            {siguientes.filter((id) => id !== 'CANCELADA' && id !== 'CERRADA').map((id) => (
+              <button
+                type="button"
+                className="btn soft"
+                key={id}
+                disabled={busy}
+                onClick={() => void run(async () => {
+                  await actualizarOrdenServidor(ot.id, { estatus: id })
+                  setMsg(id === 'LISTA' ? 'Unidad lista' : `Estatus: ${etiquetaEstatus(id)}`)
+                })}
+              >
+                {etiquetaEstatus(id)}
+              </button>
+            ))}
+          </div>
+          {siguientes.includes('CANCELADA') && (
+            <div className="grid-2" style={{ marginTop: 12 }}>
+              <label className="field">
+                <span>Motivo de cancelación *</span>
+                <input className="input" value={motivoCancel} onChange={(ev) => setMotivoCancel(ev.target.value)} placeholder="Por qué se cancela" />
+              </label>
+              <button
+                type="button"
+                className="btn soft"
+                disabled={busy}
+                onClick={() => void run(async () => {
+                  if (motivoCancel.trim().length < 3) throw new Error('Cancelar exige un motivo')
+                  await actualizarOrdenServidor(ot.id, { estatus: 'CANCELADA', motivo: motivoCancel.trim() })
+                  setMsg('OT cancelada')
+                })}
+              >
+                Cancelar OT
+              </button>
+            </div>
+          )}
+        </fieldset>
+      )}
+
+      {puedeEtr && ot.estatus !== 'CERRADA' && ot.estatus !== 'CANCELADA' && (
+        <form
+          className="form-panel compact"
+          onSubmit={(ev) => {
+            ev.preventDefault()
+            void run(async () => {
+              if (!motivoEtr.trim()) throw new Error('Mover el ETR exige un motivo')
+              await actualizarOrdenServidor(ot.id, { etr: new Date(etr).toISOString(), motivo: motivoEtr.trim() })
+              setMotivoEtr('')
+              setMsg('ETR actualizado')
+            })
+          }}
+        >
+          <h3 className="subhead">Mover ETR</h3>
+          <label className="field">
+            <span>Nueva fecha *</span>
+            <input className="input" type="datetime-local" value={etr} onChange={(ev) => setEtr(ev.target.value)} required />
+          </label>
+          <label className="field">
+            <span>Motivo *</span>
+            <input className="input" value={motivoEtr} onChange={(ev) => setMotivoEtr(ev.target.value)} required placeholder="Por qué se mueve" />
+          </label>
+          <button type="submit" className="btn soft wide" disabled={busy}>Guardar ETR</button>
+        </form>
+      )}
+
+      {puedeEditar && ot.estatus !== 'CERRADA' && ot.estatus !== 'CANCELADA' && (
+        <form
+          className="form-panel compact"
+          onSubmit={(ev) => {
+            ev.preventDefault()
+            void run(async () => {
+              await actualizarOrdenServidor(ot.id, {
+                accion: 'actualizar',
+                refaccionesJson: refs.filter((row) => row.descripcion.trim()),
+              })
+              setMsg('Refacciones guardadas')
+            })
+          }}
+        >
+          <h3 className="subhead">Refacciones</h3>
+          {refs.map((row, idx) => (
+            <div className="grid-2" key={idx}>
+              <label className="field">
+                <span>Descripción</span>
+                <input
+                  className="input"
+                  value={row.descripcion}
+                  onChange={(ev) => {
+                    const next = [...refs]
+                    next[idx] = { ...next[idx], descripcion: ev.target.value }
+                    setRefs(next)
+                  }}
+                />
+              </label>
+              <div className="grid-2">
+                <label className="field">
+                  <span>Cant.</span>
+                  <input
+                    className="input"
+                    type="number"
+                    min="0"
+                    value={row.cantidad}
+                    onChange={(ev) => {
+                      const next = [...refs]
+                      next[idx] = { ...next[idx], cantidad: Number(ev.target.value) || 0 }
+                      setRefs(next)
+                    }}
+                  />
+                </label>
+                <label className="field">
+                  <span>Costo</span>
+                  <input
+                    className="input"
+                    type="number"
+                    min="0"
+                    value={row.costo}
+                    onChange={(ev) => {
+                      const next = [...refs]
+                      next[idx] = { ...next[idx], costo: Number(ev.target.value) || 0 }
+                      setRefs(next)
+                    }}
+                  />
+                </label>
+              </div>
+            </div>
+          ))}
+          <p className="hint">Total: ${totalRefacciones(refs).toLocaleString('es-MX')}</p>
+          <button type="button" className="text-btn" onClick={() => setRefs([...refs, { descripcion: '', cantidad: 1, costo: 0 }])}>
+            + Renglón
+          </button>
+          <button type="submit" className="btn soft wide" disabled={busy}>Guardar refacciones</button>
+          <button
+            type="button"
+            className="btn soft wide"
+            disabled={busy}
+            onClick={() => void run(async () => {
+              await actualizarOrdenServidor(ot.id, { estatus: 'ESPERA_REFACCION' })
+              setMsg('En espera de refacción')
+            })}
+          >
+            Marcar espera de refacción
+          </button>
+        </form>
+      )}
+
+      {puedeEditar && siguientes.includes('CERRADA') && (
+        <div className="form-panel compact">
+          <h3 className="subhead">Cerrar OT</h3>
+          <FotosCamara label="Fotos después" fotos={fotosDespues} onChange={setFotosDespues} min={2} slotPrefix="ot-despues" />
+          <div className="grid-2">
+            <label className="field">
+              <span>Km salida</span>
+              <input className="input" type="number" value={kmSalida} onChange={(ev) => setKmSalida(ev.target.value)} />
+            </label>
+            <label className="field">
+              <span>Horómetro salida</span>
+              <input className="input" type="number" value={horometroSalida} onChange={(ev) => setHorometroSalida(ev.target.value)} />
+            </label>
+          </div>
+          <label className="field">
+            <span>Qué se hizo</span>
+            <textarea className="input textarea" rows={2} value={notaCierre} onChange={(ev) => setNotaCierre(ev.target.value)} />
+          </label>
+          <button
+            type="button"
+            className="btn primary wide"
+            disabled={busy}
+            onClick={() => void run(async () => {
+              if (fotosDespues.length < 2) throw new Error('Para cerrar toma al menos 2 fotos después')
+              await actualizarOrdenServidor(ot.id, {
+                cerrar: true,
+                fotosDespuesJson: fotosDespues,
+                kmSalida: kmSalida === '' ? undefined : Number(kmSalida),
+                horometroSalida: horometroSalida === '' ? undefined : Number(horometroSalida),
+                notas: notaCierre,
+              })
+              setMsg('OT cerrada. La unidad vuelve a disponible si no hay otra OT.')
+            })}
+          >
+            Cerrar OT
+          </button>
+        </div>
+      )}
+    </section>
+  )
+}
+
+export default function Mantenimiento({
+  user = null,
+  draft = null,
+  equipos = [],
+  movimientos = [],
+  estadosUnidad = [],
+}) {
   const [yardaFiltro, setYardaFiltro] = useState(draft?.yarda || 'todas')
   const [payload, setPayload] = useState(undefined)
   const [errorCarga, setErrorCarga] = useState(null)
+  const [selectedOtId, setSelectedOtId] = useState(null)
+  const [busca, setBusca] = useState('')
   const [unidadId, setUnidadId] = useState(draft?.unidadId || '')
   const [placa, setPlaca] = useState(draft?.placa || '')
   const [tipo, setTipo] = useState(draft?.tipo || 'CORRECTIVO')
+  const [prioridad, setPrioridad] = useState(draft?.prioridad || (draft?.origen === 'parado' ? 'UNIDAD_PARADA' : 'MEDIA'))
   const [motivo, setMotivo] = useState(draft?.motivo || '')
   const [etr, setEtr] = useState('')
   const [yarda, setYarda] = useState(draft?.yarda || 'chihuahua')
-  const [fotos, setFotos] = useState(() => (Array.isArray(draft?.fotosAntesJson) ? draft.fotosAntesJson.filter(Boolean).join('\n') : ''))
   const [tallerTipo, setTallerTipo] = useState('INTERNO')
+  const [responsableEmail, setResponsableEmail] = useState('')
+  const [kmEntrada, setKmEntrada] = useState('')
+  const [fotosAntes, setFotosAntes] = useState(() => (Array.isArray(draft?.fotosAntesJson) ? draft.fotosAntesJson.filter(Boolean) : []))
   const [movimientoOrigenId] = useState(draft?.movimientoOrigenId || '')
   const [zonaSlot] = useState(draft?.zonaSlot || '')
+  const [servicioPreventivoId, setServicioPreventivoId] = useState('')
   const [busy, setBusy] = useState(false)
   const [banner, setBanner] = useState(() => {
     if (!draft) return null
     if (draft.origen === 'dano-salida') {
-      return { level: 'info', text: 'Daño nuevo en la salida. El ETR es obligatorio para abrir la OT correctiva.' }
+      return { level: 'info', text: 'Daño nuevo en la salida. Completa ETR y 2 fotos para abrir la OT.' }
     }
-    return { level: 'info', text: 'Viene de equipo parado (taller o fallas). El ETR es obligatorio para abrir o enlazar la OT.' }
+    if (draft.origen === 'entrada') {
+      return { level: 'info', text: 'Viene de la entrada (falla o condición mala). Revisa fotos y ETR.' }
+    }
+    return { level: 'info', text: 'Viene de equipo parado (taller o fallas). El ETR y 2 fotos son obligatorios.' }
   })
   const [reloadKey, setReloadKey] = useState(0)
   const puedeAbrir = puedeAbrirOtCliente(user)
+
+  const equipoSel = useMemo(() => {
+    const id = unidadId.trim()
+    const p = normalizePlacaMX(placa || id)
+    return (
+      equipos.find((eq) => eq.id === id) ||
+      equipos.find((eq) => normalizePlacaMX(eq.placa) === p) ||
+      null
+    )
+  }, [equipos, unidadId, placa])
+
+  const otAbiertaMisma = useMemo(() => {
+    if (!equipoSel && !unidadId && !placa) return null
+    const key = normalizePlacaMX(equipoSel?.id || unidadId || placa)
+    const grupos = payload?.tablero?.porYarda || []
+    for (const grupo of grupos) {
+      for (const ot of grupo.ordenes || []) {
+        if (['CERRADA', 'CANCELADA', 'LISTA'].includes(ot.estatus)) continue
+        if (normalizePlacaMX(ot.unidadId) === key) return ot
+      }
+    }
+    return null
+  }, [payload, equipoSel, unidadId, placa])
+
+  useEffect(() => {
+    if (!equipoSel) return
+    setUnidadId(equipoSel.id)
+    setPlaca(normalizePlacaMX(equipoSel.placa))
+    const km = ultimoKm(movimientos, equipoSel.id)
+    if (km != null && kmEntrada === '') setKmEntrada(String(km))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [equipoSel?.id])
 
   useEffect(() => {
     let cancel = false
@@ -357,11 +799,31 @@ export default function Mantenimiento({ user = null, draft = null }) {
     return grupos.flatMap((grupo) => grupo.ordenes || [])
   }, [payload])
 
+  const hitsCatalogo = useMemo(() => {
+    const q = busca.trim()
+    if (!q) return equipos.slice(0, 12)
+    const placaQ = normalizePlacaMX(q)
+    const upper = q.toUpperCase()
+    return equipos
+      .filter(
+        (eq) =>
+          normalizePlacaMX(eq.placa).includes(placaQ) ||
+          String(eq.numeroEconomico || '').toUpperCase().includes(upper) ||
+          String(eq.id || '').includes(q),
+      )
+      .slice(0, 12)
+  }, [busca, equipos])
+
   async function abrir(ev) {
     ev.preventDefault()
     setBanner(null)
     if (!unidadId.trim() && !placa.trim()) {
-      setBanner({ level: 'error', text: 'Indica la unidad (id o placa).' })
+      setBanner({ level: 'error', text: 'Elige una unidad del catálogo.' })
+      return
+    }
+    if (otAbiertaMisma) {
+      setSelectedOtId(otAbiertaMisma.id)
+      setBanner({ level: 'info', text: `Ya hay OT abierta (${otAbiertaMisma.folio}). Se abre el detalle.` })
       return
     }
     if (motivo.trim().length < 3) {
@@ -369,29 +831,45 @@ export default function Mantenimiento({ user = null, draft = null }) {
       return
     }
     if (!etr) {
-      setBanner({ level: 'error', text: 'El ETR es obligatorio en el primer guardado.' })
+      setBanner({ level: 'error', text: 'El ETR es obligatorio.' })
       return
     }
-    const fotosUrls = urlsDe(fotos)
-    if (fotosUrls.length === 1) {
-      setBanner({ level: 'error', text: 'Si ya tienes fotos, pega al menos 2 URLs.' })
+    if (fotosAntes.length < 2) {
+      setBanner({ level: 'error', text: 'Toma al menos 2 fotos con la cámara antes de guardar.' })
       return
     }
     setBusy(true)
     try {
-      const result = await crearOrdenServidor({
-        unidadId: (unidadId || placa).trim(),
-        placa: placa.trim(),
-        tipo,
-        motivo: motivo.trim(),
-        etr: new Date(etr).toISOString(),
-        yarda,
-        tallerTipo,
-        fotosAntesJson: fotosUrls,
-        movimientoOrigenId: movimientoOrigenId || undefined,
-        zonaSlot: zonaSlot || undefined,
-      })
-      const orden = result?.orden
+      let result
+      if (servicioPreventivoId && tipo === 'PREVENTIVO') {
+        result = await abrirOtPreventivo({
+          servicioId: servicioPreventivoId,
+          yarda: yarda !== 'todas' ? yarda : undefined,
+          etr: new Date(etr).toISOString(),
+          motivo: motivo.trim(),
+          kmEntrada: kmEntrada === '' ? undefined : Number(kmEntrada),
+          fotosAntesJson: fotosAntes,
+        })
+      } else {
+        result = await crearOrdenServidor({
+          unidadId: (unidadId || placa).trim(),
+          placa: placa.trim(),
+          tipo,
+          prioridad,
+          motivo: motivo.trim(),
+          etr: new Date(etr).toISOString(),
+          yarda,
+          tallerTipo,
+          responsableEmail: responsableEmail.trim() || undefined,
+          reportadoPor: user?.email,
+          kmEntrada: kmEntrada === '' ? undefined : Number(kmEntrada),
+          fotosAntesJson: fotosAntes,
+          movimientoOrigenId: movimientoOrigenId || undefined,
+          zonaSlot: zonaSlot || undefined,
+          equipoTipo: equipoSel?.tipo,
+        })
+      }
+      const orden = result?.orden || result?.ot
       setBanner({
         level: result?.linked ? 'info' : 'success',
         text: result?.linked
@@ -401,14 +879,16 @@ export default function Mantenimiento({ user = null, draft = null }) {
       if (!result?.linked) {
         setMotivo('')
         setEtr('')
-        setFotos('')
+        setFotosAntes([])
+        setServicioPreventivoId('')
       }
+      if (orden?.id) setSelectedOtId(orden.id)
       setReloadKey((n) => n + 1)
     } catch (err) {
       if (isGateUnavailable(err)) {
         setBanner({
           level: 'warn',
-          text: 'Sin validación de servidor. La OT no se guardó en la hoja; el patio sigue operando. Conecta Cloud e intenta de nuevo.',
+          text: 'Sin validación de servidor. La OT no se guardó en la hoja; el patio sigue operando.',
         })
       } else {
         setBanner({ level: 'error', text: err instanceof Error ? err.message : 'No se pudo abrir la OT' })
@@ -418,11 +898,24 @@ export default function Mantenimiento({ user = null, draft = null }) {
     }
   }
 
+  if (selectedOtId) {
+    return (
+      <div className="page">
+        <OtDetalle
+          otId={selectedOtId}
+          user={user}
+          onBack={() => setSelectedOtId(null)}
+          onChanged={() => setReloadKey((n) => n + 1)}
+        />
+      </div>
+    )
+  }
+
   return (
     <div className="page">
       <div className="form-head">
         <h1>Mantenimiento</h1>
-        <p>Órdenes de trabajo por yarda. Verde: en tiempo. Amarillo: el ETR vence en 24 horas o menos. Rojo: ETR vencido. Abajo, el preventivo por km, días u horómetro.</p>
+        <p>Órdenes de trabajo del patio: abrir con cámara, seguir estatus y liberar la unidad.</p>
       </div>
       {payload === null && (
         <p className="banner warn">Sin validación de servidor. El tablero no está disponible; el patio sigue operando.</p>
@@ -441,46 +934,128 @@ export default function Mantenimiento({ user = null, draft = null }) {
           ))}
         </div>
       </fieldset>
-      <PreventivoSection yarda={yardaFiltro} puedeAbrir={puedeAbrir} />
+
+      <PreventivoSection
+        yarda={yardaFiltro}
+        puedeAbrir={puedeAbrir}
+        onCrearOt={(servicio, etrIso) => {
+          setServicioPreventivoId(servicio.id)
+          setUnidadId(servicio.unidadId)
+          setPlaca(servicio.unidadId)
+          setTipo('PREVENTIVO')
+          setPrioridad('MEDIA')
+          setMotivo(
+            servicio.estatus === 'VENCIDO'
+              ? `Servicio preventivo vencido · plan ${servicio.planId}`
+              : `Servicio preventivo en aviso · plan ${servicio.planId}`,
+          )
+          if (etrIso) {
+            const d = new Date(etrIso)
+            const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+            setEtr(local)
+          }
+          if (servicio.yarda) setYarda(servicio.yarda)
+          setBanner({ level: 'info', text: 'Preventivo: toma 2 fotos y guarda la OT abajo.' })
+          window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })
+        }}
+      />
+
       {payload?.tablero && (
         <section className="panel ot-board-panel">
           <div className="panel-head">
-            <h2>En mantenimiento</h2>
+            <h2>Órdenes de la yarda</h2>
           </div>
           <Resumen resumen={payload.tablero.resumen} />
           {ordenes.length === 0 ? (
-            <p className="empty">No hay unidades en mantenimiento en este filtro.</p>
+            <p className="empty">No hay OT abiertas en este filtro.</p>
           ) : (
             <ul className="ot-list">
               {ordenes.map((ot) => (
-                <OrdenEditable ot={ot} user={user} onChanged={() => setReloadKey((n) => n + 1)} key={ot.id} />
+                <li className={`ot-card ${ot.semaforo?.nivel || 'rojo'}`} key={ot.id}>
+                  <button type="button" className="text-btn" style={{ textAlign: 'left', width: '100%' }} onClick={() => setSelectedOtId(ot.id)}>
+                    <p className="unit-placa">
+                      {ot.folio} · {ot.unidadId}
+                    </p>
+                    <Semaforo semaforo={ot.semaforo} />
+                    <p className="unit-meta">
+                      {etiquetaTipo(ot.tipo)} · {etiquetaPrioridad(ot.prioridad)} · {etiquetaEstatus(ot.estatus)}
+                      {' · '}{ot.tallerTipo === 'EXTERNO' ? 'Externo' : 'Interno'}
+                      {' · ETR '}{fmt(ot.etr)}
+                      {diasEnTallerDe(ot) != null ? ` · ${diasEnTallerDe(ot)} d` : ''}
+                    </p>
+                  </button>
+                </li>
               ))}
             </ul>
           )}
         </section>
       )}
+
       {puedeAbrir ? (
         <form className="form-panel" onSubmit={(ev) => void abrir(ev)}>
           <div className="form-head">
             <h2>Abrir orden de trabajo</h2>
-            <p>Unidad, tipo, motivo, ETR y yarda. Si la unidad ya tiene una OT abierta, se enlaza.</p>
+            <p>Elige unidad del catálogo, prioridad, ETR y 2 fotos con la cámara. Sin pegar URLs.</p>
           </div>
-          {banner && <p className={`banner ${banner.level === 'error' ? 'error' : banner.level === 'success' ? 'success' : banner.level === 'info' ? 'info' : 'warn'}`}>{banner.text}</p>}
-          <div className="grid-2">
-            <label className="field">
-              <span>Unidad (id de equipo) *</span>
-              <input className="input" value={unidadId} onChange={(ev) => setUnidadId(ev.target.value)} placeholder="Id o placa" required />
-            </label>
-            <label className="field">
-              <span>Placa</span>
-              <input className="input" value={placa} onChange={(ev) => setPlaca(ev.target.value.toUpperCase())} placeholder="Si es distinta del id" />
-            </label>
+          {banner && (
+            <p className={`banner ${banner.level === 'error' ? 'error' : banner.level === 'success' ? 'success' : banner.level === 'info' ? 'info' : 'warn'}`}>
+              {banner.text}
+            </p>
+          )}
+          <label className="field">
+            <span>Buscar unidad (placa o económico)</span>
+            <input className="input" value={busca} onChange={(ev) => setBusca(ev.target.value)} placeholder="Placa o económico" autoComplete="off" />
+          </label>
+          <div className="chip-row">
+            {hitsCatalogo.map((eq) => (
+              <button
+                type="button"
+                className={unidadId === eq.id ? 'chip on' : 'chip'}
+                key={eq.id}
+                onClick={() => {
+                  setUnidadId(eq.id)
+                  setPlaca(normalizePlacaMX(eq.placa))
+                  setBusca(eq.placa)
+                }}
+              >
+                {eq.placa}
+                {eq.numeroEconomico ? ` · ${eq.numeroEconomico}` : ''}
+                {eq.tipo ? ` · ${eq.tipo}` : ''}
+              </button>
+            ))}
           </div>
+          {equipoSel && (
+            <div className="banner info">
+              <strong>{equipoSel.placa}</strong>
+              {equipoSel.numeroEconomico ? ` · eco ${equipoSel.numeroEconomico}` : ''}
+              {equipoSel.tipo ? ` · ${equipoSel.tipo}` : ''}
+              {` · yarda ${nombreYarda(yarda)}`}
+              {` · reporta ${user?.email || 'sesión'}`}
+            </div>
+          )}
+          {otAbiertaMisma && (
+            <p className="banner warn">
+              Ya hay OT abierta ({otAbiertaMisma.folio}).{' '}
+              <button type="button" className="text-btn" onClick={() => setSelectedOtId(otAbiertaMisma.id)}>
+                Abrir detalle
+              </button>
+            </p>
+          )}
           <fieldset className="fieldset">
             <legend>Tipo *</legend>
             <div className="seg wrap">
               {TIPOS.map(([id, label]) => (
                 <button type="button" className={tipo === id ? 'seg-btn on-ok' : 'seg-btn'} onClick={() => setTipo(id)} key={id}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+          <fieldset className="fieldset">
+            <legend>Prioridad *</legend>
+            <div className="seg wrap">
+              {PRIORIDADES.map(([id, label]) => (
+                <button type="button" className={prioridad === id ? 'seg-btn on-ok' : 'seg-btn'} onClick={() => setPrioridad(id)} key={id}>
                   {label}
                 </button>
               ))}
@@ -492,7 +1067,7 @@ export default function Mantenimiento({ user = null, draft = null }) {
           </label>
           <div className="grid-2">
             <label className="field">
-              <span>ETR (fecha y hora prometida) *</span>
+              <span>ETR *</span>
               <input className="input" type="datetime-local" value={etr} onChange={(ev) => setEtr(ev.target.value)} required />
             </label>
             <label className="field">
@@ -502,6 +1077,16 @@ export default function Mantenimiento({ user = null, draft = null }) {
                   <option value={item.id} key={item.id}>{item.nombre}</option>
                 ))}
               </select>
+            </label>
+          </div>
+          <div className="grid-2">
+            <label className="field">
+              <span>Km / horómetro de entrada</span>
+              <input className="input" type="number" value={kmEntrada} onChange={(ev) => setKmEntrada(ev.target.value)} placeholder="Último km si hay" />
+            </label>
+            <label className="field">
+              <span>Responsable (correo)</span>
+              <input className="input" value={responsableEmail} onChange={(ev) => setResponsableEmail(ev.target.value)} placeholder="encargado@…" />
             </label>
           </div>
           <fieldset className="fieldset">
@@ -515,16 +1100,14 @@ export default function Mantenimiento({ user = null, draft = null }) {
               </button>
             </div>
           </fieldset>
-          <label className="field">
-            <span>Fotos (URLs, mínimo 2 si ya las tienes)</span>
-            <textarea className="input textarea" rows={3} value={fotos} onChange={(ev) => setFotos(ev.target.value)} placeholder={'https://…\nhttps://…'} />
-          </label>
+          <FotosCamara label="Fotos antes" fotos={fotosAntes} onChange={setFotosAntes} min={2} slotPrefix="ot-antes" />
+          <p className="hint">Estatus inicial: Abierta · Reportado por {user?.email || 'la sesión'}</p>
           <button type="submit" className="btn primary wide" disabled={busy}>
             {busy ? 'Guardando…' : 'Guardar OT'}
           </button>
         </form>
       ) : (
-        <p className="banner info">Puedes consultar el tablero. Abrir una OT o mover el ETR le toca a patio, al encargado de yarda o a admin.</p>
+        <p className="banner info">Puedes consultar el tablero. Abrir una OT le toca a patio, encargado o admin.</p>
       )}
     </div>
   )

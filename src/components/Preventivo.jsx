@@ -36,12 +36,13 @@ function SemaforoPreventivo({ semaforo, estatus }) {
   )
 }
 
-export default function PreventivoSection({ yarda = 'todas', puedeAbrir = false }) {
+export default function PreventivoSection({ yarda = 'todas', puedeAbrir = false, onCrearOt = null }) {
   const [data, setData] = useState(undefined)
   const [errorCarga, setErrorCarga] = useState(null)
   const [reloadKey, setReloadKey] = useState(0)
   const [busyId, setBusyId] = useState('')
   const [banner, setBanner] = useState(null)
+  const [etrPorServicio, setEtrPorServicio] = useState({})
   const [tipoUnidad, setTipoUnidad] = useState('camion')
   const [cadaKm, setCadaKm] = useState('')
   const [cadaDias, setCadaDias] = useState('')
@@ -74,11 +75,21 @@ export default function PreventivoSection({ yarda = 'todas', puedeAbrir = false 
 
   async function abrir(servicio) {
     setBanner(null)
+    const etrLocal = etrPorServicio[servicio.id]
+    if (!etrLocal) {
+      setBanner({ level: 'error', text: 'Indica el ETR para crear la OT preventiva.' })
+      return
+    }
+    if (typeof onCrearOt === 'function') {
+      onCrearOt(servicio, new Date(etrLocal).toISOString())
+      return
+    }
     setBusyId(servicio.id)
     try {
       const result = await abrirOtPreventivo({
         servicioId: servicio.id,
         yarda: yarda !== 'todas' ? yarda : servicio.yarda || undefined,
+        etr: new Date(etrLocal).toISOString(),
       })
       if (!result?.orden?.id) {
         setBanner({ level: 'warn', text: 'Sin validación de servidor. La OT no se guardó; el patio sigue operando.' })
@@ -89,7 +100,7 @@ export default function PreventivoSection({ yarda = 'todas', puedeAbrir = false 
         level: result?.linked ? 'info' : 'success',
         text: result?.linked
           ? `Ya había una OT abierta (${folio}). Quedó ligada a este servicio.`
-          : `OT ${folio} de preventivo abierta. La unidad queda en mantenimiento.`,
+          : `OT ${folio} de preventivo abierta. Completa fotos en Mantenimiento si hace falta.`,
       })
       setReloadKey((n) => n + 1)
     } catch (err) {
@@ -169,9 +180,21 @@ export default function PreventivoSection({ yarda = 'todas', puedeAbrir = false 
                   {servicio.otId ? ' · OT ligada' : ''}
                 </p>
                 {puede && (
-                  <button type="button" className="btn soft" disabled={busyId === servicio.id} onClick={() => void abrir(servicio)}>
-                    {busyId === servicio.id ? 'Abriendo…' : 'Abrir OT'}
-                  </button>
+                  <div className="ot-actions">
+                    <label className="field">
+                      <span>ETR *</span>
+                      <input
+                        className="input"
+                        type="datetime-local"
+                        value={etrPorServicio[servicio.id] || ''}
+                        onChange={(ev) => setEtrPorServicio((prev) => ({ ...prev, [servicio.id]: ev.target.value }))}
+                        required
+                      />
+                    </label>
+                    <button type="button" className="btn soft" disabled={busyId === servicio.id} onClick={() => void abrir(servicio)}>
+                      {busyId === servicio.id ? 'Abriendo…' : onCrearOt ? 'Crear OT preventiva' : 'Abrir OT'}
+                    </button>
+                  </div>
                 )}
               </li>
             )

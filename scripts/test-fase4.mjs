@@ -387,13 +387,13 @@ test('abrir OT PREVENTIVO solo en aviso o vencido, y al cerrarla reprograma', as
   const servicio = (await repo.listServiciosProgramados()).find((item) => item.unidadId === 'eq-1')
   assert.equal(servicio.estatus, 'VENCIDO')
 
-  const abierto = await svc.abrirOt(encargado, { servicioId: servicio.id, yarda: 'chihuahua' })
+  const abierto = await svc.abrirOt(encargado, { servicioId: servicio.id, yarda: 'chihuahua', etr: '2026-10-05T18:00:00.000Z', fotosAntesJson: ['https://a.jpg', 'https://b.jpg'] })
   assert.equal(abierto.ot.tipo, 'PREVENTIVO')
   assert.equal(abierto.linked, false)
   assert.equal(abierto.servicio.otId, abierto.ot.id)
   assert.equal((await repo.listEstadoUnidad()).find((item) => item.unidadId === 'eq-1').estatusOperativo, 'EN_MANTENIMIENTO')
 
-  const otra = await svc.abrirOt(encargado, { servicioId: servicio.id, yarda: 'chihuahua' })
+  const otra = await svc.abrirOt(encargado, { servicioId: servicio.id, yarda: 'chihuahua', etr: '2026-10-05T18:00:00.000Z', fotosAntesJson: ['https://a.jpg', 'https://b.jpg'] })
   assert.equal(otra.linked, true)
   assert.equal(otra.ot.id, abierto.ot.id)
 
@@ -401,7 +401,8 @@ test('abrir OT PREVENTIVO solo en aviso o vencido, y al cerrarla reprograma', as
   assert.equal(lista.servicios.find((item) => item.unidadId === 'eq-1').semaforo.nivel, 'rojo')
   assert.equal((await svc.listProximos({ yarda: 'calera' })).servicios.some((item) => item.unidadId === 'eq-1'), false)
 
-  await otSvc.updateEstatus(encargado, abierto.ot.id, { estatus: 'CERRADA' })
+  await otSvc.updateEstatus(encargado, abierto.ot.id, { estatus: 'LISTA' })
+  await otSvc.updateEstatus(encargado, abierto.ot.id, { estatus: 'CERRADA', fotosDespuesJson: ['https://c.jpg', 'https://d.jpg'], notas: 'servicio hecho' })
   const hechos = await svc.sincronizarCierreOt((await repo.listOrdenesTrabajo()).find((item) => item.id === abierto.ot.id))
   assert.equal(hechos[0].estatus, 'HECHO')
   assert.equal(hechos[0].otId, abierto.ot.id)
@@ -477,7 +478,7 @@ test('HTTP: movimiento con km recalcula; sin hoja el movimiento sigue', async ()
     const ot = await preventivoHandler(httpEvent('POST', {
       cookie,
       path: '/api/preventivo/ot',
-      body: { servicioId: servicio.id },
+      body: { servicioId: servicio.id, etr: '2026-10-05T18:00:00.000Z', fotosAntesJson: ['https://a.jpg', 'https://b.jpg'] },
     }), deps)
     assert.equal(ot.statusCode, 200, ot.body)
     assert.equal(JSON.parse(ot.body).orden.tipo, 'PREVENTIVO')
@@ -592,6 +593,7 @@ test('tablero encola ETR vencida una vez; resumen diario por yarda; cron', async
       tipo: 'CORRECTIVO',
       motivo: 'frenos',
       etr: '2026-09-28T18:00:00.000Z',
+      fotosAntesJson: ['https://a.jpg', 'https://b.jpg'],
     })
     await otSvc.createOT(encargado, {
       unidadId: 'eq-verde',
@@ -599,6 +601,7 @@ test('tablero encola ETR vencida una vez; resumen diario por yarda; cron', async
       tipo: 'LLANTAS',
       motivo: 'llanta',
       etr: '2026-10-10T18:00:00.000Z',
+      fotosAntesJson: ['https://a.jpg', 'https://b.jpg'],
     })
     const deps = { service: otSvc, repo }
     const cookie = cookieFor(guardia)

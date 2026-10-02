@@ -503,6 +503,7 @@ test('consultar filtra yarda y una OT no borra clienteCarga', async () => {
     motivo: 'frenos',
     etr: '2026-10-05T18:00:00.000Z',
     zonaSlot: 'andén 2',
+    fotosAntesJson: ['https://a.jpg', 'https://b.jpg'],
   })
   const despues = rowToEstadoUnidad(repo.estados.find((row) => row[0] === 'eq-1'))
   assert.equal(despues.estatusOperativo, 'EN_MANTENIMIENTO')

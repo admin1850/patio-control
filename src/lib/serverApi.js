@@ -208,9 +208,14 @@ export function crearOrdenServidor(orden) {
   return apiFetch('/api/ot', { method: 'POST', json: orden })
 }
 
-/** Cambia estatus, mueve el ETR (con motivo) o cierra la OT. */
+/** Cambia estatus, mueve el ETR (con motivo), actualiza datos o cierra la OT. */
 export function actualizarOrdenServidor(id, patch) {
   return apiFetch(`/api/ot/${encodeURIComponent(id)}`, { method: 'PATCH', json: patch })
+}
+
+/** Detalle de OT + eventos. */
+export function fetchOrdenDetalle(id) {
+  return apiFetch(`/api/ot/${encodeURIComponent(id)}`, { method: 'GET' })
 }
 
 /** Próximos servicios preventivos con semáforo. */

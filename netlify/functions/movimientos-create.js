@@ -25,16 +25,17 @@ function movimientoFromBody(body) {
 
 /**
  * Gate fuerte de salida. El cliente no decide `validadoGate`.
+ * Salida rápida omite sello/docs/thermo, pero sí respeta bloqueo de mantenimiento / OT abierta.
  * Si las pestañas de Fase 1 no existen (503), la salida sigue y el cumplimiento queda sin validar.
- * La bitácora del override la escribe el gate; un segundo intento cercano no duplica el evento.
  */
 async function gateSalida(event, session, mov, repo, headers) {
   if (String(mov?.tipo ?? '').trim().toLowerCase() !== 'salida') return null
-  if (esMovimientoRapido(mov)) {
-    aplicarCumplimientoServidor(mov, { resultado: 'RAPIDO', validacionServidor: true })
-    return null
-  }
+  const rapido = esMovimientoRapido(mov)
   if (typeof repo?.listEstadoUnidad !== 'function' || typeof repo?.listOrdenesTrabajo !== 'function') {
+    if (rapido) {
+      aplicarCumplimientoServidor(mov, { resultado: 'RAPIDO', validacionServidor: true })
+      return null
+    }
     aplicarCumplimientoServidor(mov, { validacionServidor: false, resultado: 'SIN_VALIDACION' })
     return null
   }
@@ -43,6 +44,38 @@ async function gateSalida(event, session, mov, repo, headers) {
     .map((placa) => ({ placa, tipo: 'caja' }))
   if (mov.equipoTipo === 'dolly') relacionados.push({ unidadId: mov.equipoId, placa: mov.placa, tipo: 'dolly' })
   try {
+    if (rapido) {
+      const { createOtService } = await import('./lib/otService.js')
+      const otGate = await createOtService(repo).validarSalida(session, {
+        equipoId: mov.equipoId,
+        placa: mov.placa,
+        relacionados,
+        overrideMotivo: mov.overrideMotivo,
+        trasladoTallerExterno: mov.trasladoTallerExterno === true || mov.motivoSalida === 'TRASLADO_TALLER_EXTERNO',
+        motivo: mov.motivo || mov.motivoSalida,
+      })
+      if (otGate.resultado !== 'PERMITIDO') {
+        return json(
+          event,
+          409,
+          {
+            error: otGate.mensaje,
+            resultado: otGate.resultado,
+            motivos: [{ codigo: 'MANTENIMIENTO', mensaje: otGate.mensaje }],
+            unidades: otGate.unidades,
+            puedeAutorizar: otGate.puedeAutorizar,
+          },
+          headers,
+        )
+      }
+      aplicarCumplimientoServidor(mov, {
+        resultado: 'RAPIDO',
+        validacionServidor: true,
+        via: otGate.via,
+        unidades: otGate.unidades,
+      })
+      return null
+    }
     const gate = await createGateService(repo).validarSalida(session, {
       equipoId: mov.equipoId,
       placa: mov.placa,
