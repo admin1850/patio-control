@@ -5413,7 +5413,7 @@ function Nn({
         id: ee(),
         tipo: r,
         placa: normalizePlacaMX(a),
-        numeroEconomico: s.trim() || normalizePlacaMX(a),
+        numeroEconomico: s.trim(),
         marca: u.trim() || undefined,
         modelo: f.trim() || undefined,
         operadorAsignado: m.trim() || undefined,
