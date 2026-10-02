@@ -299,6 +299,7 @@ test('km menor sigue bloqueado aunque haya override; mantenimiento también', as
     tipo: 'CORRECTIVO',
     motivo: 'Falla de frenos',
     etr: ETR,
+    fotosAntesJson: ['https://a.jpg', 'https://b.jpg'],
   })
   const gate = createGateService(repo, { otService: ot, now: () => NOW })
   const km = await gate.validarSalida(encargado, docsOk({

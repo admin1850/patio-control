@@ -65,7 +65,7 @@ import {
   movimientoWriteMode,
   puedeVerPagina,
 } from "./lib/patioSync.js";
-import Mantenimiento, { EstatusOperativoChip, MantenimientoBoard, puedeAbrirOtCliente, puedeAutorizarSalidaCliente } from "./components/Mantenimiento.jsx";
+import Mantenimiento, { EstatusOperativoChip, HistorialMantenimientoUnidad, MantenimientoBoard, puedeAbrirOtCliente, puedeAutorizarSalidaCliente } from "./components/Mantenimiento.jsx";
 import KpiMantenimiento from "./components/KpiMantenimiento.jsx";
 import Inventario from "./components/Inventario.jsx";
 import LlegadasEsperadas from "./components/LlegadasEsperadas.jsx";
@@ -1747,7 +1747,8 @@ function _Component4({
   onSaveEquipo: a,
   onSubmit: o,
   onDone: s,
-  user: authUser = null
+  user: authUser = null,
+  onPromptOt = null
 }) {
   let [c, u] = (0, l.useState)(() => be());
   let [d, f] = (0, l.useState)(() => oe());
@@ -2580,7 +2581,18 @@ function _Component4({
               qe(t.selloNumero.trim().toUpperCase());
             }
           }
-        }} placeholder={`Ej. MX-HS-004821`} /></Component399>{At === `ok` && <Component400 className={`banner success`}>{`Sello coincide con la entrada.`}</Component400>}{At === `mismatch` && <l.Fragment><Component401 className={`banner error`}>{`Discrepancia de sello: entrada `}{P}{` ≠ salida `}{Ue.trim().toUpperCase()}</Component401><Component403 className={`check-inline`}><Component402 type={`checkbox`} checked={Je} onChange={e => Ye(e.target.checked)} />{`Confirmo discrepancia (queda en KPIs / alerta de seguridad)`}</Component403></l.Fragment>}</Component404>}<Component408 className={`fieldset`}><Component405>{`Condición general`}</Component405><Component407 className={`seg big`}>{[`buena`, `regular`, `mala`].map(e => <Component406 type={`button`} className={Be === e ? `seg-btn ${e === `buena` ? `on-ok` : e === `regular` ? `on-warn` : `on-bad`}` : `seg-btn`} onClick={() => He(e)} key={e}>{e.charAt(0).toUpperCase() + e.slice(1)}</Component406>)}</Component407></Component408><Component410 className={`fieldset`}><Component409>{`Checklist NOM / físico-mecánico`}</Component409><Ve items={$e} onChange={et} /></Component410><Component412 className={`fieldset`}><Component411>{`Registro fotográfico guiado`}</Component411><_Component slots={Tt} captured={tt} onChange={nt} onPlateOcr={(slotId, placa) => {
+        }} placeholder={`Ej. MX-HS-004821`} /></Component399>{At === `ok` && <Component400 className={`banner success`}>{`Sello coincide con la entrada.`}</Component400>}{At === `mismatch` && <l.Fragment><Component401 className={`banner error`}>{`Discrepancia de sello: entrada `}{P}{` ≠ salida `}{Ue.trim().toUpperCase()}</Component401><Component403 className={`check-inline`}><Component402 type={`checkbox`} checked={Je} onChange={e => Ye(e.target.checked)} />{`Confirmo discrepancia (queda en KPIs / alerta de seguridad)`}</Component403></l.Fragment>}</Component404>}<Component408 className={`fieldset`}><Component405>{`Condición general`}</Component405><Component407 className={`seg big`}>{[`buena`, `regular`, `mala`].map(e => <Component406 type={`button`} className={Be === e ? `seg-btn ${e === `buena` ? `on-ok` : e === `regular` ? `on-warn` : `on-bad`}` : `seg-btn`} onClick={() => He(e)} key={e}>{e.charAt(0).toUpperCase() + e.slice(1)}</Component406>)}</Component407></Component408>{e === `entrada` && onPromptOt && (Be === `mala` || $e.some(item => item.ok === false)) && <p className={`banner warn`}>{`Falla crítica o condición mala. `}<button type={`button`} className={`btn primary`} onClick={() => onPromptOt({
+  unidadId: O.trim() || undefined,
+  placa: normalizePlacaMX(O),
+  tipo: `CORRECTIVO`,
+  prioridad: Be === `mala` ? `ALTA` : `MEDIA`,
+  motivo: Be === `mala` ? `Condición mala en entrada` : `Falla en checklist de entrada`,
+  yarda: c,
+  origen: `entrada`,
+  fotosAntesJson: Tt.filter(slot => tt[slot.id]).map(slot => tt[slot.id]).filter(Boolean),
+  movimientoOrigenId: undefined,
+  zonaSlot: zonaSlotCap?.zonaSlot || zonaSlotCap?.zona || ``
+})}>{`Enviar a mantenimiento`}</button></p>}<Component410 className={`fieldset`}><Component409>{`Checklist NOM / físico-mecánico`}</Component409><Ve items={$e} onChange={et} /></Component410><Component412 className={`fieldset`}><Component411>{`Registro fotográfico guiado`}</Component411><_Component slots={Tt} captured={tt} onChange={nt} onPlateOcr={(slotId, placa) => {
           applyPlacaOcrToForm(slotId, placa, {
             setPlaca: re,
             setPlacaCamionTrasera: setPlacaCamionTraseraVal,
@@ -2721,6 +2733,7 @@ function _Component5({
   let [M, we] = (0, l.useState)(false);
   let [N, Te] = (0, l.useState)(false);
   let [otPrompt, setOtPrompt] = (0, l.useState)(null);
+  let [fechaEstimadaSalida, setFechaEstimadaSalida] = (0, l.useState)(``);
   let zonaSlotCap = useZonaSlotFields();
   let Ee = d ? `camion` : h && !p && !_ ? `dolly` : p || _ ? `caja` : `camion`;
   let ke = (0, l.useMemo)(() => y.trim() ? De({
@@ -2747,6 +2760,11 @@ function _Component5({
     }
     if (C === `otro` && te.trim().length < 3) {
       xe(`Describe el motivo (Otro)`);
+      return;
+    }
+    let pideOtCheck = C === `taller` || C === `thermo`;
+    if (!pideOtCheck && !fechaEstimadaSalida) {
+      xe(`Indica la fecha estimada de salida del patio`);
       return;
     }
     if (!ce.trim()) {
@@ -2810,6 +2828,9 @@ function _Component5({
         motivoParo: C,
         motivoParoOtro: C === `otro` && te.trim() || undefined,
         paradoDesde: s,
+        fechaEstimadaSalida: !(C === `taller` || C === `thermo`) && fechaEstimadaSalida
+          ? new Date(`${fechaEstimadaSalida}T12:00:00`).toISOString()
+          : undefined,
         zonaSlot: [zonaSlotCap.zona, zonaSlotCap.slot].filter(Boolean).join(` `) || ue.trim() || undefined,
         zona: zonaSlotCap.zona.trim() || undefined,
         slot: zonaSlotCap.slot.trim() || undefined,
@@ -2953,7 +2974,9 @@ function _Component5({
         marginTop: 8
       }}>{`Ya figura como parado: este guardado actualiza el inventario (re-inventario).`}</Component468>}</Component469><Component479 className={`fieldset`}><Component470>{`Motivo de paro *`}</Component470><Component475 className={`tipo-checks`}>{F.map(e => <Component474 className={`tipo-check${C === e.id ? ` on` : ``}`} key={e.id}><Component471 type={`radio`} name={`motivoParo`} checked={C === e.id} onChange={() => w(e.id)} /><Component472 className={`tipo-box`} aria-hidden={`true`} /><Component473 className={`tipo-text`}>{e.label}</Component473></Component474>)}</Component475>{C === `otro` && <Component478 className={`field`} style={{
         marginTop: 12
-      }}><Component476>{`Describe el motivo *`}</Component476><Component477 className={`input`} value={te} onChange={e => T(e.target.value)} placeholder={`Motivo`} required={true} /></Component478>}</Component479><Component501 className={`fieldset`}><Component480>{`Detalle`}</Component480><Component497 className={`grid-2`}><Component483 className={`field`}><Component481>{`Desde cuándo está ahí *`}</Component481><Component482 className={`input`} type={`date`} value={O} onChange={e => re(e.target.value)} required={true} /></Component483><Component487 className={`field`}><Component484 className={`label`}>{`Condición *`}</Component484><Component486 className={`seg wrap`} style={{
+      }}><Component476>{`Describe el motivo *`}</Component476><Component477 className={`input`} value={te} onChange={e => T(e.target.value)} placeholder={`Motivo`} required={true} /></Component478>}{C && C !== `taller` && C !== `thermo` && <label className={`field`} style={{
+        marginTop: 12
+      }}><span>{`Fecha estimada de salida *`}</span><input className={`input`} type={`date`} value={fechaEstimadaSalida} onChange={e => setFechaEstimadaSalida(e.target.value)} required={true} /></label>}</Component479><Component501 className={`fieldset`}><Component480>{`Detalle`}</Component480><Component497 className={`grid-2`}><Component483 className={`field`}><Component481>{`Desde cuándo está ahí *`}</Component481><Component482 className={`input`} type={`date`} value={O} onChange={e => re(e.target.value)} required={true} /></Component483><Component487 className={`field`}><Component484 className={`label`}>{`Condición *`}</Component484><Component486 className={`seg wrap`} style={{
             marginTop: 6
           }}>{[`buena`, `regular`, `mala`].map(e => <Component485 type={`button`} className={ae === e ? `seg-btn ${e === `buena` ? `on-ok` : e === `regular` ? `on-warn` : `on-bad`}` : `seg-btn`} onClick={() => k(e)} key={e}>{e === `buena` ? `Buena` : e === `regular` ? `Regular` : `Mala`}</Component485>)}</Component486></Component487><Component490 className={`field`}><Component488>{`Quién inventaría (caseta) *`}</Component488><Component489 className={`input`} value={ce} onChange={e => le(e.target.value)} placeholder={`Nombre`} required={true} /></Component490>{zonaSlotCap.node}<Component493 className={`field`}><Component491>{`Zona o slot`}</Component491><Component492 className={`input`} value={ue} onChange={e => de(e.target.value)} placeholder={`Andén 2, fondo norte…`} /></Component493><Component496 className={`field`}><Component494>{`Sello actual`}</Component494><Component495 className={`input`} value={fe} onChange={e => pe(e.target.value.toUpperCase())} placeholder={`Opcional`} /></Component496></Component497><Component500 className={`field`} style={{
         marginTop: 12
@@ -5311,6 +5334,7 @@ function Nn({
   let [m, h] = (0, l.useState)(``);
   let [g, _] = (0, l.useState)(``);
   let [equipoBusca, setEquipoBusca] = (0, l.useState)(``);
+  let [histEquipoId, setHistEquipoId] = (0, l.useState)(null);
   function v(e) {
     e.preventDefault();
     if (readOnly) {
@@ -5384,7 +5408,7 @@ function Nn({
       margin: `12px 0 8px`
     }}>{`Catálogo vivo: al teclear o leer la placa en Entrada/Salida se autocompletan económico, chofer y último sello.`}</p><input className={`input`} value={equipoBusca} onChange={e => setEquipoBusca(e.target.value)} placeholder={`Buscar en catálogo (placa, económico, chofer)…`} style={{
       marginBottom: 10
-    }} /><Component623 className={`unit-list`}>{e.equipos.length === 0 && <Component617 className={`empty`}>{`Aún no hay equipos. Da de alta tractos, cajas y dollies aquí para que caseta solo busque la placa.`}</Component617>}{e.equipos.length > 0 && equiposFiltrados.length === 0 && <Component617 className={`empty`}>{`Sin coincidencias.`}</Component617>}{equiposFiltrados.map(e => <Component622 className={`unit-row`} key={e.id}><Component620 className={`unit-main`}><Component618 className={`unit-placa`}>{e.placa}</Component618><Component619 className={`unit-meta`}>{e.tipo}{` · `}{e.numeroEconomico}{e.marca ? ` · ${e.marca}` : ``}{e.modelo ? ` ${e.modelo}` : ``}{e.operadorAsignado ? ` · chofer ${e.operadorAsignado}` : ``}</Component619></Component620><Component621 type={`button`} className={`text-btn danger`} disabled={readOnly} onClick={() => {
+    }} /><Component623 className={`unit-list`}>{e.equipos.length === 0 && <Component617 className={`empty`}>{`Aún no hay equipos. Da de alta tractos, cajas y dollies aquí para que caseta solo busque la placa.`}</Component617>}{e.equipos.length > 0 && equiposFiltrados.length === 0 && <Component617 className={`empty`}>{`Sin coincidencias.`}</Component617>}{equiposFiltrados.map(e => <Component622 className={`unit-row`} key={e.id}><Component620 className={`unit-main`}><Component618 className={`unit-placa`}>{e.placa}</Component618><Component619 className={`unit-meta`}>{e.tipo}{` · `}{e.numeroEconomico}{e.marca ? ` · ${e.marca}` : ``}{e.modelo ? ` ${e.modelo}` : ``}{e.operadorAsignado ? ` · chofer ${e.operadorAsignado}` : ``}</Component619>{histEquipoId === e.id && <HistorialMantenimientoUnidad unidadId={e.id} placa={e.placa} />}</Component620><button type={`button`} className={`text-btn`} onClick={() => setHistEquipoId(histEquipoId === e.id ? null : e.id)}>{histEquipoId === e.id ? `Ocultar mant.` : `Mantenimiento`}</button><Component621 type={`button`} className={`text-btn danger`} disabled={readOnly} onClick={() => {
         if (!readOnly) void Promise.resolve(n(e.id)).catch(() => {});
       }}>{`Eliminar`}</Component621></Component622>)}</Component623></l.Fragment>;
 }
@@ -6504,16 +6528,19 @@ function Un() {
       marginBottom: 12
     }}>{LOCAL_READONLY_BANNER}</p>}{e === `dashboard` && <An state={c.state} mode={c.mode} user={c.user} estadosUnidad={c.estadosUnidad} onCloud={() => u(`workspace`)} onEntrada={e => u(`entrada`, e)} onSalida={e => u(`salida`, e)} onParado={e => u(`parado`, e)} onBaja={e => u(`baja`, e)} onHistorial={() => u(`historial`)} onKpis={() => u(`kpis`)} onMantenimiento={() => u(`mantenimiento`)} onSalidaRapida={placa => u(`salida-rapida`, placa)} onRetornoRapido={placa => u(`retorno-rapido`, placa)} />}{e === `entrada` && puedeMovimiento(c.user, `entrada`) && <_Component4 tipo={`entrada`} user={c.user} initialPlaca={o} equipos={c.state.equipos} refrigeraciones={c.state.refrigeraciones} movimientos={c.state.movimientos} onSaveEquipo={e => void c.guardarEquipo(e)} onSubmit={async e => {
       await guardSubmit(`entrada`, e);
+    }} onPromptOt={draft => {
+      setOtDraft(draft);
+      u(`mantenimiento`);
     }} onDone={() => u(`dashboard`)} key={`entrada-${i}`} />}{e === `salida` && puedeMovimiento(c.user, `salida`) && <SalidaCortaForm initialPlaca={o} equipos={c.state.equipos} movimientos={c.state.movimientos} user={c.user} onSubmit={async e => {
       await guardSubmit(`salida`, e);
     }} onPromptOt={draft => {
       setOtDraft(draft);
       u(`mantenimiento`);
-    }} onDone={() => u(`dashboard`)} key={`salida-${i}`} />}{e === `salida-rapida` && puedeMovimiento(c.user, `salida-rapida`) && <MovimientoRapidoForm modo={`salida`} initialPlaca={o} equipos={c.state.equipos} movimientos={c.state.movimientos} empresas={ie} yardas={_e} yardaInicial={be()} empresaInicial={oe()} onRememberYarda={A} onRememberEmpresa={se} formatCuando={kn} onSubmit={async mov => {
+    }} onDone={() => u(`dashboard`)} key={`salida-${i}`} />}{e === `salida-rapida` && puedeMovimiento(c.user, `salida-rapida`) && <MovimientoRapidoForm modo={`salida`} initialPlaca={o} equipos={c.state.equipos} movimientos={c.state.movimientos} estadosUnidad={c.estadosUnidad} user={c.user} empresas={ie} yardas={_e} yardaInicial={be()} empresaInicial={oe()} onRememberYarda={A} onRememberEmpresa={se} formatCuando={kn} onSubmit={async mov => {
       await guardSubmit(`salida-rapida`, mov);
-    }} onDone={() => u(`dashboard`)} key={`salida-rapida-${i}`} />}{e === `retorno-rapido` && puedeMovimiento(c.user, `retorno-rapido`) && <MovimientoRapidoForm modo={`retorno`} initialPlaca={o} equipos={c.state.equipos} movimientos={c.state.movimientos} empresas={ie} yardas={_e} yardaInicial={be()} empresaInicial={oe()} onRememberYarda={A} onRememberEmpresa={se} formatCuando={kn} onSubmit={async mov => {
+    }} onDone={() => u(`dashboard`)} key={`salida-rapida-${i}`} />}{e === `retorno-rapido` && puedeMovimiento(c.user, `retorno-rapido`) && <MovimientoRapidoForm modo={`retorno`} initialPlaca={o} equipos={c.state.equipos} movimientos={c.state.movimientos} estadosUnidad={c.estadosUnidad} user={c.user} empresas={ie} yardas={_e} yardaInicial={be()} empresaInicial={oe()} onRememberYarda={A} onRememberEmpresa={se} formatCuando={kn} onSubmit={async mov => {
       await guardSubmit(`retorno-rapido`, mov);
-    }} onDone={() => u(`dashboard`)} key={`retorno-rapido-${i}`} />}{e === `mantenimiento` && <Mantenimiento user={c.user} draft={otDraft} key={`mant-${i}`} />}{e === `inventario` && <Inventario user={c.user} key={`inv-${i}`} />}{e === `parado` && puedeMovimiento(c.user, `parado`) && <_Component5 initialPlaca={o} equipos={c.state.equipos} movimientos={c.state.movimientos} onSaveEquipo={e => void c.guardarEquipo(e)} onPromptOt={draft => {
+    }} onDone={() => u(`dashboard`)} key={`retorno-rapido-${i}`} />}{e === `mantenimiento` && <Mantenimiento user={c.user} draft={otDraft} equipos={c.state.equipos} movimientos={c.state.movimientos} estadosUnidad={c.estadosUnidad} key={`mant-${i}`} />}{e === `inventario` && <Inventario user={c.user} key={`inv-${i}`} />}{e === `parado` && puedeMovimiento(c.user, `parado`) && <_Component5 initialPlaca={o} equipos={c.state.equipos} movimientos={c.state.movimientos} onSaveEquipo={e => void c.guardarEquipo(e)} onPromptOt={draft => {
       setOtDraft(draft);
       u(`mantenimiento`);
     }} onSubmit={async e => {

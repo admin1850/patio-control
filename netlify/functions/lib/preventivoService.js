@@ -351,14 +351,13 @@ export function createPreventivoService(repo, options = {}) {
     const yarda = yardaInput && yardaInput !== 'todas' ? yardaInput : await yardaDeUnidad(servicio.unidadId)
     if (!yarda) throw new PreventivoError('Indica la yarda para abrir la OT.', 400, 'YARDA')
 
-    const ahora = clockOf(options)
-    const proxima = Date.parse(servicio.proximaFecha || '')
     let etr = input.etr ? new Date(input.etr).toISOString() : ''
-    if (input.etr && Number.isNaN(Date.parse(etr))) throw new PreventivoError('ETR no es una fecha válida.', 400, 'ETR')
-    if (!etr) {
-      etr = Number.isFinite(proxima) && proxima > ahora.getTime()
-        ? new Date(proxima).toISOString()
-        : new Date(ahora.getTime() + MS_DIA).toISOString()
+    if (!input.etr || Number.isNaN(Date.parse(etr))) {
+      throw new PreventivoError('El ETR es obligatorio para crear la OT preventiva.', 400, 'ETR')
+    }
+    const fotos = Array.isArray(input.fotosAntesJson) ? input.fotosAntesJson : input.fotosAntes
+    if (!fotos || (Array.isArray(fotos) && fotos.length < 2)) {
+      throw new PreventivoError('Para la OT preventiva toma al menos 2 fotos (usa el formulario de Mantenimiento).', 400, 'FOTOS')
     }
     const motivoDefault = servicio.estatus === 'VENCIDO'
       ? `Servicio preventivo vencido · plan ${servicio.planId}`
@@ -372,6 +371,7 @@ export function createPreventivoService(repo, options = {}) {
       yarda,
       kmEntrada: input.kmEntrada,
       horometroEntrada: input.horometroEntrada,
+      fotosAntesJson: fotos,
     })
     const guardado = await guardarServicio({ ...servicio, otId: result.ot.id }, false)
     return { ot: result.ot, servicio: guardado, linked: Boolean(result.linked), idempotent: Boolean(result.idempotent) }

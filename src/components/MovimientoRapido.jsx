@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { v4 as uuid } from 'uuid'
 import { normalizePlacaMX } from '../lib/placaOcr.js'
 import PlacaQuickOcr, { PLACA_HINT } from './PlacaQuickOcr.jsx'
+import { puedeAutorizarSalidaCliente } from './Mantenimiento.jsx'
 import {
   MOTIVOS_RAPIDO,
   detalleMotivoRapidoDe,
@@ -34,6 +35,7 @@ export default function MovimientoRapidoForm({
   initialPlaca = '',
   equipos = [],
   movimientos = [],
+  estadosUnidad = [],
   empresas = [],
   yardas = [],
   yardaInicial = 'chihuahua',
@@ -43,6 +45,7 @@ export default function MovimientoRapidoForm({
   formatCuando = (value) => value,
   onSubmit,
   onDone,
+  user = null,
 }) {
   const salida = modo !== 'retorno'
   const [yardaId, setYardaId] = useState(yardaInicial)
@@ -56,6 +59,9 @@ export default function MovimientoRapidoForm({
   const [error, setError] = useState(null)
   const [okMsg, setOkMsg] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [trasladoExterno, setTrasladoExterno] = useState(false)
+  const [overrideMotivo, setOverrideMotivo] = useState('')
+  const puedeOverride = puedeAutorizarSalidaCliente(user)
 
   const enPatio = useMemo(() => {
     if (!salida) return []
@@ -122,6 +128,17 @@ export default function MovimientoRapidoForm({
   const selChip = chips.find((row) => row.equipo.id === selectedId) || null
   const equipo = selChip?.equipo || null
 
+  const bloqueoMant = useMemo(() => {
+    if (!salida || !equipo) return null
+    const estado = (estadosUnidad || []).find(
+      (item) => item.unidadId === equipo.id || String(item.unidadId).toUpperCase() === normalizePlacaMX(equipo.placa),
+    )
+    if (estado && ['EN_MANTENIMIENTO', 'DANADO_NO_OPERABLE', 'BAJA'].includes(estado.estatusOperativo)) {
+      return `Unidad en ${estado.estatusOperativo.replaceAll('_', ' ').toLowerCase()}. Salida rápida bloqueada (salvo traslado a taller externo u override).`
+    }
+    return null
+  }, [salida, equipo, estadosUnidad])
+
   useEffect(() => {
     if (salida || !selChip) return
     const id = selChip.motivoId || motivoRapidoDe(selChip.salida)
@@ -167,6 +184,14 @@ export default function MovimientoRapidoForm({
     setOkMsg(null)
     if (!fotoPlaca) {
       setError('Toma la foto de la placa')
+      return
+    }
+    if (bloqueoMant && !trasladoExterno && !(puedeOverride && overrideMotivo.trim().length >= 8)) {
+      setError(
+        puedeOverride
+          ? `${bloqueoMant} Marca traslado a taller externo o escribe un motivo de override (mín. 8 caracteres).`
+          : bloqueoMant,
+      )
       return
     }
     if (!equipo) {
@@ -239,6 +264,15 @@ export default function MovimientoRapidoForm({
           validadoGate: true,
         },
         creadoEn: new Date().toISOString(),
+      }
+      if (salida && bloqueoMant) {
+        if (trasladoExterno) {
+          mov.trasladoTallerExterno = true
+          mov.motivoSalida = 'TRASLADO_TALLER_EXTERNO'
+          mov.overrideMotivo = 'TRASLADO_TALLER_EXTERNO'
+        } else if (overrideMotivo.trim()) {
+          mov.overrideMotivo = overrideMotivo.trim()
+        }
       }
       if (salida && entrada) {
         if (entrada.chofer) mov.chofer = entrada.chofer
@@ -380,6 +414,28 @@ export default function MovimientoRapidoForm({
           {selChip?.detalle ? ` · ${selChip.detalle}` : ''}
           {fotoPlaca ? ' · foto OK' : ''}
         </div>
+      )}
+      {bloqueoMant && (
+        <fieldset className="fieldset">
+          <legend>Excepción de salida</legend>
+          <p className="banner error">{bloqueoMant}</p>
+          <label className="check-inline">
+            <input type="checkbox" checked={trasladoExterno} onChange={(ev) => setTrasladoExterno(ev.target.checked)} />
+            Traslado a taller externo (no cierra la OT)
+          </label>
+          {puedeOverride && !trasladoExterno && (
+            <label className="field" style={{ marginTop: 12 }}>
+              <span>Motivo de autorización (encargado o admin) *</span>
+              <textarea
+                className="input textarea"
+                rows={2}
+                value={overrideMotivo}
+                onChange={(ev) => setOverrideMotivo(ev.target.value)}
+                placeholder="Escríbelo. Queda en la bitácora."
+              />
+            </label>
+          )}
+        </fieldset>
       )}
       <div className="field" style={{ marginTop: 12 }}>
         <span className="label">Fecha y hora</span>
