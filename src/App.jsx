@@ -2771,6 +2771,10 @@ function _Component5({
       xe(`Indica la fecha estimada de salida del patio, o marca que no tiene fecha`);
       return;
     }
+    if (!desdeNoSe && !O) {
+      xe(`Indica desde cuándo está ahí, o marca que no lo sabes`);
+      return;
+    }
     if (!ce.trim()) {
       xe(`Indica quién inventaría (caseta)`);
       return;
