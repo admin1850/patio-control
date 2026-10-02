@@ -1,6 +1,7 @@
 /**
  * OCR de placas MX — sin guiones.
- * Orden: Netlify (Vision / servidor) → Plate Recognizer local (token opcional en Cloud).
+ * Orden: si hay token de Plate Recognizer en Cloud, ese motor primero;
+ * si no hay token (o no lee la placa), Vision en el servidor.
  * Flujo UI: capture=environment → compress JPEG → OCR → campo.
  */
 
@@ -192,20 +193,23 @@ async function ocrWithNetlifyFunction(dataUrl) {
  */
 export async function readPlacaFromDataUrl(dataUrl) {
   let lastErr = null
-  // 1) Servidor (Vision en Netlify) — no requiere token en la tablet
+  const token = getPlateRecognizerToken().trim()
+  // 1) Plate Recognizer si este dispositivo tiene token en Cloud
+  if (token) {
+    try {
+      const pr = await ocrWithPlateRecognizer(dataUrl)
+      if (pr?.placa && pr.confidence >= 0.5) {
+        return { ...pr, placa: normalizePlacaMX(pr.placa) }
+      }
+    } catch (err) {
+      lastErr = err
+    }
+  }
+  // 2) Vision en el servidor — sin token, o si Plate Recognizer no leyó
   try {
     const nv = await ocrWithNetlifyFunction(dataUrl)
     if (nv?.placa && nv.confidence >= 0.45) {
       return { ...nv, placa: normalizePlacaMX(nv.placa) }
-    }
-  } catch (err) {
-    lastErr = err
-  }
-  // 2) Plate Recognizer opcional (token en Cloud de este dispositivo)
-  try {
-    const pr = await ocrWithPlateRecognizer(dataUrl)
-    if (pr?.placa && pr.confidence >= 0.5) {
-      return { ...pr, placa: normalizePlacaMX(pr.placa) }
     }
   } catch (err) {
     lastErr = err

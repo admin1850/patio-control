@@ -377,7 +377,7 @@ export default function MovimientoRapidoForm({
           }}
           onPlaca={(placa) => aplicarPlaca(placa, { fromOcr: true })}
         />
-        <p className="hint">{PLACA_HINT}. La lectura va por el servidor (Vision); opcionalmente Plate Recognizer en Cloud.</p>
+        <p className="hint">{PLACA_HINT}. Si hay token de Plate Recognizer en Cloud, se usa primero; si no, Vision en el servidor.</p>
       </fieldset>
       <div className="quick-picks">
         <p className="label">{salida ? `En patio · ${yardaNombre}` : `Pool salida rápida · ${yardaNombre}`}</p>
