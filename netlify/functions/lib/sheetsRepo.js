@@ -928,6 +928,8 @@ export function movimientoToRow(mov) {
   if (m.rapido === true || cumplimiento.rapido === true) cumplimiento.rapido = true
   const motivoRapido = String(m.motivoRapido || cumplimiento.motivoRapido || '').trim()
   if (motivoRapido) cumplimiento.motivoRapido = motivoRapido
+  const motivoRapidoDetalle = String(m.motivoRapidoDetalle || cumplimiento.motivoRapidoDetalle || '').trim()
+  if (motivoRapidoDetalle) cumplimiento.motivoRapidoDetalle = motivoRapidoDetalle
   const row = Array(MOVIMIENTO_COLUMNS.length).fill('')
   row[0] = textCell(m.id)
   row[1] = textCell(m.tipo)
@@ -1017,6 +1019,9 @@ export function rowToMovimiento(e) {
   }
   if (mov.cumplimiento?.rapido === true) mov.rapido = true
   if (mov.cumplimiento?.motivoRapido) mov.motivoRapido = String(mov.cumplimiento.motivoRapido)
+  if (mov.cumplimiento?.motivoRapidoDetalle) {
+    mov.motivoRapidoDetalle = String(mov.cumplimiento.motivoRapidoDetalle)
+  }
   return mov
 }
 

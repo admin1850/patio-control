@@ -46,12 +46,15 @@ export function aplicarCumplimientoServidor(mov, gate) {
     : {}
   if (gate?.resultado === 'RAPIDO') {
     const motivo = String(mov.motivoRapido || prev.motivoRapido || '').trim()
+    const detalle = String(mov.motivoRapidoDetalle || prev.motivoRapidoDetalle || '').trim()
     mov.rapido = true
     if (motivo) mov.motivoRapido = motivo
+    if (detalle) mov.motivoRapidoDetalle = detalle
     mov.cumplimiento = {
       ...prev,
       rapido: true,
       ...(motivo ? { motivoRapido: motivo } : {}),
+      ...(detalle ? { motivoRapidoDetalle: detalle } : {}),
       validacionServidor: true,
       validadoGate: true,
       resultado: 'RAPIDO',
