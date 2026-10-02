@@ -36,13 +36,21 @@ export const ESTATUS_OT_ABIERTOS = Object.freeze([
   'LISTA',
 ])
 
+/** OT que todavía bloquea salida / mantiene la unidad ocupada (LISTA ya puede salir). */
+export const ESTATUS_OT_BLOQUEAN_SALIDA = Object.freeze([
+  'ABIERTA',
+  'DIAGNOSTICO',
+  'ESPERA_REFACCION',
+  'EN_REPARACION',
+])
+
 export const ESTATUS_OT_CIERRE = Object.freeze(['CERRADA', 'CANCELADA'])
 
 export const TRANSICIONES_OT = Object.freeze({
-  ABIERTA: ['DIAGNOSTICO', 'ESPERA_REFACCION', 'EN_REPARACION', 'LISTA', 'CERRADA', 'CANCELADA'],
-  DIAGNOSTICO: ['ABIERTA', 'ESPERA_REFACCION', 'EN_REPARACION', 'LISTA', 'CERRADA', 'CANCELADA'],
-  ESPERA_REFACCION: ['DIAGNOSTICO', 'EN_REPARACION', 'LISTA', 'CERRADA', 'CANCELADA'],
-  EN_REPARACION: ['DIAGNOSTICO', 'ESPERA_REFACCION', 'LISTA', 'CERRADA', 'CANCELADA'],
+  ABIERTA: ['DIAGNOSTICO', 'ESPERA_REFACCION', 'EN_REPARACION', 'LISTA', 'CANCELADA'],
+  DIAGNOSTICO: ['ESPERA_REFACCION', 'EN_REPARACION', 'LISTA', 'CANCELADA'],
+  ESPERA_REFACCION: ['EN_REPARACION', 'LISTA', 'CANCELADA'],
+  EN_REPARACION: ['ESPERA_REFACCION', 'LISTA', 'CANCELADA'],
   LISTA: ['EN_REPARACION', 'CERRADA', 'CANCELADA'],
   CERRADA: [],
   CANCELADA: [],
@@ -54,7 +62,36 @@ export const ESTATUS_BLOQUEAN_SALIDA = Object.freeze(['EN_MANTENIMIENTO', 'DANAD
 
 export const MOTIVO_TRASLADO_TALLER = 'TRASLADO_TALLER_EXTERNO'
 
-export const PRIORIDADES_OT = Object.freeze(['BAJA', 'MEDIA', 'ALTA', 'URGENTE'])
+export const PRIORIDADES_OT = Object.freeze(['BAJA', 'MEDIA', 'ALTA', 'UNIDAD_PARADA'])
+
+/** @deprecated alias de UNIDAD_PARADA (kardex viejo). */
+export function normalizarPrioridad(raw) {
+  const value = String(raw || 'MEDIA').trim().toUpperCase()
+  if (value === 'URGENTE') return 'UNIDAD_PARADA'
+  return value
+}
+
+/**
+ * Días en taller, downtime al pasar a LISTA, y si cumplió ETR original.
+ * @param {Record<string, any>} ot
+ * @param {Date | number | string} [now]
+ */
+export function metricasOt(ot, now = new Date()) {
+  const nowMs = now instanceof Date ? now.getTime() : new Date(now).getTime()
+  const entrada = Date.parse(ot?.fechaEntradaTaller || '')
+  const lista = Date.parse(ot?.fechaLista || '')
+  const etrOrig = Date.parse(ot?.etrOriginal || ot?.etr || '')
+  const diasEnTaller = Number.isFinite(entrada) ? (nowMs - entrada) / 864e5 : null
+  const downtimeHoras =
+    Number.isFinite(entrada) && Number.isFinite(lista) ? (lista - entrada) / 36e5 : null
+  const etrCumplida =
+    Number.isFinite(lista) && Number.isFinite(etrOrig) ? lista <= etrOrig : null
+  return {
+    diasEnTaller: diasEnTaller == null ? null : Math.round(diasEnTaller * 10) / 10,
+    downtimeHoras: downtimeHoras == null ? null : Math.round(downtimeHoras * 10) / 10,
+    etrCumplida,
+  }
+}
 
 const MIN_MOTIVO = 3
 const MIN_OVERRIDE = 8
@@ -215,6 +252,11 @@ export function normalizarRelacionados(raw) {
 
 function otAbierta(ot) {
   return ot && ot.activo !== 'NO' && ESTATUS_OT_ABIERTOS.includes(ot.estatus)
+}
+
+/** Bloquea patio / salida: no incluye LISTA (ya puede salir). */
+function otOcupaUnidad(ot) {
+  return ot && ot.activo !== 'NO' && ESTATUS_OT_BLOQUEAN_SALIDA.includes(ot.estatus)
 }
 
 function otInvolucra(ot, key) {
@@ -388,7 +430,7 @@ export function createOtService(repo, options = {}) {
     const ots = await leerOts()
     const estados = []
     for (const unidadId of unidadesDeOt(ot)) {
-      const otras = ots.filter((item) => item.id !== ot.id && otAbierta(item) && otInvolucra(item, unidadId))
+      const otras = ots.filter((item) => item.id !== ot.id && otOcupaUnidad(item) && otInvolucra(item, unidadId))
       const actual = (await leerEstados()).find((item) => norm(item.unidadId) === norm(unidadId))
       if (abrir) {
         if (actual?.estatusOperativo === 'BAJA') {
@@ -476,9 +518,11 @@ export function createOtService(repo, options = {}) {
     if (fotos.some((url) => url.startsWith('data:'))) {
       throw new OtError('Las fotos deben ser URLs (https o /api/media), no archivos embebidos.', 400, 'FOTOS')
     }
-    if (fotos.length === 1) throw new OtError('Si adjuntas fotos, mínimo 2 URLs.', 400, 'FOTOS')
+    if (fotos.length < 2) {
+      throw new OtError('Para abrir la OT toma al menos 2 fotos con la cámara.', 400, 'FOTOS')
+    }
 
-    const prioridadRaw = String(input.prioridad || 'MEDIA').trim().toUpperCase()
+    const prioridadRaw = normalizarPrioridad(input.prioridad || 'MEDIA')
     if (!PRIORIDADES_OT.includes(prioridadRaw)) throw new OtError('Prioridad no válida.', 400, 'PRIORIDAD')
     const tallerTipo = String(input.tallerTipo || 'INTERNO').trim().toUpperCase()
     if (!['INTERNO', 'EXTERNO'].includes(tallerTipo)) throw new OtError('El taller debe ser interno o externo.', 400, 'TALLER')
@@ -578,7 +622,7 @@ export function createOtService(repo, options = {}) {
     const ot = (await leerOts()).find((item) => item.id === want)
     if (!ot || ot.activo === 'NO') throw new OtError('No se encontró la orden de trabajo.', 404, 'NOT_FOUND')
     const eventos = (await leerEventos()).filter((ev) => ev.otId === ot.id)
-    return { ot, eventos }
+    return { ot: { ...ot, metricas: metricasOt(ot) }, eventos }
   }
 
   async function listOTs(filtros = {}) {
@@ -617,6 +661,16 @@ export function createOtService(repo, options = {}) {
     if (!puedeTransicion(ot.estatus, hacia)) {
       throw new OtError(`No se puede pasar de ${ot.estatus} a ${hacia}.`, 400, 'TRANSICION')
     }
+    const motivo = String(input.motivo || '').trim()
+    if (hacia === 'CANCELADA' && motivo.length < MIN_MOTIVO) {
+      throw new OtError('Cancelar la OT exige un motivo.', 400, 'MOTIVO')
+    }
+    if (hacia === 'CERRADA') {
+      const despues = fotosDe(input.fotosDespuesJson ?? input.fotosDespues ?? ot.fotosDespuesJson)
+      if (despues.length < 2) {
+        throw new OtError('Para cerrar la OT toma al menos 2 fotos de después.', 400, 'FOTOS')
+      }
+    }
     const ahora = clockOf(options).toISOString()
     const next = {
       ...ot,
@@ -624,7 +678,19 @@ export function createOtService(repo, options = {}) {
       etrOriginal: ot.etrOriginal || ot.etr,
     }
     if (hacia === 'LISTA' && !ot.fechaLista) next.fechaLista = ahora
-    if (hacia === 'CERRADA') next.fechaLiberada = ahora
+    if (hacia === 'CERRADA') {
+      next.fechaLiberada = ahora
+      const despues = fotosDe(input.fotosDespuesJson ?? input.fotosDespues ?? ot.fotosDespuesJson)
+      next.fotosDespuesJson = despues
+      if (input.kmSalida != null && input.kmSalida !== '') next.kmSalida = Number(input.kmSalida)
+      if (input.horometroSalida != null && input.horometroSalida !== '') {
+        next.horometroSalida = Number(input.horometroSalida)
+      }
+      if (input.notas != null) {
+        const extra = String(input.notas || '').trim()
+        next.notas = [ot.notas, extra].filter(Boolean).join('\n').trim()
+      }
+    }
     const guardada = await guardarOt(next)
     await escribirEvento({
       id: newId(),
@@ -632,15 +698,113 @@ export function createOtService(repo, options = {}) {
       tipoEvento: 'ESTATUS',
       valorAnterior: ot.estatus,
       valorNuevo: hacia,
-      motivo: String(input.motivo || '').trim(),
+      motivo,
       usuarioEmail: emailOf(session),
       horaServidor: ahora,
     })
     let estados = []
-    if (ESTATUS_OT_CIERRE.includes(hacia)) {
-      estados = await syncPorOt(session, guardada, { abrir: false, ahora, motivo: hacia === 'CERRADA' ? 'cierre_ot' : 'cancelacion_ot' })
+    if (hacia === 'LISTA' || ESTATUS_OT_CIERRE.includes(hacia)) {
+      estados = await syncPorOt(session, guardada, {
+        abrir: false,
+        ahora,
+        motivo: hacia === 'CERRADA' ? 'cierre_ot' : hacia === 'CANCELADA' ? 'cancelacion_ot' : 'unidad_lista',
+      })
     }
     return { ot: guardada, estado: estados[0] || null, estados, unchanged: false }
+  }
+
+  async function updateDatos(session, id, input = {}) {
+    const ot = await exigirOtEditable(session, id)
+    const ahora = clockOf(options).toISOString()
+    const next = { ...ot }
+    const cambios = []
+    if (input.prioridad != null) {
+      const prioridad = normalizarPrioridad(input.prioridad)
+      if (!PRIORIDADES_OT.includes(prioridad)) throw new OtError('Prioridad no válida.', 400, 'PRIORIDAD')
+      if (prioridad !== ot.prioridad) {
+        cambios.push(['prioridad', ot.prioridad, prioridad])
+        next.prioridad = prioridad
+      }
+    }
+    if (input.responsableEmail != null) {
+      const email = String(input.responsableEmail || '').trim().toLowerCase()
+      if (email !== (ot.responsableEmail || '')) {
+        cambios.push(['responsableEmail', ot.responsableEmail || '', email])
+        next.responsableEmail = email
+      }
+    }
+    if (input.tallerTipo != null) {
+      const taller = String(input.tallerTipo || '').trim().toUpperCase()
+      if (!['INTERNO', 'EXTERNO'].includes(taller)) throw new OtError('El taller debe ser interno o externo.', 400, 'TALLER')
+      if (taller !== ot.tallerTipo) {
+        cambios.push(['tallerTipo', ot.tallerTipo, taller])
+        next.tallerTipo = taller
+      }
+    }
+    if (input.notas != null) {
+      const notas = String(input.notas || '').trim()
+      if (notas !== (ot.notas || '')) {
+        cambios.push(['notas', ot.notas || '', notas])
+        next.notas = notas
+      }
+    }
+    if (input.kmEntrada != null && input.kmEntrada !== '') next.kmEntrada = Number(input.kmEntrada)
+    if (input.horometroEntrada != null && input.horometroEntrada !== '') {
+      next.horometroEntrada = Number(input.horometroEntrada)
+    }
+    if (input.kmSalida != null && input.kmSalida !== '') next.kmSalida = Number(input.kmSalida)
+    if (input.horometroSalida != null && input.horometroSalida !== '') {
+      next.horometroSalida = Number(input.horometroSalida)
+    }
+    if (input.refaccionesJson != null) {
+      const refs = Array.isArray(input.refaccionesJson) ? input.refaccionesJson : []
+      next.refaccionesJson = refs
+        .map((row) => ({
+          descripcion: String(row?.descripcion || '').trim(),
+          cantidad: Number(row?.cantidad) || 0,
+          costo: Number(row?.costo) || 0,
+        }))
+        .filter((row) => row.descripcion)
+      next.costoRefacciones = next.refaccionesJson.reduce(
+        (sum, row) => sum + (Number(row.cantidad) || 0) * (Number(row.costo) || 0),
+        0,
+      )
+      cambios.push(['refaccionesJson', JSON.stringify(ot.refaccionesJson || []), JSON.stringify(next.refaccionesJson)])
+    }
+    if (input.fotosAntesJson != null || input.fotosAntes != null) {
+      const fotos = fotosDe(input.fotosAntesJson ?? input.fotosAntes)
+      if (fotos.some((url) => url.startsWith('data:'))) {
+        throw new OtError('Las fotos deben ser URLs (https o /api/media), no archivos embebidos.', 400, 'FOTOS')
+      }
+      const merged = [...new Set([...(ot.fotosAntesJson || []), ...fotos])]
+      if (merged.length < 2) throw new OtError('La OT necesita al menos 2 fotos de antes.', 400, 'FOTOS')
+      next.fotosAntesJson = merged
+      cambios.push(['fotosAntesJson', String((ot.fotosAntesJson || []).length), String(merged.length)])
+    }
+    if (input.fotosDespuesJson != null || input.fotosDespues != null) {
+      const fotos = fotosDe(input.fotosDespuesJson ?? input.fotosDespues)
+      if (fotos.some((url) => url.startsWith('data:'))) {
+        throw new OtError('Las fotos deben ser URLs (https o /api/media), no archivos embebidos.', 400, 'FOTOS')
+      }
+      const merged = [...new Set([...(ot.fotosDespuesJson || []), ...fotos])]
+      next.fotosDespuesJson = merged
+      cambios.push(['fotosDespuesJson', String((ot.fotosDespuesJson || []).length), String(merged.length)])
+    }
+    if (!cambios.length && input.kmEntrada == null && input.horometroEntrada == null && input.kmSalida == null && input.horometroSalida == null) {
+      return { ot, unchanged: true }
+    }
+    const guardada = await guardarOt(next)
+    await escribirEvento({
+      id: newId(),
+      otId: guardada.id,
+      tipoEvento: 'DATOS',
+      valorAnterior: cambios.map((c) => c[0]).join(','),
+      valorNuevo: cambios.map((c) => `${c[0]}:${c[2]}`).join('|').slice(0, 500),
+      motivo: String(input.motivo || 'actualizacion').trim() || 'actualizacion',
+      usuarioEmail: emailOf(session),
+      horaServidor: ahora,
+    })
+    return { ot: guardada, unchanged: false }
   }
 
   async function updateEtr(session, id, input = {}) {
@@ -730,7 +894,7 @@ export function createOtService(repo, options = {}) {
       })
     }
     for (const ot of ots) {
-      if (!otAbierta(ot)) continue
+      if (!otOcupaUnidad(ot)) continue
       const toca = [...keys].some((key) => otInvolucra(ot, key))
       if (!toca || vistos.has(norm(ot.unidadId))) continue
       vistos.add(norm(ot.unidadId))
@@ -865,7 +1029,11 @@ export function createOtService(repo, options = {}) {
     const yarda = filtros.yarda && filtros.yarda !== 'todas' ? String(filtros.yarda).trim().toLowerCase() : ''
     const abiertas = (await leerOts()).filter((ot) => otAbierta(ot) && (!yarda || ot.yarda === yarda))
     const orden = { rojo: 0, amarillo: 1, verde: 2 }
-    const conSemaforo = abiertas.map((ot) => ({ ...ot, semaforo: computeSemaforo(ot.etr, now) }))
+    const conSemaforo = abiertas.map((ot) => ({
+      ...ot,
+      semaforo: computeSemaforo(ot.etr, now),
+      metricas: metricasOt(ot, now),
+    }))
     conSemaforo.sort((a, b) => {
       const nivel = (orden[a.semaforo.nivel] ?? 9) - (orden[b.semaforo.nivel] ?? 9)
       if (nivel !== 0) return nivel
@@ -897,12 +1065,14 @@ export function createOtService(repo, options = {}) {
     createOT,
     updateEstatus,
     updateEtr,
+    updateDatos,
     listOTs,
     getOT,
     validarSalida,
     tablero,
     registrarEstatusOperativo,
     computeSemaforo,
+    metricasOt,
   }
 }
 

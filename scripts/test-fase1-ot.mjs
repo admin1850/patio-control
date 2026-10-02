@@ -318,11 +318,20 @@ test('transiciones de estatus, LISTA y cierre a disponible', async () => {
   assert.equal(lista.ot.estatus, 'LISTA')
   assert.equal(lista.ot.fechaLista, NOW.toISOString())
   assert.equal((await svc.listOTs({ unidadId: 'eq-1' })).find((item) => item.id === ot.id).estatus, 'LISTA')
-  const sigueTaller = repo.estados.map(rowToEstadoUnidad).find((item) => item.unidadId === 'eq-1')
-  assert.equal(sigueTaller.estatusOperativo, 'EN_MANTENIMIENTO')
+  const listaEstado = repo.estados.map(rowToEstadoUnidad).find((item) => item.unidadId === 'eq-1')
+  assert.equal(listaEstado.estatusOperativo, 'DISPONIBLE')
 
-  const cerrada = await svc.updateEstatus(admin, ot.id, { estatus: 'CERRADA' })
+  const sinFotos = await svc.updateEstatus(admin, ot.id, { estatus: 'CERRADA' }).catch((err) => err)
+  assert.equal(sinFotos.status, 400)
+  assert.match(sinFotos.message, /fotos/)
+
+  const cerrada = await svc.updateEstatus(admin, ot.id, {
+    estatus: 'CERRADA',
+    fotosDespuesJson: ['https://despues/1.jpg', 'https://despues/2.jpg'],
+    notas: 'Cambio de balatas',
+  })
   assert.equal(cerrada.ot.fechaLiberada, NOW.toISOString())
+  assert.equal(cerrada.ot.fotosDespuesJson.length, 2)
   assert.equal(cerrada.estado.estatusOperativo, 'DISPONIBLE')
   assert.equal(cerrada.estado.otAbiertaId, '')
 
@@ -423,7 +432,7 @@ test('tablero agrupa por yarda y cuenta el semáforo', async () => {
   await svc.createOT(encargado, baseOt({ unidadId: 'c', etr: ETR_ROJO, yarda: 'calera' }))
   await svc.createOT(encargado, baseOt({ unidadId: 'd', etr: ETR_VERDE, yarda: 'calera' }))
   const cerrada = await svc.createOT(encargado, baseOt({ unidadId: 'e', etr: ETR_ROJO, yarda: 'calera' }))
-  await svc.updateEstatus(admin, cerrada.ot.id, { estatus: 'CERRADA' })
+  await svc.updateEstatus(admin, cerrada.ot.id, { estatus: 'CANCELADA', motivo: 'Prueba de tablero' })
 
   const tablero = await svc.tablero({})
   assert.equal(tablero.resumen.total, 4)

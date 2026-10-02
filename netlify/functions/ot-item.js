@@ -65,13 +65,28 @@ export async function handler(event, deps) {
 
     if (body.etr != null && String(body.etr).trim() !== '') {
       result = await svc.updateEtr(auth.session, id, { etr: body.etr, motivo: body.motivo })
-    }
-    if (body.cerrar === true || accion === 'cerrar') {
-      result = await svc.updateEstatus(auth.session, id, { estatus: 'CERRADA', motivo: body.motivo })
+    } else if (body.actualizar === true || accion === 'actualizar' || accion === 'datos') {
+      result = await svc.updateDatos(auth.session, id, body)
+    } else if (body.cerrar === true || accion === 'cerrar') {
+      result = await svc.updateEstatus(auth.session, id, {
+        estatus: 'CERRADA',
+        motivo: body.motivo,
+        fotosDespuesJson: body.fotosDespuesJson ?? body.fotosDespues,
+        kmSalida: body.kmSalida,
+        horometroSalida: body.horometroSalida,
+        notas: body.notas,
+      })
     } else if (body.estatus) {
-      result = await svc.updateEstatus(auth.session, id, { estatus: body.estatus, motivo: body.motivo })
+      result = await svc.updateEstatus(auth.session, id, {
+        estatus: body.estatus,
+        motivo: body.motivo,
+        fotosDespuesJson: body.fotosDespuesJson ?? body.fotosDespues,
+        kmSalida: body.kmSalida,
+        horometroSalida: body.horometroSalida,
+        notas: body.notas,
+      })
     }
-    if (!result) return json(event, 400, { error: 'Indica estatus, etr o cierre.' }, auth.headers)
+    if (!result) return json(event, 400, { error: 'Indica estatus, etr, datos o cierre.' }, auth.headers)
     const repo = repoParaHooks(deps)
     if (repo && result.ot && !result.unchanged) {
       if (result.ot.estatus === 'LISTA') {

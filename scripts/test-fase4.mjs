@@ -401,7 +401,7 @@ test('abrir OT PREVENTIVO solo en aviso o vencido, y al cerrarla reprograma', as
   assert.equal(lista.servicios.find((item) => item.unidadId === 'eq-1').semaforo.nivel, 'rojo')
   assert.equal((await svc.listProximos({ yarda: 'calera' })).servicios.some((item) => item.unidadId === 'eq-1'), false)
 
-  await otSvc.updateEstatus(encargado, abierto.ot.id, { estatus: 'CERRADA' })
+  await otSvc.updateEstatus(encargado, abierto.ot.id, { estatus: 'CANCELADA', motivo: 'cierre prueba preventivo' })
   const hechos = await svc.sincronizarCierreOt((await repo.listOrdenesTrabajo()).find((item) => item.id === abierto.ot.id))
   assert.equal(hechos[0].estatus, 'HECHO')
   assert.equal(hechos[0].otId, abierto.ot.id)

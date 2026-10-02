@@ -97,7 +97,7 @@ export function setPlateRecognizerToken(token) {
 }
 
 /** Comprime File → JPEG dataURL (mismo pipeline caseta) */
-export function compressPlateImage(file, maxW = 1280, quality = 0.72) {
+export function compressImageFile(file, maxW = 1600, quality = 0.72) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => {
@@ -121,6 +121,11 @@ export function compressPlateImage(file, maxW = 1280, quality = 0.72) {
     reader.onerror = reject
     reader.readAsDataURL(file)
   })
+}
+
+/** @deprecated alias — placas usaban 1280 */
+export function compressPlateImage(file, maxW = 1280, quality = 0.72) {
+  return compressImageFile(file, maxW, quality)
 }
 
 async function ocrWithPlateRecognizer(dataUrl) {
