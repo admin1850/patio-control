@@ -312,14 +312,15 @@ export default function MovimientoRapidoForm({
           </div>
           {motivoRapidoRequiereDetalle(motivo) && (
             <label className="field" style={{ marginTop: 12 }}>
-              <span>Detalles / descripción *</span>
+              <span>Detalle / Descripción *</span>
               <textarea
                 className="input textarea"
                 rows={3}
                 value={detalle}
                 onChange={(ev) => setDetalle(ev.target.value)}
-                placeholder="Describe el motivo"
+                placeholder="Escribe el otro motivo de salida"
                 required
+                autoFocus
               />
             </label>
           )}
