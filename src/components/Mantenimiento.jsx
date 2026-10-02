@@ -831,6 +831,7 @@ export default function Mantenimiento({
   equipos = [],
   movimientos = [],
   estadosUnidad = [],
+  onAltaCatalogo = null,
 }) {
   const [yardaFiltro, setYardaFiltro] = useState(draft?.yarda || 'todas')
   const [payload, setPayload] = useState(undefined)
@@ -1258,7 +1259,21 @@ export default function Mantenimiento({
             ))}
           </div>
           {busca && !equipoSel && (
-            <p className="banner warn">Esa placa no está en el catálogo. Da de alta el equipo en Equipos o corrige la placa.</p>
+            <div className="banner warn">
+              <p style={{ margin: 0 }}>Esa placa no está en el catálogo.</p>
+              {typeof onAltaCatalogo === 'function' ? (
+                <button
+                  type="button"
+                  className="btn primary wide"
+                  style={{ marginTop: 10 }}
+                  onClick={() => onAltaCatalogo(normalizePlacaMX(busca))}
+                >
+                  Alta en Catálogo
+                </button>
+              ) : (
+                <p className="hint" style={{ marginTop: 8 }}>Ve a Equipos para darla de alta o corrige la placa.</p>
+              )}
+            </div>
           )}
           {equipoSel && (
             <div className="banner info">
