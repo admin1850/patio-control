@@ -14,6 +14,7 @@ import {
 } from '../lib/serverApi.js'
 import { compressImageFile, normalizePlacaMX } from '../lib/placaOcr.js'
 import { enqueueMediaOt, enqueueOtCreate } from '../lib/outbox.js'
+import PlacaQuickOcr from './PlacaQuickOcr.jsx'
 import PreventivoSection from './Preventivo.jsx'
 
 const YARDAS = [
@@ -835,9 +836,9 @@ export default function Mantenimiento({
   const [payload, setPayload] = useState(undefined)
   const [errorCarga, setErrorCarga] = useState(null)
   const [selectedOtId, setSelectedOtId] = useState(null)
-  const [busca, setBusca] = useState('')
+  const [busca, setBusca] = useState(() => normalizePlacaMX(draft?.placa || ''))
   const [unidadId, setUnidadId] = useState(draft?.unidadId || '')
-  const [placa, setPlaca] = useState(draft?.placa || '')
+  const [placa, setPlaca] = useState(() => normalizePlacaMX(draft?.placa || ''))
   const [tipo, setTipo] = useState(draft?.tipo || 'CORRECTIVO')
   const [prioridad, setPrioridad] = useState(draft?.prioridad || (draft?.origen === 'parado' ? 'UNIDAD_PARADA' : 'MEDIA'))
   const [motivo, setMotivo] = useState(draft?.motivo || '')
@@ -940,25 +941,18 @@ export default function Mantenimiento({
   }, [payload])
 
   const hitsCatalogo = useMemo(() => {
-    const q = busca.trim()
-    if (!q) return equipos.slice(0, 12)
-    const placaQ = normalizePlacaMX(q)
-    const upper = q.toUpperCase()
+    const placaQ = normalizePlacaMX(busca)
+    if (!placaQ) return equipos.slice(0, 12)
     return equipos
-      .filter(
-        (eq) =>
-          normalizePlacaMX(eq.placa).includes(placaQ) ||
-          String(eq.numeroEconomico || '').toUpperCase().includes(upper) ||
-          String(eq.id || '').includes(q),
-      )
+      .filter((eq) => normalizePlacaMX(eq.placa).includes(placaQ))
       .slice(0, 12)
   }, [busca, equipos])
 
   async function abrir(ev) {
     ev.preventDefault()
     setBanner(null)
-    if (!unidadId.trim() && !placa.trim()) {
-      setBanner({ level: 'error', text: 'Elige una unidad del catálogo.' })
+    if (!equipoSel) {
+      setBanner({ level: 'error', text: 'Elige la unidad por placa del catálogo.' })
       return
     }
     if (otAbiertaMisma) {
@@ -988,8 +982,8 @@ export default function Mantenimiento({
       setFotosAntes(listos.urls)
       const fotosServidor = listos.urls.filter(esUrlFoto)
       const ordenBase = {
-        unidadId: (unidadId || placa).trim(),
-        placa: placa.trim(),
+        unidadId: equipoSel.id,
+        placa: normalizePlacaMX(equipoSel.placa),
         tipo,
         prioridad,
         motivo: motivo.trim(),
@@ -1002,7 +996,7 @@ export default function Mantenimiento({
         horometroEntrada: horometroEntrada === '' ? undefined : Number(horometroEntrada),
         movimientoOrigenId: movimientoOrigenId || undefined,
         zonaSlot: zonaSlot || undefined,
-        equipoTipo: equipoSel?.tipo,
+        equipoTipo: equipoSel.tipo,
       }
 
       if (fotosServidor.length < 2) {
@@ -1057,8 +1051,8 @@ export default function Mantenimiento({
         try {
           await enqueueOtCreate({
             orden: {
-              unidadId: (unidadId || placa).trim(),
-              placa: placa.trim(),
+              unidadId: equipoSel.id,
+              placa: normalizePlacaMX(equipoSel.placa),
               tipo,
               prioridad,
               motivo: motivo.trim(),
@@ -1070,7 +1064,7 @@ export default function Mantenimiento({
               horometroEntrada: horometroEntrada === '' ? undefined : Number(horometroEntrada),
               movimientoOrigenId: movimientoOrigenId || undefined,
               zonaSlot: zonaSlot || undefined,
-              equipoTipo: equipoSel?.tipo,
+              equipoTipo: equipoSel.tipo,
             },
             fotosAntes,
             preventivo: Boolean(servicioPreventivoId && tipo === 'PREVENTIVO'),
@@ -1204,7 +1198,7 @@ export default function Mantenimiento({
           )}
           <div className="form-head">
             <h2>Abrir orden de trabajo</h2>
-            <p>Elige unidad del catálogo, prioridad, ETR y 2 fotos con la cámara. Sin pegar URLs.</p>
+            <p>Elige la unidad por placa, prioridad, ETR y 2 fotos con la cámara. Sin pegar URLs.</p>
           </div>
           {banner && (
             <p className={`banner ${banner.level === 'error' ? 'error' : banner.level === 'success' ? 'success' : banner.level === 'info' ? 'info' : 'warn'}`}>
@@ -1212,9 +1206,39 @@ export default function Mantenimiento({
             </p>
           )}
           <label className="field">
-            <span>Buscar unidad (placa o económico)</span>
-            <input className="input" value={busca} onChange={(ev) => setBusca(ev.target.value)} placeholder="Placa o económico" autoComplete="off" />
+            <span>Placa de la unidad *</span>
+            <input
+              className="input"
+              value={busca}
+              onChange={(ev) => {
+                const next = normalizePlacaMX(ev.target.value)
+                setBusca(next)
+                setPlaca(next)
+                const hit = equipos.find((eq) => normalizePlacaMX(eq.placa) === next)
+                if (hit) {
+                  setUnidadId(hit.id)
+                } else {
+                  setUnidadId('')
+                }
+              }}
+              placeholder="Placa sin guiones"
+              autoComplete="off"
+              inputMode="text"
+              required
+            />
           </label>
+          <PlacaQuickOcr
+            slotId="ot-placa"
+            label="Tomar foto y leer placa"
+            onPlaca={(leida) => {
+              const next = normalizePlacaMX(leida)
+              setBusca(next)
+              setPlaca(next)
+              const hit = equipos.find((eq) => normalizePlacaMX(eq.placa) === next)
+              if (hit) setUnidadId(hit.id)
+              else setUnidadId('')
+            }}
+          />
           <div className="chip-row">
             {hitsCatalogo.map((eq) => (
               <button
@@ -1224,7 +1248,7 @@ export default function Mantenimiento({
                 onClick={() => {
                   setUnidadId(eq.id)
                   setPlaca(normalizePlacaMX(eq.placa))
-                  setBusca(eq.placa)
+                  setBusca(normalizePlacaMX(eq.placa))
                 }}
               >
                 {eq.placa}
@@ -1233,6 +1257,9 @@ export default function Mantenimiento({
               </button>
             ))}
           </div>
+          {busca && !equipoSel && (
+            <p className="banner warn">Esa placa no está en el catálogo. Da de alta el equipo en Equipos o corrige la placa.</p>
+          )}
           {equipoSel && (
             <div className="banner info">
               <strong>{equipoSel.placa}</strong>
