@@ -2736,6 +2736,7 @@ function _Component5({
   let [N, Te] = (0, l.useState)(false);
   let [otPrompt, setOtPrompt] = (0, l.useState)(null);
   let [fechaEstimadaSalida, setFechaEstimadaSalida] = (0, l.useState)(``);
+  let [sinFechaSalida, setSinFechaSalida] = (0, l.useState)(false);
   let zonaSlotCap = useZonaSlotFields();
   let Ee = d ? `camion` : h && !p && !_ ? `dolly` : p || _ ? `caja` : `camion`;
   let ke = (0, l.useMemo)(() => y.trim() ? De({
@@ -2765,8 +2766,8 @@ function _Component5({
       return;
     }
     let pideOtCheck = C === `taller` || C === `thermo`;
-    if (!pideOtCheck && !fechaEstimadaSalida) {
-      xe(`Indica la fecha estimada de salida del patio`);
+    if (!pideOtCheck && !sinFechaSalida && !fechaEstimadaSalida) {
+      xe(`Indica la fecha estimada de salida del patio, o marca que no tiene fecha`);
       return;
     }
     if (!ce.trim()) {
@@ -2830,9 +2831,10 @@ function _Component5({
         motivoParo: C,
         motivoParoOtro: C === `otro` && te.trim() || undefined,
         paradoDesde: s,
-        fechaEstimadaSalida: !(C === `taller` || C === `thermo`) && fechaEstimadaSalida
+        fechaEstimadaSalida: !(C === `taller` || C === `thermo`) && !sinFechaSalida && fechaEstimadaSalida
           ? new Date(`${fechaEstimadaSalida}T12:00:00`).toISOString()
           : undefined,
+        sinFechaEstimadaSalida: !(C === `taller` || C === `thermo`) && sinFechaSalida ? true : undefined,
         zonaSlot: [zonaSlotCap.zona, zonaSlotCap.slot].filter(Boolean).join(` `) || ue.trim() || undefined,
         zona: zonaSlotCap.zona.trim() || undefined,
         slot: zonaSlotCap.slot.trim() || undefined,
@@ -2976,9 +2978,19 @@ function _Component5({
         marginTop: 8
       }}>{`Ya figura como parado: este guardado actualiza el inventario (re-inventario).`}</Component468>}</Component469><Component479 className={`fieldset`}><Component470>{`Motivo de paro *`}</Component470><Component475 className={`tipo-checks`}>{F.map(e => <Component474 className={`tipo-check${C === e.id ? ` on` : ``}`} key={e.id}><Component471 type={`radio`} name={`motivoParo`} checked={C === e.id} onChange={() => w(e.id)} /><Component472 className={`tipo-box`} aria-hidden={`true`} /><Component473 className={`tipo-text`}>{e.label}</Component473></Component474>)}</Component475>{C === `otro` && <Component478 className={`field`} style={{
         marginTop: 12
-      }}><Component476>{`Describe el motivo *`}</Component476><Component477 className={`input`} value={te} onChange={e => T(e.target.value)} placeholder={`Motivo`} required={true} /></Component478>}{C && C !== `taller` && C !== `thermo` && <label className={`field`} style={{
+      }}><Component476>{`Describe el motivo *`}</Component476><Component477 className={`input`} value={te} onChange={e => T(e.target.value)} placeholder={`Motivo`} required={true} /></Component478>}{C && C !== `taller` && C !== `thermo` && <div style={{
         marginTop: 12
-      }}><span>{`Fecha estimada de salida *`}</span><input className={`input`} type={`date`} value={fechaEstimadaSalida} onChange={e => setFechaEstimadaSalida(e.target.value)} required={true} /></label>}</Component479><Component501 className={`fieldset`}><Component480>{`Detalle`}</Component480><Component497 className={`grid-2`}><Component483 className={`field`}><Component481>{`Desde cuándo está ahí *`}</Component481><Component482 className={`input`} type={`date`} value={O} onChange={e => re(e.target.value)} required={true} /></Component483><Component487 className={`field`}><Component484 className={`label`}>{`Condición *`}</Component484><Component486 className={`seg wrap`} style={{
+      }}><label className={`field`}><span>{sinFechaSalida ? `Fecha estimada de salida` : `Fecha estimada de salida *`}</span><input className={`input`} type={`date`} value={fechaEstimadaSalida} onChange={e => {
+            setFechaEstimadaSalida(e.target.value);
+            if (e.target.value) setSinFechaSalida(false);
+          }} required={!sinFechaSalida} disabled={sinFechaSalida} /></label><label className={`check-inline`} style={{
+          marginTop: 10,
+          display: `flex`
+        }}><input type={`checkbox`} checked={sinFechaSalida} onChange={e => {
+            let on = e.target.checked;
+            setSinFechaSalida(on);
+            if (on) setFechaEstimadaSalida(``);
+          }} />{`No tiene fecha de salida`}</label></div>}</Component479><Component501 className={`fieldset`}><Component480>{`Detalle`}</Component480><Component497 className={`grid-2`}><Component483 className={`field`}><Component481>{`Desde cuándo está ahí *`}</Component481><Component482 className={`input`} type={`date`} value={O} onChange={e => re(e.target.value)} required={true} /></Component483><Component487 className={`field`}><Component484 className={`label`}>{`Condición *`}</Component484><Component486 className={`seg wrap`} style={{
             marginTop: 6
           }}>{[`buena`, `regular`, `mala`].map(e => <Component485 type={`button`} className={ae === e ? `seg-btn ${e === `buena` ? `on-ok` : e === `regular` ? `on-warn` : `on-bad`}` : `seg-btn`} onClick={() => k(e)} key={e}>{e === `buena` ? `Buena` : e === `regular` ? `Regular` : `Mala`}</Component485>)}</Component486></Component487><Component490 className={`field`}><Component488>{`Quién inventaría (caseta) *`}</Component488><Component489 className={`input`} value={ce} onChange={e => le(e.target.value)} placeholder={`Nombre`} required={true} /></Component490>{zonaSlotCap.node}<Component493 className={`field`}><Component491>{`Zona o slot`}</Component491><Component492 className={`input`} value={ue} onChange={e => de(e.target.value)} placeholder={`Andén 2, fondo norte…`} /></Component493><Component496 className={`field`}><Component494>{`Sello actual`}</Component494><Component495 className={`input`} value={fe} onChange={e => pe(e.target.value.toUpperCase())} placeholder={`Opcional`} /></Component496></Component497><Component500 className={`field`} style={{
         marginTop: 12
