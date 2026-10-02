@@ -1305,10 +1305,11 @@ html.kiosk .nav-mobile .mob-link {
   background: var(--bad);
 }
 
-/* FAB ¿Dudas? — FIJO arriba-derecha; no se mueve al hacer scroll */
+/* FAB ¿Dudas? — FIJO bajo Guardar (sticky-save), no se solapa */
 .grok-dudas {
   position: fixed;
-  top: max(12px, env(safe-area-inset-top, 0px));
+  /* sticky top (~10) + alto Guardar (~48–52) + gap */
+  top: calc(max(10px, env(safe-area-inset-top, 0px)) + 58px);
   right: max(12px, env(safe-area-inset-right, 0px));
   z-index: 90;
   display: flex;
@@ -1318,7 +1319,8 @@ html.kiosk .nav-mobile .mob-link {
   pointer-events: none;
 }
 html.kiosk .grok-dudas {
-  top: max(14px, env(safe-area-inset-top, 0px));
+  /* botones primary más altos en kiosk */
+  top: calc(max(12px, env(safe-area-inset-top, 0px)) + 68px);
 }
 .grok-dudas-fab,
 .grok-dudas-panel {
