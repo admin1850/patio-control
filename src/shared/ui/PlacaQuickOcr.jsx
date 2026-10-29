@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { compressPlateImage, normalizePlacaMX, readPlacaFromDataUrl } from '../lib/placaOcr.js'
+import { compressPlateImage, normalizePlacaMX, readPlacaFromDataUrl } from '../../lib/placaOcr.js'
 
 export const PLACA_HINT = 'Ingresar sin guiones (letras o números nada más)'
 

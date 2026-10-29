@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { fetchKpisCsv, fetchKpisOpcional } from '../lib/serverApi.js'
+import { fetchKpisCsv, fetchKpisOpcional } from '../../lib/serverApi.js'
 
 function hoyMx() {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City' }).format(new Date())

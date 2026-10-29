@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { sessionLikelyAvailable } from '../lib/serverApi.js'
+import { sessionLikelyAvailable } from '../../lib/serverApi.js'
 
 export function ZonaSlotFields({ zona, slot, onZona, onSlot }) {
   return (

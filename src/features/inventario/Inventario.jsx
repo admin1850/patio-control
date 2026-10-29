@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { inventarioCsv } from '../lib/inventarioCsv.js'
-import { ApiError, capturarConteo, cerrarConteo, fetchInventario, guardarZonaSlot, iniciarConteo, isBackendUnavailable } from '../lib/serverApi.js'
+import { inventarioCsv } from '../../lib/inventarioCsv.js'
+import { ApiError, capturarConteo, cerrarConteo, fetchInventario, guardarZonaSlot, iniciarConteo, isBackendUnavailable } from '../../lib/serverApi.js'
 
 const YARDAS = [
   { id: 'chihuahua', nombre: 'Chihuahua' },
