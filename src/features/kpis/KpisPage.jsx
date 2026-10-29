@@ -1,6 +1,7 @@
 /** Indicadores del patio. */
 import * as l from "react";
 import KpiMantenimiento from "./KpiMantenimiento.jsx";
+import DieselPanel from "./DieselPanel.jsx";
 import { _e, ie, ye } from "../../shared/domain/constants.js";
 import { A, be, k, oe, se, wn } from "../../shared/domain/patioModel.js";
 
@@ -94,7 +95,7 @@ export function KpisPage({
       se(e);
     }
   }
-  return <div className={`page`}><div className={`form-head`}><h1>{`KPIs de patio`}</h1><p>{`Gate dwell, daños, sellos, combustible y turnaround · filtro por empresa y yarda.`}</p></div><p className={`label`} style={{
+  return <div className={`page`}><div className={`form-head`}><h1>{`KPIs de patio`}</h1><p>{`Gate dwell, daños, sellos, combustible y turnaround · filtro por empresa y yarda.`}</p></div><DieselPanel movimientos={e.movimientos} /><p className={`label`} style={{
       marginBottom: 6
     }}>{`Empresa`}</p><div className={`seg wrap yard-filter`}><button type={`button`} className={r === `todas` ? `seg-btn on-ok` : `seg-btn`} onClick={() => c(`todas`)}>{`Todas`}</button>{ie.map(e => <button type={`button`} className={r === e.id ? `seg-btn on-ok` : `seg-btn`} onClick={() => c(e.id)} key={e.id}>{e.nombre}</button>)}</div><p className={`label`} style={{
       margin: `12px 0 6px`
