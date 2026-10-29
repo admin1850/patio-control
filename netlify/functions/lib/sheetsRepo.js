@@ -257,6 +257,12 @@ export const VIGENCIAS_COLUMNS = ['id', 'sujetoTipo', 'sujetoId', 'documento', '
 export const VIGENCIAS_READ_RANGE = `${VIGENCIAS_SHEET}!A2:${columnLetter(VIGENCIAS_COLUMNS.length - 1)}`
 export const VIGENCIAS_APPEND_RANGE = `${VIGENCIAS_SHEET}!A:${columnLetter(VIGENCIAS_COLUMNS.length - 1)}`
 
+/** Reloj de estadía. id `libre:Cliente` guarda las horas libres de ese cliente. */
+export const ESTADIAS_SHEET = 'Estadias'
+export const ESTADIAS_COLUMNS = ['id', 'cliente', 'unidadId', 'placa', 'yardaId', 'llegada', 'salida', 'horasLibres']
+export const ESTADIAS_READ_RANGE = `${ESTADIAS_SHEET}!A2:${columnLetter(ESTADIAS_COLUMNS.length - 1)}`
+export const ESTADIAS_APPEND_RANGE = `${ESTADIAS_SHEET}!A:${columnLetter(ESTADIAS_COLUMNS.length - 1)}`
+
 /**
  * Índice dentro de `A:A` (la fila 1 es el encabezado, índice 0, y no cuenta).
  * La fila de Sheets es `índice + 1`.
@@ -759,6 +765,35 @@ export function vigenciaToRow(item) {
   const documento = String(o.documento || '').trim()
   const id = String(o.id || `${sujetoTipo}:${sujetoId}:${documento}`).trim()
   return [textCell(id), sujetoTipo, textCell(sujetoId), documento, textCell(o.vence), textCell(o.actualizadoEn)]
+}
+
+export function estadiaToRow(item) {
+  const o = item && typeof item === 'object' ? item : {}
+  return [
+    textCell(o.id),
+    textCell(o.cliente),
+    textCell(o.unidadId),
+    textCell(o.placa),
+    textCell(o.yardaId),
+    textCell(o.llegada),
+    textCell(o.salida),
+    o.horasLibres == null || o.horasLibres === '' ? '' : Number(o.horasLibres),
+  ]
+}
+
+export function rowToEstadia(e) {
+  if (!e?.[0]) return null
+  const horas = e[7] === '' || e[7] == null ? null : Number(e[7])
+  return {
+    id: String(e[0]),
+    cliente: String(e[1] ?? ''),
+    unidadId: String(e[2] ?? ''),
+    placa: String(e[3] ?? ''),
+    yardaId: String(e[4] ?? ''),
+    llegada: String(e[5] ?? ''),
+    salida: String(e[6] ?? ''),
+    horasLibres: Number.isFinite(horas) ? horas : null,
+  }
 }
 
 export function rowToVigencia(e) {
@@ -1359,6 +1394,7 @@ export function createSheetsRepo(opts = {}) {
     ) {
       return 'npm run migrate:fase4'
     }
+    if (title === ESTADIAS_SHEET) return 'npm run migrate:estadias'
     if (title === VIGENCIAS_SHEET) return 'npm run migrate:vigencias'
     if (title === DEFECTOS_SHEET) return 'npm run migrate:fase3'
     if (title === ZONAS_SLOTS_SHEET || title === CONTEOS_SHEET) return 'npm run migrate:fase2'
@@ -1547,6 +1583,25 @@ export function createSheetsRepo(opts = {}) {
     return appendTab(LLEGADAS_ESPERADAS_APPEND_RANGE, LLEGADAS_ESPERADAS_SHEET, rowValues)
   }
 
+  async function listEstadias() {
+    const rows = await sheetsGetTab(ESTADIAS_READ_RANGE, ESTADIAS_SHEET)
+    return rows.map(rowToEstadia).filter(Boolean)
+  }
+
+  async function appendEstadia(item) {
+    return appendTab(ESTADIAS_APPEND_RANGE, ESTADIAS_SHEET, estadiaToRow(item))
+  }
+
+  async function upsertEstadia(item) {
+    const row = estadiaToRow(item)
+    try {
+      return await updateRowById(ESTADIAS_SHEET, ESTADIAS_COLUMNS, row[0], row)
+    } catch (err) {
+      if (err?.code !== 'NOT_FOUND' && err?.status !== 404) throw err
+      return appendTab(ESTADIAS_APPEND_RANGE, ESTADIAS_SHEET, row)
+    }
+  }
+
   async function listVigencias() {
     const rows = await sheetsGetTab(VIGENCIAS_READ_RANGE, VIGENCIAS_SHEET)
     return rows.map(rowToVigencia).filter(Boolean)
@@ -1660,6 +1715,9 @@ export function createSheetsRepo(opts = {}) {
     updateLlegadaEsperadaById,
     listVigencias,
     upsertVigencia,
+    listEstadias,
+    appendEstadia,
+    upsertEstadia,
     listEquipos,
     appendEquipo,
     updateEquipoById,
