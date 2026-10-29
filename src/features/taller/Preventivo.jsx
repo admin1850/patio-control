@@ -4,7 +4,7 @@ import {
   fetchPreventivoOpcional,
   guardarPlanPreventivo,
   isGateUnavailable,
-} from '../lib/serverApi.js'
+} from '../../lib/serverApi.js'
 const TIPOS = [
   ['camion', 'Camión'],
   ['caja', 'Caja'],

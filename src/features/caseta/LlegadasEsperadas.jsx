@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { fetchLlegadasOpcional } from '../lib/serverApi.js'
+import { fetchLlegadasOpcional } from '../../lib/serverApi.js'
 
 function placasDe(llegada) {
   if (Array.isArray(llegada.placas)) return llegada.placas.filter(Boolean).join(', ')

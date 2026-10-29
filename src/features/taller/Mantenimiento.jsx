@@ -11,10 +11,10 @@ import {
   isNetworkFailure,
   listOrdenesServidor,
   uploadMediaServer,
-} from '../lib/serverApi.js'
-import { compressImageFile, normalizePlacaMX } from '../lib/placaOcr.js'
-import { enqueueMediaOt, enqueueOtCreate } from '../lib/outbox.js'
-import PlacaQuickOcr from './PlacaQuickOcr.jsx'
+} from '../../lib/serverApi.js'
+import { compressImageFile, normalizePlacaMX } from '../../lib/placaOcr.js'
+import { enqueueMediaOt, enqueueOtCreate } from '../../lib/outbox.js'
+import PlacaQuickOcr from '../../shared/ui/PlacaQuickOcr.jsx'
 import PreventivoSection from './Preventivo.jsx'
 
 const YARDAS = [

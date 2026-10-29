@@ -573,7 +573,7 @@ test('salida rápida omite carta porte y licencia vacías', async () => {
 })
 
 test('salida/retorno rápido usan foto de placa con OCR', () => {
-  const src = readFileSync(fileURLToPath(new URL('../src/components/MovimientoRapido.jsx', import.meta.url)), 'utf8')
+  const src = readFileSync(fileURLToPath(new URL('../src/features/caseta/MovimientoRapido.jsx', import.meta.url)), 'utf8')
   assert.match(src, /PlacaQuickOcr/)
   assert.match(src, /Tomar foto y leer placa/)
   assert.match(src, /placa-rapido/)
@@ -590,11 +590,8 @@ test('salida/retorno rápido usan foto de placa con OCR', () => {
 })
 
 test('la salida corta no enseña el sello ni precarga km', () => {
-  const src = readFileSync(fileURLToPath(new URL('../src/App.jsx', import.meta.url)), 'utf8')
-  const start = src.indexOf('var SALIDA_CORTA_SLOTS')
-  const end = src.indexOf('\nfunction Un(')
-  assert.ok(start > 0 && end > start)
-  const form = src.slice(start, end)
+  const form = readFileSync(fileURLToPath(new URL('../src/features/caseta/SalidaCortaForm.jsx', import.meta.url)), 'utf8')
+  assert.ok(form.includes('var SALIDA_CORTA_SLOTS') || form.includes('SALIDA_CORTA_SLOTS'))
   assert.equal(form.includes('Sello en entrada'), false)
   assert.equal(form.includes('selloEntrada'), false)
   assert.equal(form.includes('setKm(row.entrada.kilometros'), false)

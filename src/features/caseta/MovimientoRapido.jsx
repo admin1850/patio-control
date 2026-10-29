@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { v4 as uuid } from 'uuid'
-import { normalizePlacaMX } from '../lib/placaOcr.js'
-import PlacaQuickOcr, { PLACA_HINT } from './PlacaQuickOcr.jsx'
-import { puedeAutorizarSalidaCliente } from './Mantenimiento.jsx'
+import { normalizePlacaMX } from '../../lib/placaOcr.js'
+import PlacaQuickOcr, { PLACA_HINT } from '../../shared/ui/PlacaQuickOcr.jsx'
+import { puedeAutorizarSalidaCliente } from '../taller/Mantenimiento.jsx'
 import {
   MOTIVOS_RAPIDO,
   detalleMotivoRapidoDe,
@@ -13,7 +13,7 @@ import {
   motivoRapidoValido,
   observacionesRapidas,
   poolSalidaRapidaAbierta,
-} from '../lib/movimientoRapido.js'
+} from '../../lib/movimientoRapido.js'
 
 function vigente(movimientos, equipoId) {
   return (movimientos || []).find((mov) => mov?.equipoId === equipoId) || null
