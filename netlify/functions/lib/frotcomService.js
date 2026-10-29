@@ -6,6 +6,7 @@
 
 import { createAvisosService, fechaMx } from './avisosService.js'
 import { proveedorGPS } from './gpsProvider.js'
+import { llegadasNuevas } from '../../../src/lib/estadias.js'
 
 export const VENTANA_GPS_MS = 30 * 60 * 1000
 
@@ -184,10 +185,30 @@ export async function conciliarFrotcom(repo, options = {}) {
     }
   }
 
+  let estadiasAbiertas = []
+  if (typeof repo?.listEstadias === 'function' && typeof repo?.appendEstadia === 'function') {
+    try {
+      const abiertas = await repo.listEstadias()
+      const nuevas = llegadasNuevas({
+        posiciones: lectura.posiciones || [],
+        geocercas,
+        dentro: posicionEnGeocerca,
+        movimientos,
+        abiertas,
+        ahora,
+      })
+      for (const row of nuevas) await repo.appendEstadia(row)
+      estadiasAbiertas = nuevas
+    } catch (err) {
+      console.warn('[frotcom] Estadías no disponibles:', err?.message || err)
+    }
+  }
+
   return {
     ok: true,
     dryRun: false,
     alertas: propuestas,
+    estadias: estadiasAbiertas,
     avisos: avisos.map((item) => ({ tipo: item.aviso?.tipo, skipped: Boolean(item.skipped), id: item.aviso?.id || '' })),
     posiciones: (lectura.posiciones || []).length,
     mensaje: propuestas.length
