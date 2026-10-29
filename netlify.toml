@@ -123,6 +123,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/vigencias"
+  to = "/.netlify/functions/vigencias"
+  status = 200
+
+[[redirects]]
   from = "/api/kpis"
   to = "/.netlify/functions/kpis"
   status = 200
