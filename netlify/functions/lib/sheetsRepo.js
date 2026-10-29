@@ -275,6 +275,12 @@ export const LLANTAS_COLUMNS = ['id', 'placa', 'posicion', 'numero', 'dot', 'pro
 export const LLANTAS_READ_RANGE = `${LLANTAS_SHEET}!A2:${columnLetter(LLANTAS_COLUMNS.length - 1)}`
 export const LLANTAS_APPEND_RANGE = `${LLANTAS_SHEET}!A:${columnLetter(LLANTAS_COLUMNS.length - 1)}`
 
+/** Cita de tercero. El id es el texto del QR. estatus: PENDIENTE | USADA */
+export const CITAS_SHEET = 'Citas'
+export const CITAS_COLUMNS = ['id', 'tipo', 'nombre', 'empresa', 'placa', 'eta', 'estatus', 'usadaEn']
+export const CITAS_READ_RANGE = `${CITAS_SHEET}!A2:${columnLetter(CITAS_COLUMNS.length - 1)}`
+export const CITAS_APPEND_RANGE = `${CITAS_SHEET}!A:${columnLetter(CITAS_COLUMNS.length - 1)}`
+
 /**
  * Índice dentro de `A:A` (la fila 1 es el encabezado, índice 0, y no cuenta).
  * La fila de Sheets es `índice + 1`.
@@ -796,6 +802,25 @@ export function estadiaToRow(item) {
 export function movimientoPatioToRow(item) {
   const o = item && typeof item === 'object' ? item : {}
   return [textCell(o.id), textCell(o.placa), textCell(o.desde), textCell(o.hacia), textCell(o.estatus), textCell(o.quien), textCell(o.tomadaEn), textCell(o.cerradaEn), textCell(o.creadaEn)]
+}
+
+export function citaToRow(item) {
+  const o = item && typeof item === 'object' ? item : {}
+  return [textCell(o.id), textCell(o.tipo), textCell(o.nombre), textCell(o.empresa), textCell(o.placa), textCell(o.eta), textCell(o.estatus), textCell(o.usadaEn)]
+}
+
+export function rowToCita(e) {
+  if (!e?.[0]) return null
+  return {
+    id: String(e[0]).trim().toUpperCase(),
+    tipo: String(e[1] ?? ''),
+    nombre: String(e[2] ?? ''),
+    empresa: String(e[3] ?? ''),
+    placa: String(e[4] ?? ''),
+    eta: String(e[5] ?? ''),
+    estatus: String(e[6] ?? ''),
+    usadaEn: String(e[7] ?? ''),
+  }
 }
 
 export function llantaToRow(item) {
@@ -1445,6 +1470,7 @@ export function createSheetsRepo(opts = {}) {
     ) {
       return 'npm run migrate:fase4'
     }
+    if (title === CITAS_SHEET) return 'npm run migrate:citas'
     if (title === LLANTAS_SHEET) return 'npm run migrate:llantas'
     if (title === MOVIMIENTOS_PATIO_SHEET) return 'npm run migrate:patio'
     if (title === ESTADIAS_SHEET) return 'npm run migrate:estadias'
@@ -1636,6 +1662,20 @@ export function createSheetsRepo(opts = {}) {
     return appendTab(LLEGADAS_ESPERADAS_APPEND_RANGE, LLEGADAS_ESPERADAS_SHEET, rowValues)
   }
 
+  async function listCitas() {
+    const rows = await sheetsGetTab(CITAS_READ_RANGE, CITAS_SHEET)
+    return rows.map(rowToCita).filter(Boolean)
+  }
+
+  async function appendCita(item) {
+    return appendTab(CITAS_APPEND_RANGE, CITAS_SHEET, citaToRow(item))
+  }
+
+  async function updateCita(item) {
+    const row = citaToRow(item)
+    return updateRowById(CITAS_SHEET, CITAS_COLUMNS, row[0], row)
+  }
+
   async function listLlantas() {
     const rows = await sheetsGetTab(LLANTAS_READ_RANGE, LLANTAS_SHEET)
     return rows.map(rowToLlanta).filter(Boolean)
@@ -1799,6 +1839,9 @@ export function createSheetsRepo(opts = {}) {
     updateMovimientoPatio,
     listLlantas,
     appendLlanta,
+    listCitas,
+    appendCita,
+    updateCita,
     listEquipos,
     appendEquipo,
     updateEquipoById,

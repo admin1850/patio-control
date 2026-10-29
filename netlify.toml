@@ -153,6 +153,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/citas"
+  to = "/.netlify/functions/citas"
+  status = 200
+
+[[redirects]]
   from = "/api/kpis"
   to = "/.netlify/functions/kpis"
   status = 200

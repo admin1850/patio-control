@@ -25,7 +25,8 @@
     "migrate:vigencias": "node scripts/migrate-vigencias-sheet.mjs",
     "migrate:estadias": "node scripts/migrate-estadias-sheet.mjs",
     "migrate:patio": "node scripts/migrate-patio-sheet.mjs",
-    "migrate:llantas": "node scripts/migrate-llantas-sheet.mjs"
+    "migrate:llantas": "node scripts/migrate-llantas-sheet.mjs",
+    "migrate:citas": "node scripts/migrate-citas-sheet.mjs"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

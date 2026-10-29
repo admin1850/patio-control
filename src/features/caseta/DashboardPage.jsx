@@ -4,6 +4,7 @@ import { fetchEstadoUnidadesOpcional, fetchTableroOpcional } from "../../lib/ser
 import { LOCAL_READONLY_BANNER, hasServerSession, indexEstadosUnidad, isLocalReadOnly } from "../../lib/patioSync.js";
 import { EstatusOperativoChip, MantenimientoBoard } from "../taller/Mantenimiento.jsx";
 import LlegadasEsperadas from "./LlegadasEsperadas.jsx";
+import CitasPanel from "./CitasPanel.jsx";
 import { puedeMovimiento, rolLabel, ubicacionLabel } from "../../shared/domain/authProfile.js";
 import { _e, ie, ye } from "../../shared/domain/constants.js";
 import { A, Oe, Qe, _t, et, k, kn, se, wn } from "../../shared/domain/patioModel.js";
@@ -208,7 +209,7 @@ export function DashboardPage({
     user: authUser
   });
   let identificado = Boolean(authUser) && (mode === `workspace` || hasServerSession(authUser));
-  return <div className={`page`}>{identificado ? <div className={`banner success`} style={{
+  return <div className={`page`}><CitasPanel />{identificado ? <div className={`banner success`} style={{
       marginBottom: 12
     }}><strong>{authUser.nombreKardex || authUser.name}</strong>{` · `}{rolLabel(authUser.rol)}{` · `}{ubicacionLabel(authUser.ubicacion)}{authUser.whatsapp ? ` · WA ${authUser.whatsapp}` : ``}{` · `}{authUser.email}</div> : soloLectura ? <div className={`banner warn`} style={{
       marginBottom: 12
