@@ -15,11 +15,11 @@ export default function EntregaShare({ movimientos = [] }) {
     }
   }
 
-  if (!recientes.length) return null
   return (
     <section className="fieldset" style={{ marginBottom: 12 }}>
       <h2 className="subhead">PDF de entrega-recepción</h2>
       <p className="hint">Incluye sello, daños marcados, firma y las fotos. Compartir usa el aviso de WhatsApp o correo que ya está configurado.</p>
+      {!recientes.length && <p className="empty">Cuando haya un movimiento en este dispositivo, aquí se abre el PDF.</p>}
       <ul className="history-list">
         {recientes.map((mov) => (
           <li key={mov.id}>
