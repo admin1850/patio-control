@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { inventarioCsv } from '../../lib/inventarioCsv.js'
 import { ApiError, capturarConteo, cerrarConteo, fetchInventario, guardarZonaSlot, iniciarConteo, isBackendUnavailable } from '../../lib/serverApi.js'
+import MovimientosPatioPanel from './MovimientosPatioPanel.jsx'
 
 const YARDAS = [
   { id: 'chihuahua', nombre: 'Chihuahua' },
@@ -262,6 +263,7 @@ export default function Inventario({ user = null }) {
         <h1>Inventario</h1>
         <p>Unidades por tipo y estatus, mapa de slots y conteo físico de la yarda.</p>
       </div>
+      <MovimientosPatioPanel />
       {aviso && <p className={`banner ${aviso.includes('no está disponible') || aviso.includes('no disponible') || aviso.includes('Inicia sesión') ? 'warn' : 'info'}`}>{aviso}</p>}
       <fieldset className="fieldset">
         <legend>Yarda</legend>
