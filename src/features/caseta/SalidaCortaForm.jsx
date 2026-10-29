@@ -332,6 +332,8 @@ export function SalidaCortaForm({
       let gate = await validarSalidaAntesDeGuardar({
         equipoId: sel.equipo.id,
         placa: sel.equipo.placa,
+        operadorAsignado: sel.equipo.operadorAsignado,
+        chofer: sel.entrada.chofer,
         relacionados,
         selloCapturado: selloSalida.trim().toUpperCase(),
         kilometros: km === `` ? undefined : Number(km),

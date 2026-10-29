@@ -6,6 +6,7 @@ import { normalizePlacaMX } from "../../lib/placaOcr.js";
 import { LOCAL_READONLY_BANNER } from "../../lib/patioSync.js";
 import { HistorialMantenimientoUnidad } from "../taller/Mantenimiento.jsx";
 import { tt } from "../../shared/domain/constants.js";
+import VigenciasPanel from "./VigenciasPanel.jsx";
 
 var nt = [{
   id: `operando`,
@@ -35,7 +36,7 @@ export function EquiposPage({
   initialPlaca = ``
 }) {
   let [a, o] = (0, l.useState)(`unidades`);
-  return <div className={`page`}><div className={`form-head`}><h1>{`Equipos`}</h1><p>{`Catálogo de tractos/cajas y de equipos de refrigeración (Thermo).`}</p></div><div className={`seg wrap`} style={{
+  return <div className={`page`}><div className={`form-head`}><h1>{`Equipos`}</h1><p>{`Catálogo de tractos/cajas y de equipos de refrigeración (Thermo).`}</p></div><VigenciasPanel readOnly={readOnly} /><div className={`seg wrap`} style={{
       marginBottom: 14
     }}><button type={`button`} className={a === `unidades` ? `seg-btn on-ok` : `seg-btn`} onClick={() => o(`unidades`)}>{`Unidades (camión / caja)`}</button><button type={`button`} className={a === `refrigeracion` ? `seg-btn on-ok` : `seg-btn`} onClick={() => o(`refrigeracion`)}>{`Refrigeración`}</button></div>{readOnly && <p className={`banner warn`} style={{
       marginBottom: 12
