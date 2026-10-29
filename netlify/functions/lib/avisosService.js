@@ -24,6 +24,7 @@ export const TIPOS_AVISO = Object.freeze([
   'SIN_CONFIRMACION_GPS',
   'DOC_POR_VENCER',
   'DIESEL_ANOMALIA',
+  'ENTREGA_PDF',
 ])
 
 const PARADO_AGING_HORAS_DEFAULT = 48
