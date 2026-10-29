@@ -263,6 +263,12 @@ export const ESTADIAS_COLUMNS = ['id', 'cliente', 'unidadId', 'placa', 'yardaId'
 export const ESTADIAS_READ_RANGE = `${ESTADIAS_SHEET}!A2:${columnLetter(ESTADIAS_COLUMNS.length - 1)}`
 export const ESTADIAS_APPEND_RANGE = `${ESTADIAS_SHEET}!A:${columnLetter(ESTADIAS_COLUMNS.length - 1)}`
 
+/** Movimiento interno de yarda. estatus: ABIERTA | TOMADA | CERRADA */
+export const MOVIMIENTOS_PATIO_SHEET = 'MovimientosPatio'
+export const MOVIMIENTOS_PATIO_COLUMNS = ['id', 'placa', 'desde', 'hacia', 'estatus', 'quien', 'tomadaEn', 'cerradaEn', 'creadaEn']
+export const MOVIMIENTOS_PATIO_READ_RANGE = `${MOVIMIENTOS_PATIO_SHEET}!A2:${columnLetter(MOVIMIENTOS_PATIO_COLUMNS.length - 1)}`
+export const MOVIMIENTOS_PATIO_APPEND_RANGE = `${MOVIMIENTOS_PATIO_SHEET}!A:${columnLetter(MOVIMIENTOS_PATIO_COLUMNS.length - 1)}`
+
 /**
  * Índice dentro de `A:A` (la fila 1 es el encabezado, índice 0, y no cuenta).
  * La fila de Sheets es `índice + 1`.
@@ -779,6 +785,26 @@ export function estadiaToRow(item) {
     textCell(o.salida),
     o.horasLibres == null || o.horasLibres === '' ? '' : Number(o.horasLibres),
   ]
+}
+
+export function movimientoPatioToRow(item) {
+  const o = item && typeof item === 'object' ? item : {}
+  return [textCell(o.id), textCell(o.placa), textCell(o.desde), textCell(o.hacia), textCell(o.estatus), textCell(o.quien), textCell(o.tomadaEn), textCell(o.cerradaEn), textCell(o.creadaEn)]
+}
+
+export function rowToMovimientoPatio(e) {
+  if (!e?.[0]) return null
+  return {
+    id: String(e[0]),
+    placa: String(e[1] ?? ''),
+    desde: String(e[2] ?? ''),
+    hacia: String(e[3] ?? ''),
+    estatus: String(e[4] ?? ''),
+    quien: String(e[5] ?? ''),
+    tomadaEn: String(e[6] ?? ''),
+    cerradaEn: String(e[7] ?? ''),
+    creadaEn: String(e[8] ?? ''),
+  }
 }
 
 export function rowToEstadia(e) {
@@ -1394,6 +1420,7 @@ export function createSheetsRepo(opts = {}) {
     ) {
       return 'npm run migrate:fase4'
     }
+    if (title === MOVIMIENTOS_PATIO_SHEET) return 'npm run migrate:patio'
     if (title === ESTADIAS_SHEET) return 'npm run migrate:estadias'
     if (title === VIGENCIAS_SHEET) return 'npm run migrate:vigencias'
     if (title === DEFECTOS_SHEET) return 'npm run migrate:fase3'
@@ -1583,6 +1610,20 @@ export function createSheetsRepo(opts = {}) {
     return appendTab(LLEGADAS_ESPERADAS_APPEND_RANGE, LLEGADAS_ESPERADAS_SHEET, rowValues)
   }
 
+  async function listMovimientosPatio() {
+    const rows = await sheetsGetTab(MOVIMIENTOS_PATIO_READ_RANGE, MOVIMIENTOS_PATIO_SHEET)
+    return rows.map(rowToMovimientoPatio).filter(Boolean)
+  }
+
+  async function appendMovimientoPatio(item) {
+    return appendTab(MOVIMIENTOS_PATIO_APPEND_RANGE, MOVIMIENTOS_PATIO_SHEET, movimientoPatioToRow(item))
+  }
+
+  async function updateMovimientoPatio(item) {
+    const row = movimientoPatioToRow(item)
+    return updateRowById(MOVIMIENTOS_PATIO_SHEET, MOVIMIENTOS_PATIO_COLUMNS, row[0], row)
+  }
+
   async function listEstadias() {
     const rows = await sheetsGetTab(ESTADIAS_READ_RANGE, ESTADIAS_SHEET)
     return rows.map(rowToEstadia).filter(Boolean)
@@ -1718,6 +1759,9 @@ export function createSheetsRepo(opts = {}) {
     listEstadias,
     appendEstadia,
     upsertEstadia,
+    listMovimientosPatio,
+    appendMovimientoPatio,
+    updateMovimientoPatio,
     listEquipos,
     appendEquipo,
     updateEquipoById,

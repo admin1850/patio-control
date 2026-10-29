@@ -143,6 +143,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/movimientos-patio"
+  to = "/.netlify/functions/movimientos-patio"
+  status = 200
+
+[[redirects]]
   from = "/api/kpis"
   to = "/.netlify/functions/kpis"
   status = 200
