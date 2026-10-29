@@ -25,6 +25,7 @@ export const TIPOS_AVISO = Object.freeze([
   'DOC_POR_VENCER',
   'DIESEL_ANOMALIA',
   'ENTREGA_PDF',
+  'LLANTA_SIN_OT',
 ])
 
 const PARADO_AGING_HORAS_DEFAULT = 48

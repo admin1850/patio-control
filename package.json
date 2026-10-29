@@ -24,7 +24,8 @@
     "migrate:fase5": "node scripts/migrate-fase5-sheet.mjs",
     "migrate:vigencias": "node scripts/migrate-vigencias-sheet.mjs",
     "migrate:estadias": "node scripts/migrate-estadias-sheet.mjs",
-    "migrate:patio": "node scripts/migrate-patio-sheet.mjs"
+    "migrate:patio": "node scripts/migrate-patio-sheet.mjs",
+    "migrate:llantas": "node scripts/migrate-llantas-sheet.mjs"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
