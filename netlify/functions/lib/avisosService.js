@@ -7,6 +7,7 @@
 import net from 'node:net'
 import tls from 'node:tls'
 import { v4 as uuidv4 } from 'uuid'
+import { correoListo, whatsappListo } from './envCatalog.js'
 import { computeSemaforo } from './otService.js'
 import { avisoLogToRow, avisoSuscripcionToRow, rowToAvisoLog, rowToAvisoSuscripcion } from './sheetsRepo.js'
 
@@ -46,8 +47,8 @@ export function fechaMx(date = new Date()) {
 
 export function canalesConfigurados(env = process.env) {
   return {
-    whatsapp: Boolean(env.WHATSAPP_TOKEN && env.WHATSAPP_PHONE_ID),
-    email: Boolean(env.SENDGRID_API_KEY || env.SMTP_HOST || env.SMTP),
+    whatsapp: whatsappListo(env),
+    email: correoListo(env),
   }
 }
 

@@ -24,8 +24,10 @@
  * @property {() => Promise<LecturaGps>} ultimasPosiciones
  */
 
+import { frotcomListo } from './envCatalog.js'
+
 export function frotcomConfigurado(env = process.env) {
-  return Boolean(String(env.FROTCOM_API_URL ?? '').trim() && String(env.FROTCOM_TOKEN ?? '').trim())
+  return frotcomListo(env)
 }
 
 function num(value) {
