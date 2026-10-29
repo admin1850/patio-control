@@ -7,6 +7,8 @@
 import { v4 as uuidv4 } from 'uuid'
 import { createOtService, puedeAutorizarSalida } from './otService.js'
 import { defectoToRow, findOpenEntradaIn } from './sheetsRepo.js'
+import { createAvisosService } from './avisosService.js'
+import { evaluarVigencias } from '../../../src/lib/vigenciaDocumentos.js'
 import {
   MOTIVO_TRASLADO_TALLER,
   evaluarDocumentos,
@@ -178,6 +180,27 @@ export function createGateService(repo, options = {}) {
     }
     const docs = evaluarDocumentos(docsInput)
     motivos.push(...docs.motivos)
+
+    if (typeof repo?.listVigencias === 'function') {
+      try {
+        const filas = await repo.listVigencias()
+        const vig = evaluarVigencias(filas, {
+          hoy: callOpts.now || new Date(),
+          equipoId,
+          placa: input.placa,
+          operadorIds: [input.operadorAsignado, input.chofer, input.operadorId, input.operador].filter(Boolean),
+        })
+        motivos.push(...vig.motivos)
+        if (vig.avisos.length && typeof repo.listAvisosLog === 'function' && typeof repo.appendAvisoLog === 'function') {
+          const avisos = createAvisosService(repo, { now: () => callOpts.now || new Date() })
+          for (const aviso of vig.avisos) {
+            await avisos.enqueue('DOC_POR_VENCER', aviso)
+          }
+        }
+      } catch (err) {
+        console.warn('[gate] Vigencias no disponibles:', err?.message || err)
+      }
+    }
 
     const lleva = bandera(input.llevaRefrigerada) || bandera(entrada?.llevaRefrigerada)
     const thermo = evaluarThermo({

@@ -251,6 +251,12 @@ export const AVISOS_SUSCRIPCIONES_APPEND_RANGE = `${AVISOS_SUSCRIPCIONES_SHEET}!
 export const LLEGADAS_ESPERADAS_READ_RANGE = `${LLEGADAS_ESPERADAS_SHEET}!A2:${columnLetter(LLEGADAS_ESPERADAS_COLUMNS.length - 1)}`
 export const LLEGADAS_ESPERADAS_APPEND_RANGE = `${LLEGADAS_ESPERADAS_SHEET}!A:${columnLetter(LLEGADAS_ESPERADAS_COLUMNS.length - 1)}`
 
+/** Vencimiento de documentos. sujetoTipo: unidad | operador. vence: YYYY-MM-DD. */
+export const VIGENCIAS_SHEET = 'Vigencias'
+export const VIGENCIAS_COLUMNS = ['id', 'sujetoTipo', 'sujetoId', 'documento', 'vence', 'actualizadoEn']
+export const VIGENCIAS_READ_RANGE = `${VIGENCIAS_SHEET}!A2:${columnLetter(VIGENCIAS_COLUMNS.length - 1)}`
+export const VIGENCIAS_APPEND_RANGE = `${VIGENCIAS_SHEET}!A:${columnLetter(VIGENCIAS_COLUMNS.length - 1)}`
+
 /**
  * Índice dentro de `A:A` (la fila 1 es el encabezado, índice 0, y no cuenta).
  * La fila de Sheets es `índice + 1`.
@@ -746,6 +752,30 @@ export function avisoSuscripcionToRow(sub) {
 }
 
 /** @param {unknown[] | null | undefined} e */
+export function vigenciaToRow(item) {
+  const o = item && typeof item === 'object' ? item : {}
+  const sujetoTipo = String(o.sujetoTipo || '').trim().toLowerCase()
+  const sujetoId = String(o.sujetoId || '').trim()
+  const documento = String(o.documento || '').trim()
+  const id = String(o.id || `${sujetoTipo}:${sujetoId}:${documento}`).trim()
+  return [textCell(id), sujetoTipo, textCell(sujetoId), documento, textCell(o.vence), textCell(o.actualizadoEn)]
+}
+
+export function rowToVigencia(e) {
+  if (!e?.[0] && !e?.[2]) return null
+  const sujetoId = String(e[2] ?? '').trim()
+  const documento = String(e[3] ?? '').trim()
+  if (!sujetoId || !documento) return null
+  return {
+    id: String(e[0] || `${e[1]}:${sujetoId}:${documento}`),
+    sujetoTipo: String(e[1] ?? '').trim().toLowerCase(),
+    sujetoId,
+    documento,
+    vence: String(e[4] ?? '').trim(),
+    actualizadoEn: String(e[5] ?? '').trim(),
+  }
+}
+
 export function rowToAvisoSuscripcion(e) {
   if (!e?.[0]) return null
   const canalRaw = String(e[3] ?? '').trim().toLowerCase()
@@ -1329,6 +1359,7 @@ export function createSheetsRepo(opts = {}) {
     ) {
       return 'npm run migrate:fase4'
     }
+    if (title === VIGENCIAS_SHEET) return 'npm run migrate:vigencias'
     if (title === DEFECTOS_SHEET) return 'npm run migrate:fase3'
     if (title === ZONAS_SLOTS_SHEET || title === CONTEOS_SHEET) return 'npm run migrate:fase2'
     if (title === ESTADO_UNIDAD_SHEET) return 'npm run migrate:fase2'
@@ -1516,6 +1547,22 @@ export function createSheetsRepo(opts = {}) {
     return appendTab(LLEGADAS_ESPERADAS_APPEND_RANGE, LLEGADAS_ESPERADAS_SHEET, rowValues)
   }
 
+  async function listVigencias() {
+    const rows = await sheetsGetTab(VIGENCIAS_READ_RANGE, VIGENCIAS_SHEET)
+    return rows.map(rowToVigencia).filter(Boolean)
+  }
+
+  async function upsertVigencia(item) {
+    const row = vigenciaToRow(item)
+    const id = row[0]
+    try {
+      return await updateRowById(VIGENCIAS_SHEET, VIGENCIAS_COLUMNS, id, row)
+    } catch (err) {
+      if (err?.code !== 'NOT_FOUND' && err?.status !== 404) throw err
+      return appendTab(VIGENCIAS_APPEND_RANGE, VIGENCIAS_SHEET, row)
+    }
+  }
+
   async function updateLlegadaEsperadaById(id, rowValues) {
     return updateRowById(LLEGADAS_ESPERADAS_SHEET, LLEGADAS_ESPERADAS_COLUMNS, id, rowValues)
   }
@@ -1611,6 +1658,8 @@ export function createSheetsRepo(opts = {}) {
     listLlegadasEsperadas,
     appendLlegadaEsperada,
     updateLlegadaEsperadaById,
+    listVigencias,
+    upsertVigencia,
     listEquipos,
     appendEquipo,
     updateEquipoById,
