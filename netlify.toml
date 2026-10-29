@@ -133,6 +133,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/entrega.pdf"
+  to = "/.netlify/functions/entrega-pdf"
+  status = 200
+
+[[redirects]]
   from = "/api/kpis"
   to = "/.netlify/functions/kpis"
   status = 200
