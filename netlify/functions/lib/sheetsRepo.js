@@ -269,6 +269,12 @@ export const MOVIMIENTOS_PATIO_COLUMNS = ['id', 'placa', 'desde', 'hacia', 'esta
 export const MOVIMIENTOS_PATIO_READ_RANGE = `${MOVIMIENTOS_PATIO_SHEET}!A2:${columnLetter(MOVIMIENTOS_PATIO_COLUMNS.length - 1)}`
 export const MOVIMIENTOS_PATIO_APPEND_RANGE = `${MOVIMIENTOS_PATIO_SHEET}!A:${columnLetter(MOVIMIENTOS_PATIO_COLUMNS.length - 1)}`
 
+/** Lectura de llanta en entrada. Una fila por captura; la última de placa+posición es la vigente. */
+export const LLANTAS_SHEET = 'Llantas'
+export const LLANTAS_COLUMNS = ['id', 'placa', 'posicion', 'numero', 'dot', 'profundidad', 'presion', 'capturadoEn']
+export const LLANTAS_READ_RANGE = `${LLANTAS_SHEET}!A2:${columnLetter(LLANTAS_COLUMNS.length - 1)}`
+export const LLANTAS_APPEND_RANGE = `${LLANTAS_SHEET}!A:${columnLetter(LLANTAS_COLUMNS.length - 1)}`
+
 /**
  * Índice dentro de `A:A` (la fila 1 es el encabezado, índice 0, y no cuenta).
  * La fila de Sheets es `índice + 1`.
@@ -790,6 +796,25 @@ export function estadiaToRow(item) {
 export function movimientoPatioToRow(item) {
   const o = item && typeof item === 'object' ? item : {}
   return [textCell(o.id), textCell(o.placa), textCell(o.desde), textCell(o.hacia), textCell(o.estatus), textCell(o.quien), textCell(o.tomadaEn), textCell(o.cerradaEn), textCell(o.creadaEn)]
+}
+
+export function llantaToRow(item) {
+  const o = item && typeof item === 'object' ? item : {}
+  return [textCell(o.id), textCell(o.placa), textCell(o.posicion), textCell(o.numero), textCell(o.dot), textCell(o.profundidad), textCell(o.presion), textCell(o.capturadoEn)]
+}
+
+export function rowToLlanta(e) {
+  if (!e?.[0]) return null
+  return {
+    id: String(e[0]),
+    placa: String(e[1] ?? '').toUpperCase(),
+    posicion: String(e[2] ?? '').toUpperCase(),
+    numero: String(e[3] ?? ''),
+    dot: String(e[4] ?? ''),
+    profundidad: String(e[5] ?? ''),
+    presion: String(e[6] ?? ''),
+    capturadoEn: String(e[7] ?? ''),
+  }
 }
 
 export function rowToMovimientoPatio(e) {
@@ -1420,6 +1445,7 @@ export function createSheetsRepo(opts = {}) {
     ) {
       return 'npm run migrate:fase4'
     }
+    if (title === LLANTAS_SHEET) return 'npm run migrate:llantas'
     if (title === MOVIMIENTOS_PATIO_SHEET) return 'npm run migrate:patio'
     if (title === ESTADIAS_SHEET) return 'npm run migrate:estadias'
     if (title === VIGENCIAS_SHEET) return 'npm run migrate:vigencias'
@@ -1610,6 +1636,15 @@ export function createSheetsRepo(opts = {}) {
     return appendTab(LLEGADAS_ESPERADAS_APPEND_RANGE, LLEGADAS_ESPERADAS_SHEET, rowValues)
   }
 
+  async function listLlantas() {
+    const rows = await sheetsGetTab(LLANTAS_READ_RANGE, LLANTAS_SHEET)
+    return rows.map(rowToLlanta).filter(Boolean)
+  }
+
+  async function appendLlanta(item) {
+    return appendTab(LLANTAS_APPEND_RANGE, LLANTAS_SHEET, llantaToRow(item))
+  }
+
   async function listMovimientosPatio() {
     const rows = await sheetsGetTab(MOVIMIENTOS_PATIO_READ_RANGE, MOVIMIENTOS_PATIO_SHEET)
     return rows.map(rowToMovimientoPatio).filter(Boolean)
@@ -1762,6 +1797,8 @@ export function createSheetsRepo(opts = {}) {
     listMovimientosPatio,
     appendMovimientoPatio,
     updateMovimientoPatio,
+    listLlantas,
+    appendLlanta,
     listEquipos,
     appendEquipo,
     updateEquipoById,
