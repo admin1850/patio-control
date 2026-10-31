@@ -48,7 +48,7 @@ Variables de entorno en Netlify (Site settings → Environment variables):
 
 | Variable | Requerida | Uso |
 |----------|-----------|-----|
-| `PATIO_SESSION_SECRET` | sí (login) | Secreto HMAC de sesiones, ≥32 caracteres aleatorios (`openssl rand -base64 48`). **Al definirla, `/api/ocr-placa` y `/api/patio-grok` exigen sesión** (ver nota). |
+| `PATIO_SESSION_SECRET` | sí (login) | Secreto HMAC de sesiones, ≥32 caracteres aleatorios (`openssl rand -base64 48`). **Sin ella el servidor no emite ni acepta sesiones** (503). No hay secreto por defecto. |
 | `PATIO_GOOGLE_CLIENT_ID` | sí (login) | OAuth Client ID web (el mismo de la pantalla Workspace); acepta varios separados por coma |
 | `PATIO_GOOGLE_HOSTED_DOMAIN` | recomendado | p. ej. `camircapital.com`: solo cuentas de ese dominio |
 | `GOOGLE_SERVICE_ACCOUNT_EMAIL` | una de las dos vías | Cuenta de servicio con acceso **Editor** al Sheet |
@@ -76,15 +76,16 @@ Si el puente responde 502/503, la tablet sigue el camino de siempre: el upload d
 
 **Acceso forzado:** la app no se abre sin sesión. La pantalla de acceso pide correo y la Clave del
 kardex Autorizados (`POST /api/auth/login` con `{ email, clave }`). No es la contraseña de Gmail.
-Google queda en la página Workspace, para reconectar Sheets. Si el servidor responde 503 (falta
-`PATIO_SESSION_SECRET`) y hay Client ID, se usa el ID token de Google y ese correo tiene que ser el
-mismo que se escribió.
+Google queda en la página Workspace, para reconectar Sheets. Si el servidor responde 503 porque
+falta `PATIO_SESSION_SECRET`, el login se queda en la pantalla de acceso y no abre sesión en el
+navegador.
 
 Flujo legado (pantalla Workspace, admin): clave del kardex → **ID token de Google** (Google Identity
 Services, `google.accounts.id.prompt`) → token OAuth de Sheets/Drive (sincronización legada, igual que
-antes) → `POST /api/auth/login`. Si el backend responde 503 (variables faltantes) o no existe
-(`npm run dev` sin `netlify dev`), la app valida el kardex en el navegador como antes. 401/403 del
-backend sí bloquean la conexión. Al abrir la app, `GET /api/auth/me` recupera rol/permisos si hay sesión.
+antes) → `POST /api/auth/login`. Si el backend no existe (`npm run dev` sin `netlify dev`) u otro 503
+que no sea la falta de `PATIO_SESSION_SECRET`, la app valida el kardex en el navegador como antes.
+401/403 del backend sí bloquean la conexión. Al abrir la app, `GET /api/auth/me` recupera rol/permisos
+si hay sesión. Si ese GET dice que falta `PATIO_SESSION_SECRET`, se borra el perfil guardado.
 Desconectar también llama a `/api/auth/logout` y regresa a la pantalla de acceso.
 
 Movimientos (`/api/movimientos`): con sesión de servidor la caseta intenta subir cada foto a
@@ -117,12 +118,13 @@ Sin ese permiso el upload de servidor responde 503 y la tablet vuelve al flujo l
 usa `registerType: 'prompt'` y `skipWaiting: false`: si hay captura abierta (`window.__PATIO_CAPTURE_OPEN`)
 u outbox pendiente, muestra «Actualización lista — reinicia al terminar» en lugar de recargar solo.
 
-Nota de despliegue: puedes definir `PATIO_SESSION_SECRET` (y las demás variables) en un **Deploy
-Preview** de Netlify para probar el login de servidor; con ella, OCR y Grok exigen sesión. Para
-producción todavía falta: cuenta de servicio con acceso Editor al Sheet, `npm run migrate:fase0`, y
-agregar el dominio del sitio en *Authorized JavaScript origins* del Client ID. Sin `PATIO_SESSION_SECRET`,
-OCR y Grok siguen abiertos como hoy (`X-Patio-Auth: optional`) y el login cae al flujo legado.
-Límites en memoria por instancia: OCR 60/min y Grok 30/min por email (por IP sin sesión); login 20/min por IP.
+Nota de despliegue: `PATIO_SESSION_SECRET` tiene que estar en Netlify **Production** antes de
+publicar este comportamiento. Sin ella, login, OCR, Grok y el resto de rutas con sesión responden
+503 (`X-Patio-Auth: unconfigured`) y no hay modo opcional. Puedes definirla también en un **Deploy
+Preview** para probar el login de servidor. Para producción todavía falta: cuenta de servicio con
+acceso Editor al Sheet, `npm run migrate:fase0`, y agregar el dominio del sitio en *Authorized
+JavaScript origins* del Client ID.
+Límites en memoria por instancia: OCR 60/min y Grok 30/min por email; login 20/min por IP.
 
 Claves: el login valida contra `ClaveHash` (columna S, bcrypt) si existe; si no, contra `Clave` (H) en texto
 plano. Nunca se devuelven al cliente. Cada login (y cada intento denegado) se agrega a la pestaña `Auditoria`.
@@ -242,7 +244,7 @@ npm test                                # fase 0 + fase 1 + fase 2 + fase 3 + fa
 
 Los tres canales hablan con PatioControl. PatioControl no exige sus credenciales para operar: sin llave externa el patio sigue igual y Frotcom responde en seco.
 
-Auth de `/api/integraciones/*`: cookie `patio_session` (o `Authorization: Bearer`) **o** header `X-Patio-Key` con el valor de `PATIO_INTEGRATION_KEY`. Si no hay secreto de sesión ni llave, la auth queda opcional (mismo modo dual que el resto).
+Auth de `/api/integraciones/*`: cookie `patio_session` (o `Authorization: Bearer`) **o** header `X-Patio-Key` con el valor de `PATIO_INTEGRATION_KEY`. Si no hay secreto de sesión ni llave, la ruta responde 503. No hay acceso anónimo.
 
 `npm run migrate:fase5` solo agrega (no borra filas):
 

@@ -4,7 +4,7 @@
  * Env: GOOGLE_VISION_API_KEY (o GCP_VISION_API_KEY)
  *
  * Sin key → 503 con { needsManual: true } (mismo espíritu que Carta Porte).
- * Con PATIO_SESSION_SECRET → requiere sesión (cookie patio_session / Bearer); sin él, compat.
+ * Siempre exige sesión (cookie patio_session / Bearer). Sin PATIO_SESSION_SECRET responde 503.
  * Vision (GOOGLE_VISION_API_KEY) es el motor de servidor; Plate Recognizer en la tablet es opcional.
  */
 

@@ -440,13 +440,22 @@ export async function tryCreateMovimientoViaServer(mov) {
   }
 }
 
+/** 503 porque falta PATIO_SESSION_SECRET: el servidor no emitió ni aceptó sesión. */
+export function isSessionSecretMissing(err) {
+  if (!(err instanceof ApiError) || err.status !== 503) return false
+  const text = `${err.message || ''} ${err.data?.error || ''}`
+  return text.includes('PATIO_SESSION_SECRET')
+}
+
 /**
  * ¿El error indica que el backend no está disponible/configurado (y conviene usar el flujo legado)?
- * 503 = env faltante; 404/405 = sin Netlify Functions (p. ej. `vite dev`); 5xx/red = caído.
+ * 503 genérico = otro env faltante; 404/405 = sin Netlify Functions (p. ej. `vite dev`); 5xx/red = caído.
  * 400/401/403/409/429 son respuestas reales del backend y NO deben caer al legado.
+ * Un 503 que nombra `PATIO_SESSION_SECRET` tampoco: ahí no hay sesión que emitir.
  */
 export function isBackendUnavailable(err) {
   if (!(err instanceof ApiError)) return true
+  if (isSessionSecretMissing(err)) return false
   return [404, 405, 500, 502, 503, 504].includes(err.status) || Boolean(err.data?.raw)
 }
 
