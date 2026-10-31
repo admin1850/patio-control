@@ -57,8 +57,20 @@ export function preflight(event) {
   return { statusCode: 204, headers: corsHeaders(event), body: '' }
 }
 
+/**
+ * Secreto HMAC de la cookie de sesión. Solo el valor de `PATIO_SESSION_SECRET`.
+ * Vacío si no está definido: no hay secreto por defecto.
+ */
 export function getSessionSecret() {
-  return String(process.env.PATIO_SESSION_SECRET ?? '')
+  return String(process.env.PATIO_SESSION_SECRET ?? '').trim()
+}
+
+export const MISSING_SESSION_SECRET_LOG =
+  '[patio-auth] Falta PATIO_SESSION_SECRET. No se emite ni se acepta la sesión (fail closed). ' +
+  'Configúrala en Netlify Production con un valor aleatorio; no hay secreto por defecto.'
+
+export function logMissingSessionSecret() {
+  console.error(MISSING_SESSION_SECRET_LOG)
 }
 
 /** Cookie `patio_session` o `Authorization: Bearer <token>`. */
@@ -80,22 +92,21 @@ export function isSecureRequest(event) {
 
 /**
  * @param {object} event
- * @param {{ optionalWithoutSecret?: boolean }} [opts]
- * @returns {{ session: null | object, authMode: 'required' | 'optional', error: null | object, headers: Record<string,string> }}
- *   `error` es una respuesta HTTP lista para devolver (401/500).
- *   Sin PATIO_SESSION_SECRET y `optionalWithoutSecret` (default) → compat: session null, sin error,
- *   header `X-Patio-Auth: optional`.
+ * @returns {{ session: null | object, authMode: 'required' | 'unconfigured', error: null | object, headers: Record<string,string> }}
+ *   `error` es una respuesta HTTP lista para devolver (401/503).
+ *   Sin `PATIO_SESSION_SECRET` no se acepta la sesión: 503 y error en el log.
+ *   El segundo argumento se ignora; el modo opcional ya no existe.
  */
-export function requireSession(event, { optionalWithoutSecret = true } = {}) {
+export function requireSession(event) {
   const secret = getSessionSecret()
   if (!secret) {
-    const headers = { 'X-Patio-Auth': 'optional' }
-    if (optionalWithoutSecret) return { session: null, authMode: 'optional', error: null, headers }
+    logMissingSessionSecret()
+    const headers = { 'X-Patio-Auth': 'unconfigured' }
     return {
       session: null,
-      authMode: 'optional',
+      authMode: 'unconfigured',
       headers,
-      error: json(event, 503, { error: 'Sesiones no configuradas (PATIO_SESSION_SECRET)' }, headers),
+      error: json(event, 503, { error: 'Sesiones no configuradas (PATIO_SESSION_SECRET).' }, headers),
     }
   }
   const headers = { 'X-Patio-Auth': 'required' }
@@ -145,11 +156,11 @@ function integrationSession() {
 
 /**
  * Sesión de patio o header `X-Patio-Key` igual a `PATIO_INTEGRATION_KEY`.
- * Sin secreto de sesión y sin llave: modo opcional (la app sigue sin credenciales externas).
+ * Sin secreto de sesión y sin llave: 503. No hay modo anónimo.
+ * El segundo argumento se ignora.
  * @param {object} event
- * @param {{ optionalWithoutSecret?: boolean }} [opts]
  */
-export function requireSessionOrIntegration(event, { optionalWithoutSecret = true } = {}) {
+export function requireSessionOrIntegration(event) {
   if (integrationKeyOk(event)) {
     return {
       session: integrationSession(),
@@ -160,16 +171,24 @@ export function requireSessionOrIntegration(event, { optionalWithoutSecret = tru
   }
   const secret = getSessionSecret()
   const keyConfigured = Boolean(String(process.env.PATIO_INTEGRATION_KEY ?? '').trim())
-  const sessionAuth = secret ? requireSession(event, { optionalWithoutSecret: false }) : null
+  const sessionAuth = secret ? requireSession(event) : null
   if (sessionAuth && !sessionAuth.error) return sessionAuth
   if (!secret && !keyConfigured) {
-    const headers = { 'X-Patio-Auth': 'optional' }
-    if (optionalWithoutSecret) return { session: null, authMode: 'optional', error: null, headers }
+    logMissingSessionSecret()
+    console.error(
+      '[patio-auth] Tampoco está PATIO_INTEGRATION_KEY. Se rechaza la solicitud anónima (fail closed).',
+    )
+    const headers = { 'X-Patio-Auth': 'unconfigured' }
     return {
       session: null,
-      authMode: 'optional',
+      authMode: 'unconfigured',
       headers,
-      error: json(event, 503, { error: 'Integraciones sin configurar (PATIO_SESSION_SECRET o PATIO_INTEGRATION_KEY).' }, headers),
+      error: json(
+        event,
+        503,
+        { error: 'Integraciones sin configurar (PATIO_SESSION_SECRET o PATIO_INTEGRATION_KEY).' },
+        headers,
+      ),
     }
   }
   if (readIntegrationKey(event)) {
@@ -182,6 +201,7 @@ export function requireSessionOrIntegration(event, { optionalWithoutSecret = tru
     }
   }
   if (sessionAuth?.error) return sessionAuth
+  if (!secret) logMissingSessionSecret()
   const headers = { 'X-Patio-Auth': 'integration-key' }
   return {
     session: null,

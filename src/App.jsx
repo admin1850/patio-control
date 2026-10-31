@@ -20,6 +20,7 @@ import {
   getDispositivoId,
   apiFetch,
   isBackendUnavailable,
+  isSessionSecretMissing,
   jwtExpiresAtMs,
   eliminarEquipoServer,
   eliminarRefrigeracionServer,
@@ -4423,7 +4424,7 @@ function Sn() {
           }
           throw Error(err.message || `Acceso denegado por el servidor.`);
         }
-        // Backend sin configurar (503) o sin Netlify Functions (vite dev): validación legada en el navegador.
+        // Backend ausente (vite dev) u otro 503 que no sea PATIO_SESSION_SECRET: validación legada en el navegador.
         let profile = await It(accessToken);
         authorized = await assertUsuarioAutorizado(i, profile, clave);
       }
@@ -4503,7 +4504,7 @@ function Sn() {
         if (!String(e.clientId || ``).trim()) {
           throw Error(`No se pudo abrir la sesión en el servidor. Pide al admin que configure PATIO_SESSION_SECRET.`);
         }
-        // Sin servidor: Google, y el correo tiene que ser el que se escribió.
+        // Sin servidor (no es la falta de PATIO_SESSION_SECRET): Google, y el correo tiene que ser el que se escribió.
         usoGoogle = true;
         await requestGoogleIdToken(e.clientId, e.hostedDomain);
         let accessToken = await Ft(e);
@@ -4645,6 +4646,13 @@ function Sn() {
       }
     }).catch(err => {
       if (!vigente()) {
+        return;
+      }
+      if (isSessionSecretMissing(err)) {
+        a(null);
+        saveCachedAuthProfile(null);
+        r(`local`);
+        setAuthReady(true);
         return;
       }
       let cached = loadCachedAuthProfile();

@@ -273,13 +273,21 @@ test('entrada con viajeId marca la llegada como recibida', async () => {
   })
 })
 
-test('sin PATIO_SESSION_SECRET ni llave el preaviso sigue en modo opcional', async () => {
+test('sin PATIO_SESSION_SECRET ni llave el preaviso se rechaza', async () => {
   const repo = memoryRepo()
-  await withEnv({ PATIO_SESSION_SECRET: null, PATIO_INTEGRATION_KEY: null }, async () => {
-    const res = await preavisoHandler(httpEvent('POST', { body: { viajeId: 'LIBRE', sello: 'S' } }), { repo, now: () => NOW })
-    assert.equal(res.statusCode, 200)
-    assert.equal(res.headers['X-Patio-Auth'], 'optional')
-  })
+  const orig = console.error
+  console.error = () => {}
+  try {
+    await withEnv({ PATIO_SESSION_SECRET: null, PATIO_INTEGRATION_KEY: null }, async () => {
+      const res = await preavisoHandler(httpEvent('POST', { body: { viajeId: 'LIBRE', sello: 'S' } }), { repo, now: () => NOW })
+      assert.equal(res.statusCode, 503)
+      assert.equal(res.headers['X-Patio-Auth'], 'unconfigured')
+      assert.match(JSON.parse(res.body).error, /PATIO_SESSION_SECRET/)
+      assert.equal(repo.llegadas.length, 0)
+    })
+  } finally {
+    console.error = orig
+  }
 })
 
 test('Frotcom sin credenciales es dry-run vacío; con GPS escribe las dos alertas', async () => {

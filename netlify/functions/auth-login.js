@@ -16,6 +16,7 @@ import {
   getSessionSecret,
   isSecureRequest,
   json,
+  logMissingSessionSecret,
   parseJsonBody,
   preflight,
 } from './lib/http.js'
@@ -123,7 +124,10 @@ export async function handler(event) {
   if (event.httpMethod !== 'POST') return json(event, 405, { error: 'POST only' })
 
   const secret = getSessionSecret()
-  if (!secret) return json(event, 503, { error: 'Sesiones no configuradas en el servidor (PATIO_SESSION_SECRET).' })
+  if (!secret) {
+    logMissingSessionSecret()
+    return json(event, 503, { error: 'Sesiones no configuradas en el servidor (PATIO_SESSION_SECRET).' })
+  }
 
   const ipLimited = enforceRateLimit(event, `login-ip:${clientIp(event)}`, 20)
   if (ipLimited) return ipLimited

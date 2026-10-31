@@ -24,10 +24,10 @@ import {
   toPublicUser,
 } from '../netlify/functions/lib/permisos.js'
 import { verifyGoogleIdToken } from '../netlify/functions/lib/googleAuth.js'
-import { rateLimit, requireSession } from '../netlify/functions/lib/http.js'
+import { getSessionSecret, rateLimit, requireSession, requireSessionOrIntegration } from '../netlify/functions/lib/http.js'
 import { normalizePrivateKey } from '../netlify/functions/lib/sheetsRepo.js'
 import { rehydrateEvent, serializeEvent } from '../src/lib/outbox.js'
-import { ApiError, isBackendUnavailable, jwtExpiresAtMs, mapServerUserToAuthProfile } from '../src/lib/serverApi.js'
+import { ApiError, isBackendUnavailable, isSessionSecretMissing, jwtExpiresAtMs, mapServerUserToAuthProfile } from '../src/lib/serverApi.js'
 
 const tests = []
 const test = (name, fn) => tests.push({ name, fn })
@@ -242,15 +242,50 @@ test('verifyGoogleIdToken: hd claim basta aunque el email sea alias de otro domi
   assert.equal(p.email, 'alias@camir.mx')
 })
 
+async function captureErrorLogs(fn) {
+  const lines = []
+  const orig = console.error
+  console.error = (...args) => lines.push(args.map(String).join(' '))
+  try {
+    return { result: await fn(), lines }
+  } finally {
+    console.error = orig
+  }
+}
+
 // ---------- http ----------
-test('requireSession: sin PATIO_SESSION_SECRET → compat (optional)', () =>
-  withEnv({ PATIO_SESSION_SECRET: null }, () => {
-    const r = requireSession({ headers: {} })
-    assert.equal(r.error, null)
-    assert.equal(r.authMode, 'optional')
-    assert.equal(r.headers['X-Patio-Auth'], 'optional')
-    const strict = requireSession({ headers: {} }, { optionalWithoutSecret: false })
-    assert.equal(strict.error.statusCode, 503)
+test('requireSession: sin PATIO_SESSION_SECRET falla cerrado y no usa un secreto por defecto', () =>
+  withEnv({ PATIO_SESSION_SECRET: null }, async () => {
+    assert.equal(getSessionSecret(), '')
+    const { result: r, lines } = await captureErrorLogs(() => requireSession({ headers: { cookie: `${SESSION_COOKIE}=aaa.bbb` } }))
+    assert.equal(r.session, null)
+    assert.equal(r.authMode, 'unconfigured')
+    assert.equal(r.error.statusCode, 503)
+    assert.match(JSON.parse(r.error.body).error, /PATIO_SESSION_SECRET/)
+    assert.equal(r.headers['X-Patio-Auth'], 'unconfigured')
+    assert.ok(lines.some((line) => line.includes('PATIO_SESSION_SECRET') && line.includes('fail closed')))
+    const forced = (await captureErrorLogs(() => requireSession({ headers: {} }, { optionalWithoutSecret: true }))).result
+    assert.equal(forced.session, null)
+    assert.equal(forced.error.statusCode, 503)
+  }))
+
+test('requireSession: secreto en blanco cuenta como ausente', () =>
+  withEnv({ PATIO_SESSION_SECRET: '   ' }, async () => {
+    const { result: r } = await captureErrorLogs(() => requireSession({ headers: {} }))
+    assert.equal(getSessionSecret(), '')
+    assert.equal(r.error.statusCode, 503)
+    assert.equal(r.session, null)
+  }))
+
+test('requireSessionOrIntegration: sin secreto ni llave no queda anónimo', () =>
+  withEnv({ PATIO_SESSION_SECRET: null, PATIO_INTEGRATION_KEY: null }, async () => {
+    const { result: r } = await captureErrorLogs(() =>
+      requireSessionOrIntegration({ headers: {} }, { optionalWithoutSecret: true }),
+    )
+    assert.equal(r.session, null)
+    assert.equal(r.error.statusCode, 503)
+    assert.equal(r.headers['X-Patio-Auth'], 'unconfigured')
+    assert.match(JSON.parse(r.error.body).error, /PATIO_SESSION_SECRET/)
   }))
 
 test('requireSession: con secreto exige cookie o Bearer válidos', () =>
@@ -300,7 +335,7 @@ test('auth-logout: limpia cookie', async () => {
   assert.ok(res.headers['Set-Cookie'].includes('Max-Age=0'))
 })
 
-test('ocr-placa / patio-grok: 401 con secreto y sin sesión; compat sin secreto', async () => {
+test('ocr-placa / patio-grok: 401 con secreto y sin sesión; 503 sin secreto', async () => {
   await withEnv({ PATIO_SESSION_SECRET: SECRET }, async () => {
     const ocr = await ocrHandler({ httpMethod: 'POST', headers: {}, body: '{}' })
     assert.equal(ocr.statusCode, 401)
@@ -309,12 +344,14 @@ test('ocr-placa / patio-grok: 401 con secreto y sin sesión; compat sin secreto'
     assert.equal(grok.statusCode, 401)
   })
   await withEnv({ PATIO_SESSION_SECRET: null }, async () => {
-    const ocr = await ocrHandler({ httpMethod: 'POST', headers: {}, body: '{}' })
-    assert.equal(ocr.statusCode, 400)
-    assert.equal(ocr.headers['X-Patio-Auth'], 'optional')
+    const { result: ocr, lines } = await captureErrorLogs(async () => ocrHandler({ httpMethod: 'POST', headers: {}, body: '{}' }))
+    assert.equal(ocr.statusCode, 503)
+    assert.equal(ocr.headers['X-Patio-Auth'], 'unconfigured')
+    assert.match(JSON.parse(ocr.body).error, /PATIO_SESSION_SECRET/)
     const grok = await handlePatioGrok({ httpMethod: 'POST', headers: {}, body: '{"action":"ayuda"}' })
-    assert.equal(grok.statusCode, 400)
-    assert.equal(grok.headers['X-Patio-Auth'], 'optional')
+    assert.equal(grok.statusCode, 503)
+    assert.equal(grok.headers['X-Patio-Auth'], 'unconfigured')
+    assert.ok(lines.some((line) => line.includes('PATIO_SESSION_SECRET')))
   })
 })
 
@@ -479,7 +516,11 @@ test('auth-login: flujo completo con Google + Sheets simulados', async () => {
 
 test('auth-login: 503 sin PATIO_SESSION_SECRET, 400 sin clave o sin correo', async () => {
   await withEnv({ PATIO_SESSION_SECRET: null }, async () => {
-    assert.equal((await loginHandler({ httpMethod: 'POST', headers: {}, body: '{}' })).statusCode, 503)
+    const { result: res, lines } = await captureErrorLogs(() => loginHandler({ httpMethod: 'POST', headers: {}, body: '{}' }))
+    assert.equal(res.statusCode, 503)
+    assert.match(JSON.parse(res.body).error, /PATIO_SESSION_SECRET/)
+    assert.equal(res.headers['Set-Cookie'], undefined)
+    assert.ok(lines.some((line) => line.includes('fail closed')))
   })
   await withEnv({ PATIO_SESSION_SECRET: SECRET }, async () => {
     const r = await loginHandler({ httpMethod: 'POST', headers: {}, body: JSON.stringify({ idToken: 'x' }) })
@@ -548,11 +589,17 @@ test('mapServerUserToAuthProfile: misma forma que el perfil legado, sin clave', 
   assert.equal(mapServerUserToAuthProfile(null), null)
 })
 
-test('isBackendUnavailable: 503/404/red → legado; 401/403/429 no', () => {
+test('isBackendUnavailable: 503/404/red → legado; 401/403/429 no; falta de secreto no', () => {
   for (const s of [404, 405, 500, 502, 503, 504]) assert.equal(isBackendUnavailable(new ApiError('x', s, {})), true, String(s))
   for (const s of [400, 401, 403, 429]) assert.equal(isBackendUnavailable(new ApiError('x', s, {})), false, String(s))
   assert.equal(isBackendUnavailable(new TypeError('Failed to fetch')), true)
   assert.equal(isBackendUnavailable(new ApiError('x', 403, { raw: '<html>' })), true)
+  const missing = new ApiError('Sesiones no configuradas (PATIO_SESSION_SECRET).', 503, {
+    error: 'Sesiones no configuradas (PATIO_SESSION_SECRET).',
+  })
+  assert.equal(isSessionSecretMissing(missing), true)
+  assert.equal(isBackendUnavailable(missing), false)
+  assert.equal(isSessionSecretMissing(new ApiError('Sheets caído', 503, {})), false)
 })
 
 test('jwtExpiresAtMs: lee exp del ID token', async () => {

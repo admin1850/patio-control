@@ -259,7 +259,7 @@ test('POST /api/media/upload exige sesión y devuelve viewPath privado', async (
   })
 })
 
-test('POST /api/media/upload sin secreto es 503 (la caseta cae al legado)', async () => {
+test('POST /api/media/upload sin secreto es 503 y no sube', async () => {
   await withEnv({ PATIO_SESSION_SECRET: null }, async () => {
     const res = await uploadHandler(httpEvent('POST', { body: { dataUrl: TINY } }))
     assert.equal(res.statusCode, 503)
