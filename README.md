@@ -59,6 +59,9 @@ Variables de entorno en Netlify (Site settings → Environment variables):
 | `PATIO_ALLOWED_ORIGIN` | recomendado | `https://patiocontrol.netlify.app` (lista por comas). Sin ella CORS responde `*` |
 | `PATIO_SESSION_TTL_SEC` | no | Duración de sesión, default `43200` (12 h) |
 | `PATIO_DRIVE_FOLDER_ID` | no | Carpeta de evidencias. Default `1Usz_zTK3kqO-Pah3seSdPpMQPMfLHDJh`. Compártela con la cuenta de servicio (Content manager) o con la cuenta que desplegó el script |
+| `DATA_BACKEND` | no | `sheet` (default) o `dual`. En `dual` cada escritura exitosa se copia a Supabase; un fallo de Supabase solo queda en el log |
+| `SUPABASE_URL` | con `dual` | `https://gnqsctwskvwpbhxcfwhq.supabase.co` |
+| `SUPABASE_SERVICE_ROLE_KEY` | con `dual` | Service role del proyecto. No va en el cliente ni en el repo |
 
 ## Modo Apps Script (sin JSON) vs cuenta de servicio
 

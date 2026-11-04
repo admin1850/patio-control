@@ -8,12 +8,16 @@
  * Reglas: nunca se limpian pestañas; Auditoria es solo append.
  * Escrituras con valueInputOption=RAW para que un texto tipo "=FORMULA" no se evalúe.
  * En modo Apps Script, setValues escribe el texto tal cual (un "=" inicial se guarda como texto).
+ *
+ * DATA_BACKEND=dual (default: sheet) copia cada escritura exitosa a Supabase.
+ * Un fallo de Supabase solo se registra; la respuesta sigue siendo la del Sheet.
  */
 
 import { SignJWT, importPKCS8 } from 'jose'
 import { v4 as uuidv4 } from 'uuid'
 import { createAppsScriptTransport, hasAppsScriptEnv, readAppsScriptEnv } from './appsScriptTransport.js'
 import { parseAutorizadoRow } from './permisos.js'
+import { dualWriteEnabled, mirrorSheetWrite } from './patioSupabase.js'
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const SHEETS_BASE = 'https://sheets.googleapis.com/v4/spreadsheets'
@@ -1107,7 +1111,7 @@ export function findOpenEntradaIn(movimientos, equipoId) {
 }
 
 /**
- * @param {{ email?: string, privateKey?: string, spreadsheetId?: string, fetch?: typeof fetch, env?: NodeJS.ProcessEnv, appsScriptUrl?: string, appsScriptSecret?: string, timeoutMs?: number }} [opts]
+ * @param {{ email?: string, privateKey?: string, spreadsheetId?: string, fetch?: typeof fetch, env?: NodeJS.ProcessEnv, appsScriptUrl?: string, appsScriptSecret?: string, timeoutMs?: number, log?: (message: string) => void }} [opts]
  */
 export function createSheetsRepo(opts = {}) {
   const envSource = opts.env ?? process.env
@@ -1133,6 +1137,29 @@ export function createSheetsRepo(opts = {}) {
     : null
 
   let cached = { token: '', exp: 0 }
+
+  /**
+   * Copia la fila a Supabase solo después de que el Sheet ya respondió bien.
+   * @param {string} sheetTitle
+   * @param {unknown[]} rowValues
+   * @param {{ remove?: boolean, key?: string }} [extra]
+   */
+  async function afterSheetWrite(sheetTitle, rowValues, extra) {
+    if (!dualWriteEnabled(envSource)) return
+    try {
+      await mirrorSheetWrite({
+        fetchImpl,
+        env: envSource,
+        sheetTitle,
+        rowValues,
+        remove: Boolean(extra?.remove),
+        key: extra?.key ?? '',
+      })
+    } catch (err) {
+      const log = typeof opts.log === 'function' ? opts.log : console.error
+      log(`[patio-supabase] ${sheetTitle}: ${err?.message || err}`)
+    }
+  }
 
   function assertConfig() {
     if (saReady || appsReady) return
@@ -1262,6 +1289,7 @@ export function createSheetsRepo(opts = {}) {
       entry.dispositivoId ?? '',
     ]
     await sheetsAppend(`${AUDITORIA_SHEET}!A:J`, [row])
+    await afterSheetWrite(AUDITORIA_SHEET, row)
     return row[0]
   }
 
@@ -1295,12 +1323,17 @@ export function createSheetsRepo(opts = {}) {
       throw repoError('Fila de movimiento vacía', 400, 'ROW')
     }
     try {
-      return await sheetsAppend(MOVIMIENTOS_APPEND_RANGE, [rowValues])
+      const result = await sheetsAppend(MOVIMIENTOS_APPEND_RANGE, [rowValues])
+      await afterSheetWrite('Movimientos', rowValues)
+      return result
     } catch (err) {
       if (/exceeds grid limits|grid limits/i.test(String(err?.message ?? ''))) {
         if (rowValues.length > 35) {
           try {
-            return await sheetsAppend(MOVIMIENTOS_APPEND_RANGE_FASE4, [rowValues.slice(0, 35)])
+            const sliced = rowValues.slice(0, 35)
+            const result = await sheetsAppend(MOVIMIENTOS_APPEND_RANGE_FASE4, [sliced])
+            await afterSheetWrite('Movimientos', sliced)
+            return result
           } catch (retryErr) {
             if (!/exceeds grid limits|grid limits/i.test(String(retryErr?.message ?? ''))) throw retryErr
           }
@@ -1369,13 +1402,18 @@ export function createSheetsRepo(opts = {}) {
     if (idx < 0) throw repoError(`No se encontró ${want} en ${sheetTitle}.`, 404, 'NOT_FOUND')
     const range = singleRowRange(sheetTitle, idx + 1, columns.length)
     await sheetsUpdate(range, [padded])
+    const blank = padded.every((cell) => String(cell ?? '').trim() === '')
+    if (blank) await afterSheetWrite(sheetTitle, padded, { remove: true, key: want })
+    else await afterSheetWrite(sheetTitle, padded)
     return { rowNumber: idx + 1, range }
   }
 
   async function appendTab(range, title, rowValues) {
     if (!Array.isArray(rowValues) || rowValues.length === 0) throw repoError('Fila vacía', 400, 'ROW')
     try {
-      return await sheetsAppend(range, [rowValues])
+      const result = await sheetsAppend(range, [rowValues])
+      await afterSheetWrite(title, rowValues)
+      return result
     } catch (err) {
       if (/exceeds grid limits|grid limits/i.test(String(err?.message ?? ''))) {
         throw repoError(`La hoja ${title} no tiene las columnas necesarias. Ejecuta ${migrateHint(title)}.`, 503, 'GRID')
